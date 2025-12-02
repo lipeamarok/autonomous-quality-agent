@@ -12,21 +12,19 @@
 
 - **Glossário:** Definição de termos (Brain, Runner, UTDL, Test Plan).
 
-
  2. Arquitetura de Alto Nível (C4 Model - Level 1 & 2)
 
 - **Diagrama de Contexto:** Como o sistema se conecta com o mundo (Jira, GitHub, Datadog).
 
 - **Diagrama de Containers:** A visão macro dos 3 grandes blocos.
 
-    - 🐍 **Brain (Python):** Orquestração e IA.
+  - 🐍 **Brain (Python):** Orquestração e IA.
 
-    - 🦀 **Runner (Rust):** Execução de alta performance.
+  - 🦀 **Runner (Rust):** Execução de alta performance.
 
-    - 📊 **Intelligence (Julia/Python):** Análise de dados (marcado como stub no MVP).
+  - 📊 **Intelligence (Julia/Python):** Análise de dados (marcado como stub no MVP).
 
-    - 📜 **Contract (UTDL):** O protocolo de comunicação.
-
+  - 📜 **Contract (UTDL):** O protocolo de comunicação.
 
  3. Especificação do Contrato: UTDL (The Core)
 
@@ -40,7 +38,6 @@
 
 - **Exemplo Completo:** Um JSON real de um teste de login.
 
-
  4. Detalhamento de Componentes: The Brain (Python)
 
 - **Ingestion Pipeline:** Como transformamos texto/Swagger em prompt.
@@ -48,7 +45,6 @@
 - **LLM Integration:** Estratégia de prompts (System Prompts) e escolha de modelo.
 
 - **Validation Layer:** Como o Python garante que o JSON gerado pela IA é válido antes de enviar para o Rust.
-
 
 5. Detalhamento de Componentes: The Runner (Rust)
 
@@ -58,7 +54,6 @@
 
 - **Telemetry Engine:** Como injetar OpenTelemetry em cada request.
 
-
  6. Fluxos de Dados (Sequence Diagrams)
 
 - **Fluxo 1: Criação:** Requisito (Input) -> Brain -> UTDL (Output).
@@ -67,23 +62,21 @@
 
 - **Fluxo 3: Self-Healing (MVP):** Falha -> Retry Policy -> Report.
 
-
  7. Estrutura do Repositório (Monorepo)
 
 - Organização de pastas (`/brain`, `/runner`, `/shared-schemas`).
 
 - Stack Tecnológica detalhada (versões do Python, Rust, bibliotecas principais).
 
-
  8. Roadmap Técnico
 
 - Fases de implementação:
 
-    - Fase 1: O "Hello World" (Python gera JSON estático, Rust executa).
+  - Fase 1: O "Hello World" (Python gera JSON estático, Rust executa).
 
-    - Fase 2: Conexão com LLM real.
+  - Fase 2: Conexão com LLM real.
 
-    - Fase 3: Integração CLI/Interface.
+  - Fase 3: Integração CLI/Interface.
 
 ## 1. Introdução e Escopo
 
@@ -100,7 +93,7 @@ A arquitetura é fundamentada no desacoplamento estrito entre Inteligência e Ex
 - **The Runner (Rust):** Executa cenários com alta concorrência, baixa latência e eficiência extrema, atuando como motor determinístico e confiável..
 
 - **UTDL (Protocolo):** Uma linguagem intermediária agnóstica que serve como contrato entre o o Brain (cérebro) e o Runner (motor). Toda automação é expressa neste formato, não em código.
-	Esta separação permite evolução independente dos módulos, evitando dependência em ferramentas externas e garantindo longevidade da solução.
+ Esta separação permite evolução independente dos módulos, evitando dependência em ferramentas externas e garantindo longevidade da solução.
 
 ### 1.2 Objetivos do MVP (v1.0)
 
@@ -116,7 +109,6 @@ O foco da versão 1.0 é validar a capacidade da IA de gerar planos de testes de
 
 - **Validação Estrutural:** Implementar o primeiro **JSON Schema UTDL v0.1** com validação rígida para evitar geração incorreta.
 
-
 ### 1.3 Fronteiras do Escopo (In vs. Out)
 
 Para garantir a entrega e a qualidade da engenharia, definimos limites rígidos para o MVP.
@@ -130,7 +122,9 @@ Para garantir a entrega e a qualidade da engenharia, definimos limites rígidos 
 | **Output:** Relatório JSON/Console e Logs.          | **Output:** Dashboards gráficos complexos ou integração nativa com Jira. |
 | **Infra:** Execução local (CLI).                    | **Infra:** Orquestração distribuída (Kubernetes/Cluster).                |
 | Persistência mínima em arquivo                      | Banco de dados, multi-tenancy                                            |
-	O foco é comprovar que o sistema funciona end-to-end no domínio de API.
+
+ O foco é comprovar que o sistema funciona end-to-end no domínio de API.
+
 ### 1.4 Glossário Técnico
 
 Para evitar ambiguidade durante o desenvolvimento, definimos os seguintes termos:
@@ -196,11 +190,13 @@ graph TD
 2. **LLM Agnostic:** O sistema consome LLMs como um _commodity_. Se trocarmos GPT-4 por Llama3 local, a arquitetura permanece intacta.
 
 3. **Segregação de Responsabilidades:**
-	-  O usuário interage com o sistema (definição/revisão de testes).
 
-	- O sistema interage com documentação, LLM e sistemas alvo.
+- O usuário interage com o sistema (definição/revisão de testes).
 
-	- A fronteira é sempre clara: o usuário não precisa escrever código de teste, apenas revisar e aprovar planos.
+- O sistema interage com documentação, LLM e sistemas alvo.
+
+- A fronteira é sempre clara: o usuário não precisa escrever código de teste, apenas revisar e aprovar planos.
+
 ---
 
 ### 2.2 Diagrama de Containers (Level 2)
@@ -274,71 +270,69 @@ graph TB
 
 - **Papel:** Atua como “arquiteto e compilador” de testes. Recebe intenções humanas, documentos e specs, e transforma isso em artefatos UTDL executáveis.
 
-
 **Subcomponentes:**
 
 - **Ingestion Engine**
 
-    - Parsers para:
+  - Parsers para:
 
-        - OpenAPI/Swagger (JSON/YAML)
+    - OpenAPI/Swagger (JSON/YAML)
 
-        - Markdown (Confluence, docs internas)
+    - Markdown (Confluence, docs internas)
 
-        - Texto livre
+    - Texto livre
 
-    - Normaliza essas fontes em uma representação interna de requisitos e endpoints.
+  - Normaliza essas fontes em uma representação interna de requisitos e endpoints.
 
 - **Test Planner & UTDL Generator**
 
-    - Constrói o **grafo de dependências** de chamadas (ex: precisa logar antes de consultar perfil).
+  - Constrói o **grafo de dependências** de chamadas (ex: precisa logar antes de consultar perfil).
 
-    - Usa LLM + heurísticas para:
+  - Usa LLM + heurísticas para:
 
-        - gerar casos de teste
+    - gerar casos de teste
 
-        - derivar variações (válido, inválido, limites, erro esperado)
+    - derivar variações (válido, inválido, limites, erro esperado)
 
-    - Compila tudo em um **Test Plan UTDL**.
+  - Compila tudo em um **Test Plan UTDL**.
 
 - **ContextDB (Vector Memory / Metadata)**
 
-    - Armazena:
+  - Armazena:
 
-        - embeddings de documentos
+    - embeddings de documentos
 
-        - histórico de execuções
+    - histórico de execuções
 
-        - metadados de falhas (flaky, críticos, etc.)
+    - metadados de falhas (flaky, críticos, etc.)
 
-    - Alimenta o Planner com contexto (RAG) para reduzir alucinação e duplicação de testes.
+  - Alimenta o Planner com contexto (RAG) para reduzir alucinação e duplicação de testes.
+
 #### **B. The Bridge (Protocolo UTDL)**
 
 - **Tecnologia:** JSON + JSON Schema (Draft 2020-12)
 
 - **Papel:** É o **contrato formal** entre o Brain e o Runner.
 
-
 Características:
 
 - Representa:
 
-    - metadados do plano (nome, prioridade, tags)
+  - metadados do plano (nome, prioridade, tags)
 
-    - configuração global (base_url, timeout, headers)
+  - configuração global (base_url, timeout, headers)
 
-    - steps (ação, parâmetros, asserts, extrações, políticas de recuperação)
+  - steps (ação, parâmetros, asserts, extrações, políticas de recuperação)
 
 - É desenhado para ser:
 
-    - legível por humanos
+  - legível por humanos
 
-    - validável por schema
+  - validável por schema
 
-    - fácil de versionar (Git)
+  - fácil de versionar (Git)
 
-    - independente da linguagem de implementação
-
+  - independente da linguagem de implementação
 
 **Decisão de design:**
 Troca por arquivo/stream JSON em vez de chamadas diretas:
@@ -348,62 +342,60 @@ Troca por arquivo/stream JSON em vez de chamadas diretas:
 - Facilita debug (basta inspecionar o JSON).
 
 - Abre espaço para outros executores futuros (ex: um Runner em Go).
+
 #### **C. The Runner (Camada de Execução)**
 
 - **Tecnologia:** Rust (Tokio, Reqwest, Tracing/OpenTelemetry)
 
 - **Papel:** É o “operário determinístico”. Recebe um plano UTDL e o executa com máxima eficiência.
 
-
 **Subcomponentes:**
 
 - **UTDL Parser & Validator (Loader)**
 
-    - Valida o JSON contra o schema UTDL.
+  - Valida o JSON contra o schema UTDL.
 
-    - Rejeita planos inválidos antes de iniciar execução.
+  - Rejeita planos inválidos antes de iniciar execução.
 
-    - Constrói uma estrutura em memória otimizada para execução.
+  - Constrói uma estrutura em memória otimizada para execução.
 
 - **Async HTTP Executor**
 
-    - Dispara requisições HTTP em paralelo de forma assíncrona.
+  - Dispara requisições HTTP em paralelo de forma assíncrona.
 
-    - Implementa:
+  - Implementa:
 
-        - timeout por step
+    - timeout por step
 
-        - retry conforme `recovery_policy`
+    - retry conforme `recovery_policy`
 
-        - controle de concorrência global (limite de conexões)
+    - controle de concorrência global (limite de conexões)
 
 - **Telemetry (OTEL Emitter)**
 
-    - Converte cada step em spans / traces OTEL.
+  - Converte cada step em spans / traces OTEL.
 
-    - Envia métricas e logs estruturados para ferramentas de observabilidade.
+  - Envia métricas e logs estruturados para ferramentas de observabilidade.
 
 #### **D. Intelligence Engine (Camada Analítica - Stub no MVP)**
 
 - **Tecnologia:**
 
-    - MVP: Python (pandas, basic stats)
+  - MVP: Python (pandas, basic stats)
 
-    - Futuro: Julia (análise estatística e otimização)
+  - Futuro: Julia (análise estatística e otimização)
 
 - **Papel:** Analisa execuções e retroalimenta o Brain.
-
 
 **No MVP (v1.0):**
 
 - calculadora simples de:
 
-    - taxa de sucesso/falha
+  - taxa de sucesso/falha
 
-    - latência média por endpoint
+  - latência média por endpoint
 
-    - marcação de testes instáveis (flaky)
-
+  - marcação de testes instáveis (flaky)
 
 **Visão futura:**
 
@@ -419,58 +411,59 @@ Troca por arquivo/stream JSON em vez de chamadas diretas:
 
 - **Latência de Geração (LLM)**
 
-    - _Risco:_ Planos de teste podem demorar segundos/minutos para serem gerados.
+  - _Risco:_ Planos de teste podem demorar segundos/minutos para serem gerados.
 
-    - _Mitigação:_
+  - _Mitigação:_
 
-        - Cache de UTDL por hash de requisito/spec.
+    - Cache de UTDL por hash de requisito/spec.
 
-        - Reutilização de planos quando não há mudanças.
+    - Reutilização de planos quando não há mudanças.
 
 - **Dessincronia de Protocolo (Brain vs Runner)**
 
-    - _Risco:_ O Brain pode gerar JSON que o Runner ainda não sabe interpretar.
+  - _Risco:_ O Brain pode gerar JSON que o Runner ainda não sabe interpretar.
 
-    - _Mitigação:_
+  - _Mitigação:_
 
-        - Versão explícita de schema (`utdl_version`).
+    - Versão explícita de schema (`utdl_version`).
 
-        - Validação rígida no Brain antes de enviar ao Runner.
+    - Validação rígida no Brain antes de enviar ao Runner.
 
-        - Testes de contrato entre módulos.
+    - Testes de contrato entre módulos.
 
 - **Segurança de Segredos e Dados Sensíveis**
 
-    - _Risco:_ Segredos (tokens, senhas) podem ser incluídos em UTDL ou logs.
+  - _Risco:_ Segredos (tokens, senhas) podem ser incluídos em UTDL ou logs.
 
-    - _Mitigação:_
+  - _Mitigação:_
 
-        - Uso de placeholders (`${SECRET_*}`) em UTDL.
+    - Uso de placeholders (`${SECRET_*}`) em UTDL.
 
-        - Resolução de segredos feita apenas no Runner via variáveis de ambiente.
+    - Resolução de segredos feita apenas no Runner via variáveis de ambiente.
 
-        - Redação de campos sensíveis em logs/telemetria.
+    - Redação de campos sensíveis em logs/telemetria.
 
 - **Overhead de Telemetria**
 
-    - _Risco:_ Emissão intensa de traces pode impactar performance em cargas altas.
+  - _Risco:_ Emissão intensa de traces pode impactar performance em cargas altas.
 
-    - _Mitigação:_
+  - _Mitigação:_
 
-        - Configuração de amostragem (sampling) de OTEL.
+    - Configuração de amostragem (sampling) de OTEL.
 
-        - Possibilidade de rodar em modo “silent” (telemetria mínima) para stress tests.
+    - Possibilidade de rodar em modo “silent” (telemetria mínima) para stress tests.
 
 ---
+
 ## 3. Especificação do Contrato: UTDL (Universal Test Definition Language)
 
 A **UTDL** é a linguagem intermediária oficial do _Autonomous Quality Agent_. É um formato baseado em **JSON**, estritamente tipado, projetado para:
+
 - ser **gerada pelo Brain (Python/LLM)**
 
 - ser **interpretada pelo Runner (Rust)**
 
 - permitir evolução independente entre ambos
-
 
 O formato é **JSON estruturado**, validado rigidamente por **JSON Schema**.
 
@@ -488,7 +481,6 @@ A UTDL descreve:
 
 - **como encadear passos**
 
-
 Ela **não** contém:
 
 - loops
@@ -499,11 +491,11 @@ Ela **não** contém:
 
 - lógica de programação arbitrária
 
-
 A ideia é:
 
 > _“Plano de teste como dados, não como código.”_
 ---
+
 ### 3.2 Estrutura Raiz (Root Object)
 
 Todo arquivo `.utdl` ou payload deve respeitar a seguinte estrutura raiz:
@@ -533,7 +525,7 @@ JSON
 }
 ```
 
-***Tipos dos campos:***
+_**Tipos dos campos:**_
 
 |Campo|Tipo|Obrigatório|
 |---|---|---|
@@ -543,11 +535,13 @@ JSON
 |steps|array|✔|
 
 ---
+
 ### 3.3 Definição de Passo (The Step Object)
 
 Cada item no array `steps` representa uma ação atômica. O Runner deve suportar polimorfismo baseado no campo `action`.
 
-***Schema Geral:***
+_**Schema Geral:**_
+
 ```json
 {
   "id": "unique_step_id",
@@ -575,6 +569,7 @@ Cada item no array `steps` representa uma ação atômica. O Runner deve suporta
 |recovery_policy|object|❌|Política de resiliência|
 
 ---
+
 ### 3.4 Ação: `http_request` (Core MVP)
 
 Esta é a estrutura para chamadas de API.
@@ -603,7 +598,7 @@ JSON
 }
 ```
 
-***Campos de Params:***
+_**Campos de Params:**_
 
 |Campo|Tipo|Obrigatório|
 |---|---|---|
@@ -613,10 +608,12 @@ JSON
 |body|any|❌|
 
 ---
+
 ### 3.5 Assertions (Sistema de Validação)
 
 A UTDL define um conjunto padrão de asserts.
-#### Tipos suportados:
+
+#### Tipos suportados
 
 |type|Descrição|
 |---|---|
@@ -641,6 +638,7 @@ A UTDL define um conjunto padrão de asserts.
 ```
 
 ---
+
 ### 3.6 Extract & Interpolation (Gerenciamento de Estado)
 
 O sistema deve ser capaz de passar dados de um passo para outro (ex: Login -> Token).
@@ -682,7 +680,7 @@ Define o que fazer em caso de falha (Network error, 5xx, Timeout).
 }
 ```
 
-#### Estratégias possíveis:
+#### Estratégias possíveis
 
 - retry
 
@@ -691,6 +689,7 @@ Define o que fazer em caso de falha (Network error, 5xx, Timeout).
 - ignore
 
 ---
+
 ### 3.8 Invariantes da UTDL _(essenciais para o MVP)_
 
 - `id` de steps **deve ser único**.
@@ -699,28 +698,27 @@ Define o que fazer em caso de falha (Network error, 5xx, Timeout).
 
 - Toda variável interpolada deve ter valor disponível em:
 
-    - config.variables
+  - config.variables
 
-    - extract
+  - extract
 
-    - ambiente (ENV_*)
+  - ambiente (ENV_*)
 
-    - funções mágicas
+  - funções mágicas
 
 - Falha em qualquer assert → step falha.
 
 - Em caso de falha:
 
-    - se recovery_policy = retry → aplicar
+  - se recovery_policy = retry → aplicar
 
-    - caso contrário → step encerra e o Runner para o fluxo dependente
+  - caso contrário → step encerra e o Runner para o fluxo dependente
 
 ---
 
 ### 3.9 Exemplo Completo (“Hello World” do MVP)
 
 Este é o JSON que o Python deve gerar e o Rust deve executar no MVP.
-
 
 ```json
 {
@@ -777,6 +775,7 @@ Este é o JSON que o Python deve gerar e o Rust deve executar no MVP.
 ```
 
 ---
+
 ## 4. Detalhamento de Componentes: The Brain (Python)
 
 O subsistema **Brain** é responsável pela camada cognitiva da arquitetura. Ele transforma **requisitos brutos** em **planos de teste estruturados**, garantindo que:
@@ -789,11 +788,11 @@ O subsistema **Brain** é responsável pela camada cognitiva da arquitetura. Ele
 
 - todo fluxo é deterministicamente reprodutível
 
-
 O Brain _nunca_ executa testes.
 Sua responsabilidade é exclusivamente **planejar, compilar e validar.**
 
 ---
+
 ### 4.1 Responsabilidades Principais
 
 1. **Ingestão de Contexto:** Normalização de documentos (Swagger, texto, markdown) em uma estrutura interna.
@@ -808,8 +807,8 @@ Sua responsabilidade é exclusivamente **planejar, compilar e validar.**
 
 6. **Autocorreção (Self-Correction Loop):** Conversa iterativamente com a IA até obter JSON válido.
 
-
 ---
+
 ### 4.2 Stack Tecnológica (MVP)
 
 - **Linguagem:** Python 3.11+ (Tipagem forte).
@@ -824,8 +823,8 @@ Sua responsabilidade é exclusivamente **planejar, compilar e validar.**
 
 - **Utils:** `jsonschema`, `rapidfuzz`, `python-json-logger`.
 
-
 ---
+
 ### 4.3 Pipeline de Interno (Architecture Flow)
 
 O fluxo interno do Brain segue o padrão **Retrieval-Generation-Validation Loop**:
@@ -841,23 +840,24 @@ O fluxo interno do Brain segue o padrão **Retrieval-Generation-Validation Loop*
     - Se for Texto: Limpa e faz extração de endpoints via heurística.
 
 2. **Context Builder:**
-	- Recupera do Vector DB:
 
-	    - exemplos similares
+- Recupera do Vector DB:
 
-	    - documentação relevante
+  - exemplos similares
 
-	    - testes anteriores
+  - documentação relevante
 
-	- Constrói o prompt completo:
+  - testes anteriores
 
-	    - regras rígidas
+- Constrói o prompt completo:
 
-	    - schema
+  - regras rígidas
 
-	    - exemplos
+  - schema
 
-	    - restrições de segurança
+  - exemplos
+
+  - restrições de segurança
 
 3. **LLM Interaction:**
 
@@ -868,23 +868,26 @@ O fluxo interno do Brain segue o padrão **Retrieval-Generation-Validation Loop*
     - Recebe UTDL _candidato_.
 
 4. **Validation Guardrails (Pydantic):**
-	- UTDL é validado via Pydantic + JSON Schema.
 
-	- Se falhar:
+- UTDL é validado via Pydantic + JSON Schema.
 
-	    - Brain cria “Error Feedback Prompt”
+- Se falhar:
 
-	    - Envia erro à IA
+  - Brain cria “Error Feedback Prompt”
 
-	    - IA corrige e reenvia apenas o JSON
+  - Envia erro à IA
+
+  - IA corrige e reenvia apenas o JSON
 
 5. **Validation Guardrails (Pydantic):**
-	Quando válido, salva:
+ Quando válido, salva:
 
-	- `test_plan_<uuid>.utdl.json`
+- `test_plan_<uuid>.utdl.json`
 
-	- hash SHA-256 para versionamento
+- hash SHA-256 para versionamento
+
 ---
+
 ### 4.4 Estratégia de Prompt (System Prompt Design)
 
 O prompt do sistema é o componente mais crítico da "programação em linguagem natural".
@@ -919,21 +922,24 @@ Ele contém:
 > 2. NÃO inclua explicações ou markdown fora do JSON.
 >
 > 3. Use variáveis `${var}` para dados dinâmicos.
-> 	 SCHEMA OBRIGATÓRIO: {schema_structure_here}
-> 	 EXEMPLO DE SAÍDA VÁLIDA: {utdl_example_here}"
+> SCHEMA OBRIGATÓRIO: {schema_structure_here}
+> EXEMPLO DE SAÍDA VÁLIDA: {utdl_example_here}"
 > 4. Crie dependências lógicas: se um endpoint cria um recurso, o próximo deve consultá-lo.
 >
 
 ---
+
 ### 4.5 Componente de Validação (The Guard)
 
 Utilizaremos o Pydantic para definir a UTDL dentro do código Python. Isso garante que o Python e o Rust (que lerá o JSON) estejam sempre alinhados.
 
 Implementado em:
+
 ```bash
 `brain/schemas/utdl.py`
 ```
-### Funções essenciais:
+
+### Funções essenciais
 
 - **estrutura do plano**
 
@@ -949,7 +955,7 @@ Implementado em:
 
 - **policy de retry válida**
 
-**Exemplo Resumido**
+Exemplo Resumido:
 
 ```python
 # brain/schemas/utdl.py
@@ -979,31 +985,34 @@ class UTDLPlan(BaseModel):
                         raise ValueError(f"Unknown step dependency: {d}")
         return steps
 ```
+
 ---
+
 ### 4.6 Integração com o Runner
 
 O Brain invoca o Runner via **execução local**:
 
-### Fluxo MVP:
+### Fluxo MVP
 
 - Brain salva arquivo:
 
-    - `./plans/<uuid>.utdl.json`
+  - `./plans/<uuid>.utdl.json`
 
 - Brain executa:
+
 ```css
   ./runner --file <uuid>.utdl.json --report out_<uuid>.json
 ```
 
 - Runner gera:
 
-    - `/reports/out_<uuid>.json`
+  - `/reports/out_<uuid>.json`
 
-    - logs OTEL (se configurado)
+  - logs OTEL (se configurado)
 
 - Brain lê o report estruturado.
 
-#### Motivação desta arquitetura:
+#### Motivação desta arquitetura
 
 - simples
 
@@ -1043,6 +1052,7 @@ O Brain **sempre** garante:
         são persistidos.
 
 ---
+
 ### 4.8 Gerenciamento de Erros da LLM
 
 Política de retry:
@@ -1058,6 +1068,7 @@ Se a IA insistir em enviar JSON inválido:
 **Brain aborta. Runner nunca recebe lixo.**
 
 ---
+
 ### **4.9 Caching e Versionamento**
 
 Cada plano possui:
@@ -1070,13 +1081,14 @@ Cada plano possui:
 
 - `source_context_hash` (para detectar mudanças)
 
-
 Regras:
 
 - Se hash da input = hash já visto → usar plano antigo.
 
 - Se input mudou → regenerar.
+
 ---
+
 ### **4.10 Segurança**
 
 O Brain:
@@ -1088,7 +1100,6 @@ O Brain:
 - substitui tudo por `${ENV_*}`
 
 - valida se nenhuma string contém algo sensível (regex heuristic)
-
 
 ---
 
@@ -1105,7 +1116,6 @@ O Brain:
 - `invoke_runner(path: Path) -> Report`
 
 - `feedback_to_llm(error: str) -> dict`
-
 
 ---
 
@@ -1127,7 +1137,9 @@ Validation Guard (Pydantic)
     └── FAIL → Error Feedback Prompt → regenerate
 
 ```
+
 ___
+
 ### Por que essa abordagem é robusta?
 
 1. **Type Safety:** Usar Pydantic significa que não vamos enviar lixo para o Rust. Se a IA alucinar um campo `action: "magic_click"`, o Python explode o erro antes de tentar rodar.
@@ -1135,6 +1147,7 @@ ___
 2. **Self-Correction:** O loop de re-prompting (item 4.3) resolve 80% dos erros comuns de geração de JSON das IAs.
 
 3. **Modularidade:** Se amanhã quisermos trocar o GPT-5 pelo Llama-3 rodando local, mudamos apenas a classe `LLMInterface`, o resto do pipeline de validação se mantém.
+
 ___
 
 ## 5. Detalhamento de Componentes: The Runner (Rust)
@@ -1152,9 +1165,9 @@ O **Runner** é o motor determinístico da plataforma.
 
 - produzir um relatório formal de execução
 
-
 O Runner **não planeja, não pensa, não interpreta documentação**.
 Ele **executa** ordens declaradas no UTDL.
+
 ### 5.1 Stack Tecnológica (The "Ferris" Stack)
 
 |Componente|Tecnologia|Motivação|
@@ -1167,6 +1180,7 @@ Ele **executa** ordens declaradas no UTDL.
 |Observabilidade|tracing + opentelemetry-rust|Logs estruturados e spans OTEL|
 |Config|clap / config-rs|CLI robusta (futuro)|
 |Scripting (futuro)|Rhai / Boa|Execução leve de lógica embutida|
+
 ### 5.2 Modelo de Concorrência (Async Architecture)
 
 O Runner utiliza o modelo:
@@ -1175,7 +1189,7 @@ O Runner utiliza o modelo:
 > N trabalhadores (tasks assíncronas)**
 > → distribuídos pelo scheduler do Tokio.
 
-#### Características chave:
+#### Características chave
 
 - Tasks não bloqueiam threads (async/await)
 
@@ -1183,8 +1197,8 @@ O Runner utiliza o modelo:
 
 - É possível lançar **milhares** de tasks simultâneas com poucos MBs de RAM
 
+#### Comparação
 
-#### Comparação:
 |Ferramenta|Modelo|Problemas|
 |---|---|---|
 |Selenium Grid|1 processo pesado por teste|lento, consome RAM|
@@ -1193,9 +1207,11 @@ O Runner utiliza o modelo:
 |**Rust/Tokio**|Multithread + async|ideal para milhares de requests|
 
 ---
+
 ### 5.3 Arquitetura Interna (Componentes)
 
 A arquitetura é modular e guiada por traits
+
 ```bash
 src/
  ├── loader/          # Leitura + validação do UTDL
@@ -1215,9 +1231,11 @@ src/
 Para garantir que o Runner possa evoluir de API para UI (Browser) sem reescrever o núcleo, utilizaremos o padrão de Traits (Interfaces).
 
 ---
+
 ### 5.4 O Padrão StepExecutor (Extensibilidade Total)
 
-***O núcleo é o trait:***
+_**O núcleo é o trait:**_
+
 ```rust
 // core/traits.rs
 
@@ -1240,7 +1258,6 @@ Executores implementados no MVP:
 
 - **WaitExecutor** → step.action = "wait"
 
-
 Executores futuros (sem alterar o resto da arquitetura):
 
 - BrowserExecutor (chromium-bidi)
@@ -1250,6 +1267,7 @@ Executores futuros (sem alterar o resto da arquitetura):
 - WebSocketExecutor
 
 - FileSystemExecutor
+
 ### 5.5 Gerenciamento de Estado (Context Engine)
 
 O Context é um dicionário:
@@ -1266,8 +1284,7 @@ Suporta:
 
 - funções internas (`${random_uuid}`, `${timestamp}`)
 
-
-#### Política de segurança:
+#### Política de segurança
 
 - valores sensíveis **não são logados**
 
@@ -1275,14 +1292,14 @@ Suporta:
 
 - segredo nunca aparece em logs/traces
 
-
-#### Política de isolamento:
+#### Política de isolamento
 
 - cada execução tem Context próprio
 
 - nenhum test plan pode vazar valores para outro
 
 ---
+
 ### 5.6 Pipeline de Execução (The Execution Loop)
 
 Fluxo completo:
@@ -1295,19 +1312,17 @@ Fluxo completo:
 
 - Validação rápida (tipos, campos)
 
-
 #### **2. Plan**
 
 - Constrói DAG de steps
 
 - Detecta:
 
-    - steps raiz (sem depends_on)
+  - steps raiz (sem depends_on)
 
-    - paralelismo possível
+  - paralelismo possível
 
-    - cycles (erro fatal)
-
+  - cycles (erro fatal)
 
 #### **3. Dispatch**
 
@@ -1315,8 +1330,7 @@ Fluxo completo:
 
 - Gerencia dependências:
 
-    - step só roda quando todos em `depends_on` concluiram com sucesso
-
+  - step só roda quando todos em `depends_on` concluiram com sucesso
 
 #### **4. Execute**
 
@@ -1328,17 +1342,15 @@ Fluxo completo:
 
 - HTTP Request enviado
 
-
 #### **5. Collect**
 
 - StepResult armazenado
 
 - Se falhou:
 
-    - aplica `recovery_policy`
+  - aplica `recovery_policy`
 
-    - se falha persistir → marca dependentes como “skipped”
-
+  - se falha persistir → marca dependentes como “skipped”
 
 #### **6. Report**
 
@@ -1349,6 +1361,7 @@ Gera arquivo:
 ```
 
 Com:
+
 ```json
 {
   "plan_id": "flow-auth-001",
@@ -1368,10 +1381,12 @@ Com:
 ```
 
 ---
+
 ### 5.7 Telemetria e Logs (Observability)
 
 O Runner não deve apenas imprimir no console. Ele deve ser um cidadão de observabilidade.
-#### Tecnologias:
+
+#### Tecnologias
 
 - `tracing`
 
@@ -1379,25 +1394,23 @@ O Runner não deve apenas imprimir no console. Ele deve ser um cidadão de obser
 
 - OTLP exporter (gRPC)
 
-
-#### Cada Step gera:
+#### Cada Step gera
 
 - span com atributos:
 
-    - step_id
+  - step_id
 
-    - action
+  - action
 
-    - method
+  - method
 
-    - path
+  - path
 
-    - duration
+  - duration
 
-    - http_status
+  - http_status
 
-    - error_message (se houver)
-
+  - error_message (se houver)
 
 #### Header de propagação
 
@@ -1437,13 +1450,11 @@ Erro fatal (abortar plano):
 
 - resolver segredo falha
 
-
 Erro parcial (continuar exec):
 
 - step falhou mas é marcado como "ignored" via recovery
 
 - timeout de step → aplica retry
-
 
 ---
 
@@ -1467,12 +1478,11 @@ O Runner **sempre garante**:
 
 8. Todos os steps possuem StepResult.
 
-
 ---
 
 ### 5.10 Justificativa da Escolha de Rust
 
-#### Segurança de memória:
+#### Segurança de memória
 
 - nenhum data race
 
@@ -1480,8 +1490,7 @@ O Runner **sempre garante**:
 
 - ideal para paralelismo alto
 
-
-#### Performance:
+#### Performance
 
 - binário inicializa em milissegundos
 
@@ -1489,18 +1498,15 @@ O Runner **sempre garante**:
 
 - zero GC → latência estável
 
-
-#### Escalabilidade:
+#### Escalabilidade
 
 - milhares de requests simultâneos
 
 - consumo mínimo de RAM
 
-
-#### Manutenibilidade:
+#### Manutenibilidade
 
 - sistema de traits permite extensões infinitas
-
 
 ---
 
@@ -1515,6 +1521,7 @@ Graças ao trait StepExecutor:
 - plano UTDL continua igual
 
 - Runner entende novas ações como `"ui_click"` → executa
+
 ---
 
 ## 6. Fluxos de Dados (Sequence Diagrams)
@@ -1531,7 +1538,6 @@ Ele detalha como os componentes internos interagem ao longo dos processos críti
 - retry
 
 - tratamento de erro fatal
-
 
 Esses fluxos servem como **contratos operacionais** para desenvolvimento.
 
@@ -1573,7 +1579,7 @@ sequenceDiagram
 
 ```
 
-#### Garantias deste fluxo:
+#### Garantias deste fluxo
 
 - JSON inválido **nunca** chega ao Runner.
 
@@ -1582,7 +1588,6 @@ sequenceDiagram
 - Todo plano possui hash para versionamento.
 
 - O Guard garante aderência obrigatória ao schema UTDL v0.1.
-
 
 ---
 
@@ -1623,7 +1628,8 @@ sequenceDiagram
 
     Dispatcher-->>CLI: Report Final (JSON + Console)
 ```
-#### Garantias deste fluxo:
+
+#### Garantias deste fluxo
 
 - Nenhum step roda fora da ordem declarada.
 
@@ -1634,6 +1640,7 @@ sequenceDiagram
 - Latência, asserts e erros vão para telemetria.
 
 ---
+
 ### **6.3 Fluxo 3 — Retry & Self-Healing Básico (Recovery Policy)**
 
 #### Objetivo
@@ -1658,7 +1665,7 @@ sequenceDiagram
     Exec->>Exec: Mark Step = "passed (recovered)"
 ```
 
-#### Garantias deste fluxo:
+#### Garantias deste fluxo
 
 - Retry implementado exatamente conforme recovery_policy.
 
@@ -1667,6 +1674,7 @@ sequenceDiagram
 - Falhas recuperadas são marcadas como `"passed (recovered)"`.
 
 ---
+
 ### **6.4 Fluxo 4 — Erro Fatal e Abort (Hard Failure Case)**
 
 ```mermaid
@@ -1688,7 +1696,7 @@ sequenceDiagram
 
 ```
 
-#### Garantias:
+#### Garantias
 
 - O Runner **nunca inicia execução** se:
 
@@ -1705,6 +1713,7 @@ sequenceDiagram
 - O Runner encerra com exit code ≠ 0.
 
 ---
+
 ### **6.5 Invariantes dos Fluxos**
 
 _(O que nunca muda — comportamento garantido pelo sistema)_
@@ -1725,7 +1734,6 @@ _(O que nunca muda — comportamento garantido pelo sistema)_
 
 8. A ordem final de steps no relatório segue ordem temporal, não ordem declarativa.
 
-
 ---
 
 ### **6.6 Pontos de Integração (Acoplamento e Fronteiras)**
@@ -1738,7 +1746,7 @@ _(O que nunca muda — comportamento garantido pelo sistema)_
 |Runner → Report|JSON final|Consumido pelo Brain|
 |Runner → TargetAPI|HTTP|Execução real dos steps|
 
-#### Observação importante:
+#### Observação importante
 
 O Runner **nunca** fala diretamente com Julia.
 Toda análise futura usa **dados OTEL**, não APIs internas.
@@ -1787,7 +1795,6 @@ O projeto é organizado como um **monorepo poliglota** contendo:
 - Os exemplos de referência
 
 - O espaço isolado para prototipação (sandbox)
-
 
 A decisão pelo monorepo garante **atomicidade**:
 nenhuma mudança no Brain ou Runner pode quebrar o contrato sem ser detectada.
@@ -1882,7 +1889,6 @@ autonomous-quality-agent/
 
 - ruff
 
-
 #### **B. Runner (Rust)**
 
 - Rust stable
@@ -1903,7 +1909,6 @@ autonomous-quality-agent/
 
 - insta (testes de snapshot)
 
-
 #### **C. Qualidade / CI**
 
 - Rust: rustfmt, clippy, cargo-audit
@@ -1912,15 +1917,16 @@ autonomous-quality-agent/
 
 - Pre-commits para:
 
-    - validação do schema
+  - validação do schema
 
-    - formatação
+  - formatação
 
-    - lint
+  - lint
 
-    - test-run nos exemplos UTDL
+  - test-run nos exemplos UTDL
 
 ---
+
 ### 7.3 Workflow de Desenvolvimento (Expandido)
 
 ```bash
@@ -1935,6 +1941,7 @@ make check-utdl    # valida todos os exemplos contra schema
 ```
 
 ---
+
 ### **7.4 Políticas de Versionamento (Crucial)**
 
 #### **UTDL: versionamento semântico (MAJOR.MINOR.PATCH)**
@@ -1946,6 +1953,7 @@ make check-utdl    # valida todos os exemplos contra schema
 - **PATCH** → correções que não alteram significado
 
 ### **Compatibilidade:**
+
 |Brain|Runner|Compatibilidade|
 |---|---|---|
 |v0.1.x|v0.1.x|✔ compatível|
@@ -1953,22 +1961,22 @@ make check-utdl    # valida todos os exemplos contra schema
 |v1.x|v0.x|❌ quebrado|
 
 ---
+
 ### 7.5 Políticas de Build & Release
 
-### Runner:
+### Runner
 
 - Build estático (musl)
 
 - Release para:
 
-    - Linux x86
+  - Linux x86
 
-    - Mac ARM
+  - Mac ARM
 
-    - Mac x86
+  - Mac x86
 
-
-### Brain:
+### Brain
 
 - Distribuição opcional via pip (wheels)
 
@@ -1988,7 +1996,6 @@ Toda PR deve:
 
 5. atualizar CHANGELOG.md quando afetar UTDL
 
-
 ---
 
 # **7.7 Reprodutibilidade**
@@ -2000,7 +2007,6 @@ O repositório possui:
 - `Cargo.lock` (Rust)
 
 - `schemas/utdl_v0.1.json` fixo
-
 
 Com isso, qualquer clone gera:
 
@@ -2024,14 +2030,15 @@ O Autonomous Quality Agent é um sistema que:
 
 - opera em ambientes paralelos de alta performance
 
-
 Por isso, ele introduz um conjunto único de riscos.
 Este capítulo define **como o sistema se defende**, quais **limites são inegociáveis**, e qual **modelo de ameaças** adotamos.
 
 ---
+
 ### **8.1 Threat Model – STRIDE Expandido + Zero Trust**
 
 #### **Atores Potenciais**
+
 |Ator|Capacidade|Risco|
 |---|---|---|
 |**Usuário legítimo**|Pode criar requisitos|Pode publicar texto malicioso por acidente|
@@ -2041,6 +2048,7 @@ Este capítulo define **como o sistema se defende**, quais **limites são inegoc
 |**Atacante externo**|Sem acesso|Pode tentar explorar SSRF / portas internas|
 
 ---
+
 ### **8.2 Superfície de Ataque (Attack Surface)**
 
 1. **Entrada de dados do Brain**
@@ -2072,6 +2080,7 @@ Este capítulo define **como o sistema se defende**, quais **limites são inegoc
     - risco de tampering
 
 ---
+
 ### **8.3 Tabela de Ameaças (STRIDE Formal)**
 
 **Spoofing:**
@@ -2124,7 +2133,6 @@ Este capítulo define **como o sistema se defende**, quais **limites são inegoc
 
 - LLM gerando endpoints internos (SSRF indireto)
 
-
 ##### **Mitigações**
 
 - **Pydantic Validation rígido**: nenhum campo fora do schema é aceito.
@@ -2133,16 +2141,15 @@ Este capítulo define **como o sistema se defende**, quais **limites são inegoc
 
 - **Policy Engine (v1.1)**:
 
-    - bloquear DELETE, PUT, PATCH se habilitado
+  - bloquear DELETE, PUT, PATCH se habilitado
 
-    - bloquear paths internos (.internal, .local)
+  - bloquear paths internos (.internal, .local)
 
 - **Sandbox do prompt**:
 
-    - Brain nunca executa nada
+  - Brain nunca executa nada
 
-    - Brain nunca faz requests HTTP baseado em input do usuário
-
+  - Brain nunca faz requests HTTP baseado em input do usuário
 
 ---
 
@@ -2160,39 +2167,37 @@ Este capítulo define **como o sistema se defende**, quais **limites são inegoc
 
 - negação de serviço via steps infinitos
 
-
 ##### **Mitigações**
 
 - **Allowed_hosts / Blocked_ranges**
 
-    - bloqueia 169.254.169.254
+  - bloqueia 169.254.169.254
 
-    - bloqueia localhost:22
+  - bloqueia localhost:22
 
-    - bloqueia loopback se configurado
+  - bloqueia loopback se configurado
 
 - **Timeout global e por step**
 
-    - `timeout_ms` obrigatório
+  - `timeout_ms` obrigatório
 
 - **Max requests por step**
 
-    - evita abuso via retry infinito
+  - evita abuso via retry infinito
 
 - **Isolamento de contexto**
 
-    - um plano não herda variáveis de outro
+  - um plano não herda variáveis de outro
 
 - **Secret Redaction**
 
-    - nenhuma variável contendo `SECRET` aparece nos logs
+  - nenhuma variável contendo `SECRET` aparece nos logs
 
 - **Sem execução arbitrária**
 
-    - Runner não faz shell exec
+  - Runner não faz shell exec
 
-    - não acessa disco para além do arquivo UTDL
-
+  - não acessa disco para além do arquivo UTDL
 
 ---
 
@@ -2206,7 +2211,6 @@ Este capítulo define **como o sistema se defende**, quais **limites são inegoc
 
 - instruções inválidas
 
-
 ##### **Mitigações**
 
 - **Schema rígido**
@@ -2216,9 +2220,10 @@ Este capítulo define **como o sistema se defende**, quais **limites são inegoc
 - **Validação dupla** (Brain e Runner)
 
 ---
+
 ### **8.5 Segurança de Segredos (Zero Trust)**
 
-#### Regras invioláveis:
+#### Regras invioláveis
 
 1. **O Brain nunca vê segredos reais.**
 
@@ -2230,20 +2235,21 @@ Este capítulo define **como o sistema se defende**, quais **limites são inegoc
 
 5. **Telemetria nunca envia segredos.**
 
-
 Exemplo seguro:
+
 ```json
 "password": "${ENV_DB_PASS}"
 ```
 
 ---
+
 ### **8.6 Segurança de Telemetria**
 
-#### Problema:
+#### Problema
 
 Logs podem vazar dados sensíveis.
 
-#### Solução:
+#### Solução
 
 - Tracing com `Value::Sensitive` (mascara automática)
 
@@ -2251,14 +2257,14 @@ Logs podem vazar dados sensíveis.
 
 - Desabilitar logs detalhados em produção
 
-
-#### OTEL Export:
+#### OTEL Export
 
 - Exporter pode ser desativado
 
 - Exportação segura via HTTPS/gRPC
 
 ---
+
 ### 8.7 Fluxograma de Decisão de Segurança
 
 ```mermaid
@@ -2298,6 +2304,7 @@ Estes comportamentos **nunca podem ser violados**:
 8. Variáveis de contexto nunca vazam entre execuções.
 
 ---
+
 ### 8.9 Roadmap de Segurança (Evolução Planejada)
 
 #### v1.1
@@ -2306,11 +2313,9 @@ Estes comportamentos **nunca podem ser violados**:
 
 - Política de verbs perigoso (blocklist)
 
-
 #### v1.2
 
 - Política de detecção de SSRF com regex avançado
-
 
 #### v2.0
 
@@ -2327,7 +2332,9 @@ Estes comportamentos **nunca podem ser violados**:
 O roadmap está dividido em **4 fases**, cada uma com entregáveis atômicos.
 
 ---
+
 ### Fase 0 — Preparação Mental e Técnica
+>
 > _Objetivo: eliminar fricção. Criar ambiente. Testar pipeline. Garantir que nada te trava depois._
 
 #### **Tarefas**
@@ -2339,12 +2346,14 @@ O roadmap está dividido em **4 fases**, cada uma com entregáveis atômicos.
 - [Setup] Criar repositório local com a árvore mínima.
 
 - [Makefile] Criar Makefile com os comandos:
+
 ```bash
 make setup
 make test
 make run-plan
 make lint
 ```
+
 - [Hello Runner] Criar um `main.rs` com “Hello from Runner”.
 
 - [Hello Brain] Criar um Python script que imprime “Hello from Brain”.
@@ -2352,15 +2361,19 @@ make lint
 #### **Entrega Verificável**
 
 - Você consegue rodar:
+
 ```arduino
 make run-plan
 ```
+
 E recebe uma mensagem dummy.
 
 **Marco emocional:**  projeto funcionando, sem nada quebrado.
 
 ---
+
 ### Fase 1 — “THE ENGINE FIRST” (Semana 1–2)
+>
 > **Objetivo: ter um executor Rust capaz de rodar um JSON escrito à mão.**
 > Sem IA. Sem Brain. Só engenharia pura.
 
@@ -2370,30 +2383,30 @@ Tarefas:
 
 - [Cargo] Configurar `runner/Cargo.toml` com:
 
-    - tokio
+  - tokio
 
-    - reqwest
+  - reqwest
 
-    - serde
+  - serde
 
-    - serde_json
+  - serde_json
 
-    - tracing
+  - tracing
 
 - [Protocol] Criar structs para:
 
-    - `Plan`
+  - `Plan`
 
-    - `Step`
+  - `Step`
 
-    - `Action::HttpRequest`
+  - `Action::HttpRequest`
 
-    - `Assertion`
-
+  - `Assertion`
 
 Checklist de “Done”:
 
 - O Runner consegue fazer:
+
 ```rust
 let plan: Plan = serde_json::from_str(...)?;
 ```
@@ -2414,15 +2427,16 @@ Tarefas:
 
 - Validar `status_code`.
 
-
 Checklist:
 
 - Um arquivo:
+
 ```json
 { "steps": [ { "action": "http_request", ... } ] }
 ```
 
 Roda com:
+
 ```lua
 ./runner execute --file test.utdl.json
 ```
@@ -2436,29 +2450,30 @@ Tarefas:
 - Adicionar crate `clap`.
 
 - Criar comando:
+
 ```lua
 runner execute --file <path> --output <path>
 ```
-*(Melhoria: Adicionado flag `--output` para definir explicitamente onde salvar o relatório JSON)*
+
+*(Melhoria: Adicionado flag `--output` para definir explicitamente onde salvar o relatório JSON)_
 
 - Gerar relatório JSON de saída:
 
-    - status
+  - status
 
-    - asserts
+  - asserts
 
-    - latência
-
+  - latência
 
 Checklist:
 
 - Você consegue rodar um JSON manual e ver resultado bonito.
 
-
 **Marco emocional:**
 Um **motor verdadeiro**, um executor real.
 
 ---
+
 ### **Fase 2 — “THE BRAIN & INTEGRATION” (Semana 3–4)**
 
 > **Objetivo: IA gera um UTDL válido, e o Runner executa.**
@@ -2472,6 +2487,7 @@ Tarefas:
 - Configurar uv/poetry.
 
 - Criar estrutura:
+
 ```bash
 brain/src/ingestion
 brain/src/llm
@@ -2481,16 +2497,16 @@ brain/src/validator
 
 - Instalar:
 
-    - pydantic
+  - pydantic
 
-    - litellm
+  - litellm
 
-    - openapi-spec-validator
-
+  - openapi-spec-validator
 
 Checklist:
 
 - Script:
+
 ```bash
 python brain/hello.py
 ```
@@ -2498,19 +2514,21 @@ python brain/hello.py
 - Modelos Pydantic espelham o contrato consumido pelo Runner (incluindo `global_headers`, `recovery_policy`, `assertions` e `extract`) e geram JSON Schema compartilhável.
 
 ---
+
 #### **2.2 — Prompt Engineering (dia 3–4)**
 
 Tarefas:
 
 - Criar o `System Prompt` profissional:
 
-    - Regras rígidas
+  - Regras rígidas
 
-    - Schema JSON
+  - Schema JSON
 
-    - Exemplo one-shot
+  - Exemplo one-shot
 
 - Criar função:
+
 ```python
 generate_utdl(requirement_text) -> dict
 ```
@@ -2520,6 +2538,7 @@ Checklist:
 - A IA retorna UTDL bruto e válido 70% das vezes.
 
 ---
+
 #### **2.3 — Validação & Self-Correction (dia 4–5)**
 
 Tarefas:
@@ -2527,6 +2546,7 @@ Tarefas:
 - Validar com Pydantic.
 
 - Loop de correção:
+
 ```vbnet
 if validation fails:
     send error message back to LLM
@@ -2539,6 +2559,7 @@ Checklist:
 - Runner rejeita planos inválidos com mensagens claras usando o mesmo schema (ou derivação) consumido pelo Brain, evitando queda silenciosa na execução.
 
 ---
+
 #### **2.4 — Glue Code Rust <-> Python (dia 6–7)**
 
 Tarefas:
@@ -2547,10 +2568,10 @@ Tarefas:
 
 - Python chama Runner via subprocesso.
 
-
 - Habilitar telemetria mínima (tracing spans por step) no Runner para acompanhar execuções disparadas pelo Brain.
 
 Checklist:
+
 ```bash
 python brain/main.py --input "Testar login"
 ```
@@ -2565,6 +2586,7 @@ python brain/main.py --input "Testar login"
 ---
 
 ### Fase 3 — MVP FULL (Semana 5–6)
+>
 > **Objetivo: entregar o MVP funcional, robusto e demonstrável.**
 
 ---
@@ -2574,7 +2596,6 @@ python brain/main.py --input "Testar login"
 Tarefas:
 
 - Refinar interpolação `${var}` e `extract` existentes, cobrindo casos de erro e validando que o contexto global é preservado por execução.
-
 
 Checklist:
 
@@ -2592,20 +2613,20 @@ Tarefas:
 
 - Logs coloridos no terminal.
 
-
 Checklist:
 
 - Cada step tem:
 
-    - trace_id
+  - trace_id
 
-    - duração
+  - duração
 
-    - método
+  - método
 
-    - status
+  - status
 
 ---
+
 #### **3.3 — Brain: Ingestão de Swagger (dia 5–6)**
 
 Tarefas:
@@ -2614,34 +2635,34 @@ Tarefas:
 
 - Gerador de casos iniciais:
 
-    - status_code
+  - status_code
 
-    - happy path
+  - happy path
 
-    - invalid request
-
+  - invalid request
 
 Checklist:
 
 - Brain gera plano completo a partir de um Swagger pequeno.
 
 ---
+
 ## **3.4 — Documentação e Demo Final (dia 6)**
 
 Tarefas:
 
 - README.md com instruções:
 
-    - instalação
+  - instalação
 
-    - rodar demo
+  - rodar demo
 
-    - estrutura do projeto
-
+  - estrutura do projeto
 
 Checklist:
 
 - Você roda:
+
 ```
 make run-demo
 ```
@@ -2655,7 +2676,9 @@ make run-demo
 **O MVP está completo, funcional e demonstrável.**
 
 ---
+
 ### Fase 4 — Pós-MVP
+>
 > **Objetivo: tornar seu sistema apresentável para empresas e GitHub.**
 
 Tarefas:
@@ -2671,7 +2694,6 @@ Tarefas:
 - Adicionar pipeline CI
 
 - Adicionar badge de build
-
 
 Checklist:
 

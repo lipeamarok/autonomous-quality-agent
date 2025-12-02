@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/pyright/main/packages/vscode-pylance/schemas/pyrightconfig.schema.json",
+  "include": ["src", "tests"],
+  "exclude": [".venv", "__pycache__"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "reportUnknownMemberType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownVariableType": false,
+  "reportMissingTypeStubs": false
+}

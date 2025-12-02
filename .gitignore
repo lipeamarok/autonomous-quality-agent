@@ -12,9 +12,9 @@ temp/
 !.vscode/extensions.json
 
 # Python (Brain)
-brain/__pycache__/
-brain/*.py[cod]
-brain/*$py.class
+__pycache__/
+*.py[cod]
+*$py.class
 brain/.venv/
 brain/env/
 brain/venv/
