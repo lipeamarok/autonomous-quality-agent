@@ -1,0 +1,30 @@
+{
+    "spec_version": "0.1",
+    "meta": {
+        "id": "demo-001",
+        "name": "Demo Plan from File",
+        "created_at": "2025-12-02T12:00:00Z"
+    },
+    "config": {
+        "base_url": "https://httpbin.org",
+        "timeout_ms": 5000
+    },
+    "steps": [
+        {
+            "id": "step_get",
+            "action": "http_request",
+            "params": {
+                "method": "GET",
+                "path": "https://httpbin.org/get"
+            }
+        },
+        {
+            "id": "step_post",
+            "action": "http_request",
+            "params": {
+                "method": "POST",
+                "path": "https://httpbin.org/post"
+            }
+        }
+    ]
+}

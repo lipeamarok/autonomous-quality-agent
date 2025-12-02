@@ -30,3 +30,4 @@ runner/**/*.rs.bk
 # UTDL Reports & Plans (Runtime data)
 plans/*.json
 reports/*.json
+report.json
