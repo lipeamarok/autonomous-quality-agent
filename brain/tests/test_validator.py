@@ -11,10 +11,16 @@ validam corretamente planos UTDL, incluindo:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
-from brain.src.validator import Assertion, Config, Meta, Plan, Step
+# Adiciona o diretório brain ao path para imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.validator import Assertion, Config, Meta, Plan, Step
 
 
 class TestAssertion:

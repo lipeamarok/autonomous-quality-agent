@@ -31,7 +31,7 @@ pub struct Config {
     pub variables: HashMap<String, Value>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Step {
     pub id: String,
     #[serde(default)]
@@ -48,7 +48,7 @@ pub struct Step {
     pub recovery_policy: Option<RecoveryPolicy>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Assertion {
     #[serde(rename = "type")]
     pub assertion_type: String,
@@ -58,21 +58,31 @@ pub struct Assertion {
     pub path: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Extraction {
     pub source: String,
     pub path: String,
     pub target: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RecoveryPolicy {
+    /// Estratégia: "retry", "fail_fast", "ignore"
     pub strategy: String,
+    /// Número máximo de tentativas (incluindo a primeira)
     pub max_attempts: u32,
+    /// Delay base em milissegundos entre tentativas
     pub backoff_ms: u64,
+    /// Fator multiplicador para backoff exponencial (padrão: 2.0)
+    #[serde(default = "default_backoff_factor")]
+    pub backoff_factor: f64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+fn default_backoff_factor() -> f64 {
+    2.0
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct StepResult {
     pub step_id: String,
     pub status: StepStatus,
@@ -81,7 +91,7 @@ pub struct StepResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum StepStatus {
     Passed,
