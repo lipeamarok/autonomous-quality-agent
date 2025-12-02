@@ -1,0 +1,32 @@
+# General
+.DS_Store
+*.log
+tmp/
+temp/
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Python (Brain)
+brain/__pycache__/
+brain/*.py[cod]
+brain/*$py.class
+brain/.venv/
+brain/env/
+brain/venv/
+brain/*.egg-info/
+brain/.pytest_cache/
+brain/.coverage
+brain/htmlcov/
+
+# Rust (Runner)
+runner/target/
+runner/**/*.rs.bk
+
+# UTDL Reports & Plans (Runtime data)
+plans/*.json
+reports/*.json
