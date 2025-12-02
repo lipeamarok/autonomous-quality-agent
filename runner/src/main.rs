@@ -61,6 +61,10 @@ async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>) {
 
     // 2. Initialize Context & Executors
     let mut context = Context::new();
+
+    // Inject base_url into context so executors can use it
+    context.set("base_url".to_string(), serde_json::Value::String(plan.config.base_url.clone()));
+
     let http_executor = HttpExecutor::new();
     let executors: Vec<Box<dyn StepExecutor>> = vec![
         Box::new(http_executor),
