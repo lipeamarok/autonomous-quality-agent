@@ -7,7 +7,11 @@
     },
     "config": {
         "base_url": "https://httpbin.org",
-        "timeout_ms": 5000
+        "timeout_ms": 5000,
+        "variables": {
+            "token_value": "autonomous-123",
+            "sample_payload": "demo"
+        }
     },
     "steps": [
         {
@@ -15,16 +19,54 @@
             "action": "http_request",
             "params": {
                 "method": "GET",
-                "path": "https://httpbin.org/get"
-            }
+                "path": "/get?token=${token_value}"
+            },
+            "assertions": [
+                {
+                    "type": "status_code",
+                    "operator": "eq",
+                    "value": 200
+                }
+            ],
+            "extract": [
+                {
+                    "source": "body",
+                    "path": "args.token",
+                    "target": "auth_token"
+                }
+            ]
         },
         {
             "id": "step_post",
             "action": "http_request",
             "params": {
                 "method": "POST",
-                "path": "https://httpbin.org/post"
-            }
+                "path": "/post",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "X-Test-Header": "AutonomousAgent",
+                    "Authorization": "Bearer ${auth_token}"
+                },
+                "body": {
+                    "foo": "${sample_payload}",
+                    "nested": {
+                        "value": 123
+                    }
+                }
+            },
+            "assertions": [
+                {
+                    "type": "status_code",
+                    "operator": "eq",
+                    "value": 200
+                },
+                {
+                    "type": "json_body",
+                    "path": "json.foo",
+                    "operator": "eq",
+                    "value": "demo"
+                }
+            ]
         }
     ]
 }

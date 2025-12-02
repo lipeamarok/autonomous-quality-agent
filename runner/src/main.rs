@@ -4,13 +4,14 @@ mod executors;
 mod context;
 mod telemetry;
 
-use protocol::{Plan, ExecutionReport, StepStatus};
+use protocol::{ExecutionReport, StepStatus};
 use executors::{StepExecutor, http::HttpExecutor};
 use context::Context;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::fs;
 use chrono::Utc;
+use tracing::{error, info};
 
 #[derive(Parser)]
 #[command(name = "runner")]
@@ -36,6 +37,10 @@ enum Commands {
 
 #[tokio::main]
 async fn main() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
+
     let cli = Cli::parse();
 
     match &cli.command {
@@ -46,24 +51,23 @@ async fn main() {
 }
 
 async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>) {
-    println!("🚀 Runner Initializing...");
+    info!("Runner initializing");
     let start_time = Utc::now();
 
     // 1. Load Plan
     let plan = match loader::load_plan_from_file(file_path) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("❌ Failed to load plan: {}", e);
+            error!(error = %e, "Failed to load plan");
             std::process::exit(1);
         }
     };
-    println!("📋 Plan Loaded: {}", plan.meta.name);
+    info!(plan_id = %plan.meta.id, plan_name = %plan.meta.name, "Plan loaded");
 
     // 2. Initialize Context & Executors
     let mut context = Context::new();
-
-    // Inject base_url into context so executors can use it
-    context.set("base_url".to_string(), serde_json::Value::String(plan.config.base_url.clone()));
+    context.set("base_url", serde_json::Value::String(plan.config.base_url.clone()));
+    context.extend(&plan.config.variables);
 
     let http_executor = HttpExecutor::new();
     let executors: Vec<Box<dyn StepExecutor>> = vec![
@@ -71,12 +75,12 @@ async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>) {
     ];
 
     // 3. Execute Steps
-    println!("▶️  Starting Execution...");
+    info!("Starting execution");
     let mut step_results = Vec::new();
     let mut all_passed = true;
 
     for step in plan.steps {
-        println!("Running step: {}", step.id);
+        info!(step_id = %step.id, action = %step.action, "Running step");
 
         let executor = executors.iter()
             .find(|e| e.can_handle(&step.action))
@@ -84,14 +88,14 @@ async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>) {
 
         let result = match executor.execute(&step, &mut context).await {
             Ok(res) => {
-                println!("   ✅ Result: {:?} ({}ms)", res.status, res.duration_ms);
                 if res.status != StepStatus::Passed {
                     all_passed = false;
                 }
+                info!(step_id = %step.id, status = ?res.status, duration_ms = res.duration_ms, "Step finished");
                 res
             },
             Err(e) => {
-                println!("   ❌ Execution Error: {}", e);
+                error!(step_id = %step.id, error = %e, "Execution error");
                 all_passed = false;
                 protocol::StepResult {
                     step_id: step.id.clone(),
@@ -105,7 +109,7 @@ async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>) {
     }
 
     let end_time = Utc::now();
-    println!("🏁 Execution Finished.");
+    info!("Execution finished");
 
     // 4. Generate Report
     let report = ExecutionReport {
