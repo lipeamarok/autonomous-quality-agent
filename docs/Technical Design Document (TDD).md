@@ -2495,6 +2495,8 @@ Checklist:
 python brain/hello.py
 ```
 
+- Modelos Pydantic espelham o contrato consumido pelo Runner (incluindo `global_headers`, `recovery_policy`, `assertions` e `extract`) e geram JSON Schema compartilhável.
+
 ---
 #### **2.2 — Prompt Engineering (dia 3–4)**
 
@@ -2534,6 +2536,8 @@ Checklist:
 
 - IA sempre devolve UTDL válido após no máximo 3 iterações.
 
+- Runner rejeita planos inválidos com mensagens claras usando o mesmo schema (ou derivação) consumido pelo Brain, evitando queda silenciosa na execução.
+
 ---
 #### **2.4 — Glue Code Rust <-> Python (dia 6–7)**
 
@@ -2543,6 +2547,8 @@ Tarefas:
 
 - Python chama Runner via subprocesso.
 
+
+- Habilitar telemetria mínima (tracing spans por step) no Runner para acompanhar execuções disparadas pelo Brain.
 
 Checklist:
 ```bash
@@ -2567,11 +2573,7 @@ python brain/main.py --input "Testar login"
 
 Tarefas:
 
-- Implementar interpolação `${var}`.
-
-- Implementar `extract`.
-
-- Manter `Context` global por execução.
+- Refinar interpolação `${var}` e `extract` existentes, cobrindo casos de erro e validando que o contexto global é preservado por execução.
 
 
 Checklist:
