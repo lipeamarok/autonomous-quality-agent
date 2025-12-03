@@ -328,19 +328,34 @@ pub struct Assertion {
 /// Após a extração, `${auth_token}` fica disponível para uso.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Extraction {
-    /// Fonte dos dados: "body" ou "header".
+    /// Fonte dos dados: "body", "header", ou "status_code".
     pub source: String,
 
     /// Caminho para o dado.
     ///
     /// Para body: JSONPath (ex: "data.user.id", "/data/user/id")
     /// Para header: nome do header (ex: "X-Request-Id")
+    /// Para status_code: não usado (pode ser vazio)
     pub path: String,
 
     /// Nome da variável onde salvar o valor extraído.
     ///
     /// Após a extração, use `${target}` para acessar o valor.
     pub target: String,
+
+    /// Se true, retorna todos os matches como array.
+    ///
+    /// Útil para JSONPath com wildcard ou regex com múltiplos matches.
+    /// Padrão: false (retorna apenas o primeiro).
+    #[serde(default)]
+    pub all_values: bool,
+
+    /// Se true, a falha desta extração é crítica e deve abortar.
+    ///
+    /// Quando false, a falha é registrada mas a execução continua.
+    /// Padrão: false (tolerante a falhas).
+    #[serde(default)]
+    pub critical: bool,
 }
 
 // ============================================================================

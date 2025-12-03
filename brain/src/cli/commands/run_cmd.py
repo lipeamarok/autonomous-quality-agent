@@ -23,12 +23,14 @@ Este comando executa um plano UTDL usando o Runner Rust.
 - `--report FILE` → Salva relatório JSON
 - `--parallel` → Executa steps em paralelo (DAG)
 - `--timeout 60` → Timeout global em segundos
+- `--runner-path` → Caminho explícito para o binário Runner
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -41,7 +43,45 @@ from ...ingestion import parse_openapi
 from ...ingestion.swagger import spec_to_requirement_text
 from ...runner import run_plan, RunnerResult
 from ...validator import UTDLValidator, Plan
-from ..utils import load_config, get_default_model
+from ..utils import load_config, get_default_model, get_runner_path, get_runner_search_paths
+
+
+def _print_json_error(console: Console, code: str, message: str, details: dict[str, Any] | None = None) -> None:
+    """Imprime erro em formato JSON estruturado."""
+    error_obj: dict[str, Any] = {
+        "success": False,
+        "error": {
+            "code": code,
+            "message": message,
+        }
+    }
+    if details:
+        error_obj["error"]["details"] = details
+    console.print_json(data=error_obj)
+
+
+def _print_json_result(console: Console, result: RunnerResult) -> None:
+    """Imprime resultado em formato JSON estruturado."""
+    output: dict[str, Any] = {
+        "success": result.success,
+        "summary": result.summary(),
+        "stats": {
+            "total": len(result.steps),
+            "passed": sum(1 for s in result.steps if s.status == "passed"),
+            "failed": sum(1 for s in result.steps if s.status == "failed"),
+            "skipped": sum(1 for s in result.steps if s.status == "skipped"),
+        },
+        "steps": [
+            {
+                "id": s.step_id,
+                "status": s.status,
+                "duration_ms": s.duration_ms,
+                "error": s.error,
+            }
+            for s in result.steps
+        ],
+    }
+    console.print_json(data=output)
 
 
 @click.command()
@@ -91,6 +131,11 @@ from ..utils import load_config, get_default_model
     default=300,
     help="Timeout global em segundos (padrão: 300)"
 )
+@click.option(
+    "--runner-path",
+    type=click.Path(),
+    help="Caminho explícito para o binário Runner"
+)
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -103,6 +148,7 @@ def run(
     save_plan: str | None,
     parallel: bool,
     timeout: int,
+    runner_path: str | None,
 ) -> None:
     """
     Executa um plano de teste UTDL.
@@ -115,19 +161,42 @@ def run(
     """
     console: Console = ctx.obj["console"]
     verbose: bool = ctx.obj["verbose"]
+    quiet: bool = ctx.obj.get("quiet", False)
+    json_output: bool = ctx.obj.get("json_output", False)
+    error_console: Console = ctx.obj["error_console"]
     _ = verbose  # Used for future verbose output
 
     # Valida argumentos
     if not plan_file and not swagger and not requirement:
-        console.print(
-            "[red]❌ Forneça um arquivo de plano ou --swagger/--requirement[/red]"
-        )
+        if json_output:
+            _print_json_error(error_console, "MISSING_INPUT", "Forneça um arquivo de plano ou --swagger/--requirement")
+        else:
+            console.print(
+                "[red]❌ Forneça um arquivo de plano ou --swagger/--requirement[/red]"
+            )
         raise SystemExit(1)
 
     if plan_file and (swagger or requirement):
-        console.print(
-            "[red]❌ Não combine arquivo de plano com --swagger/--requirement[/red]"
-        )
+        if json_output:
+            _print_json_error(error_console, "CONFLICTING_INPUT", "Não combine arquivo de plano com --swagger/--requirement")
+        else:
+            console.print(
+                "[red]❌ Não combine arquivo de plano com --swagger/--requirement[/red]"
+            )
+        raise SystemExit(1)
+
+    # Verifica se Runner está disponível
+    runner_binary = get_runner_path(runner_path)
+    if runner_binary is None:
+        search_paths = get_runner_search_paths()
+        if json_output:
+            _print_json_error(error_console, "RUNNER_NOT_FOUND", "Runner não encontrado", {"searched": search_paths})
+        else:
+            console.print("[red]❌ Runner não encontrado![/red]")
+            console.print("Caminhos pesquisados:")
+            for p in search_paths:
+                console.print(f"  • {p}")
+            console.print("\n[dim]Dica: Compile com 'cargo build --release' ou use --runner-path[/dim]")
         raise SystemExit(1)
 
     # Carrega configuração
@@ -140,18 +209,22 @@ def run(
     # =========================================================================
     if plan_file:
         plan_path = Path(plan_file)
-        console.print(f"📄 Carregando plano: [cyan]{plan_path.name}[/cyan]")
+        if not quiet and not json_output:
+            console.print(f"📄 Carregando plano: [cyan]{plan_path.name}[/cyan]")
 
         try:
             plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            console.print(f"[red]❌ JSON inválido: {e}[/red]")
+            if json_output:
+                _print_json_error(error_console, "INVALID_JSON", str(e))
+            else:
+                console.print(f"[red]❌ JSON inválido: {e}[/red]")
             raise SystemExit(1)
 
         # Valida antes de executar
         validator = UTDLValidator()
         validation = validator.validate(plan_data)
-        
+
         if not validation.is_valid:
             console.print("[red]❌ Plano inválido:[/red]")
             for error in validation.errors:
@@ -197,47 +270,69 @@ def run(
         # Salva plano se solicitado
         if save_plan:
             Path(save_plan).write_text(plan.to_json(), encoding="utf-8")
-            console.print(f"📄 Plano salvo em: [cyan]{save_plan}[/cyan]")
+            if not quiet and not json_output:
+                console.print(f"📄 Plano salvo em: [cyan]{save_plan}[/cyan]")
 
     # =========================================================================
     # EXECUÇÃO
     # =========================================================================
-    
-    console.print()
-    console.print(Panel(
-        f"[bold]{plan.meta.name}[/bold]\n"
-        f"[dim]{plan.meta.description or 'Sem descrição'}[/dim]\n\n"
-        f"Steps: {len(plan.steps)} | "
-        f"Modo: {'Paralelo' if parallel else 'Sequencial'}",
-        title="🚀 Executando Plano",
-        border_style="blue",
-    ))
-    console.print()
+
+    if not quiet and not json_output:
+        console.print()
+        console.print(Panel(
+            f"[bold]{plan.meta.name}[/bold]\n"
+            f"[dim]{plan.meta.description or 'Sem descrição'}[/dim]\n\n"
+            f"Steps: {len(plan.steps)} | "
+            f"Modo: {'Paralelo' if parallel else 'Sequencial'}",
+            title="🚀 Executando Plano",
+            border_style="blue",
+        ))
+        console.print()
 
     # Executa
     try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task(
-                "[cyan]Executando steps...[/cyan]",
-                total=len(plan.steps)
-            )
-            
+        if quiet or json_output:
+            # Execução silenciosa
             result: RunnerResult = run_plan(plan)
-            progress.update(task, completed=len(plan.steps))
+        else:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task(
+                    "[cyan]Executando steps...[/cyan]",
+                    total=len(plan.steps)
+                )
+
+                result = run_plan(plan)
+                progress.update(task, completed=len(plan.steps))
 
     except RuntimeError as e:
-        console.print(f"[red]❌ Erro de execução: {e}[/red]")
+        if json_output:
+            _print_json_error(error_console, "EXECUTION_ERROR", str(e))
+        else:
+            console.print(f"[red]❌ Erro de execução: {e}[/red]")
         raise SystemExit(1)
 
     # =========================================================================
     # RESULTADOS
     # =========================================================================
+
+    # Modo JSON: saída estruturada
+    if json_output:
+        _print_json_result(console, result)
+        # Salva relatório se solicitado
+        if report:
+            report_path = Path(report)
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(result.raw_report, indent=2, ensure_ascii=False),
+                encoding="utf-8"
+            )
+        raise SystemExit(0 if result.success else 1)
 
     console.print()
 

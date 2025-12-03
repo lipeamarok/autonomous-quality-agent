@@ -44,6 +44,42 @@ use crate::errors::ErrorCode;
 use crate::protocol::Extraction;
 
 // ============================================================================
+// TIPOS DE VALOR
+// ============================================================================
+
+/// Tipo do valor extraído, para validação e debug.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ValueType {
+    /// Valor string
+    String,
+    /// Valor numérico (inteiro ou float)
+    Number,
+    /// Valor booleano
+    Boolean,
+    /// Array de valores
+    Array,
+    /// Objeto JSON
+    Object,
+    /// Valor null
+    Null,
+}
+
+impl ValueType {
+    /// Detecta o tipo de um serde_json::Value.
+    pub fn from_value(value: &Value) -> Self {
+        match value {
+            Value::String(_) => ValueType::String,
+            Value::Number(_) => ValueType::Number,
+            Value::Bool(_) => ValueType::Boolean,
+            Value::Array(_) => ValueType::Array,
+            Value::Object(_) => ValueType::Object,
+            Value::Null => ValueType::Null,
+        }
+    }
+}
+
+// ============================================================================
 // ESTRUTURAS DE RESULTADO
 // ============================================================================
 
@@ -56,7 +92,7 @@ pub struct ExtractionResult {
     /// Nome da variável de destino (target).
     pub target: String,
 
-    /// Fonte da extração: "body" ou "header".
+    /// Fonte da extração: "body", "header" ou "status_code".
     pub source: String,
 
     /// Caminho usado para extração (JSONPath, regex ou nome do header).
@@ -65,6 +101,10 @@ pub struct ExtractionResult {
     /// Valor extraído, se sucesso.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
+
+    /// Tipo do valor extraído (string, number, boolean, array, object).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_type: Option<ValueType>,
 
     /// Mensagem de erro, se falhou.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,19 +116,42 @@ pub struct ExtractionResult {
 
     /// Se a extração foi bem-sucedida.
     pub success: bool,
+
+    /// Se esta extração era crítica (deve abortar em caso de falha).
+    #[serde(default)]
+    pub is_critical: bool,
 }
 
 impl ExtractionResult {
     /// Cria um resultado de sucesso.
     pub fn success(target: String, source: String, path: String, value: Value) -> Self {
+        let value_type = Some(ValueType::from_value(&value));
         Self {
             target,
             source,
             path,
             value: Some(value),
+            value_type,
             error: None,
             error_code: None,
             success: true,
+            is_critical: false,
+        }
+    }
+
+    /// Cria um resultado de sucesso com flag de crítico.
+    pub fn success_critical(target: String, source: String, path: String, value: Value, critical: bool) -> Self {
+        let value_type = Some(ValueType::from_value(&value));
+        Self {
+            target,
+            source,
+            path,
+            value: Some(value),
+            value_type,
+            error: None,
+            error_code: None,
+            success: true,
+            is_critical: critical,
         }
     }
 
@@ -99,9 +162,26 @@ impl ExtractionResult {
             source,
             path,
             value: None,
+            value_type: None,
             error: Some(error),
             error_code: None,
             success: false,
+            is_critical: false,
+        }
+    }
+
+    /// Cria um resultado de falha com flag de crítico.
+    pub fn failure_critical(target: String, source: String, path: String, error: String, critical: bool) -> Self {
+        Self {
+            target,
+            source,
+            path,
+            value: None,
+            value_type: None,
+            error: Some(error),
+            error_code: None,
+            success: false,
+            is_critical: critical,
         }
     }
 
@@ -118,10 +198,39 @@ impl ExtractionResult {
             source,
             path,
             value: None,
+            value_type: None,
             error: Some(error),
             error_code: Some(code.formatted()),
             success: false,
+            is_critical: false,
         }
+    }
+
+    /// Cria um resultado de falha com código de erro e flag de crítico.
+    pub fn failure_with_code_critical(
+        target: String,
+        source: String,
+        path: String,
+        error: String,
+        code: ErrorCode,
+        critical: bool,
+    ) -> Self {
+        Self {
+            target,
+            source,
+            path,
+            value: None,
+            value_type: None,
+            error: Some(error),
+            error_code: Some(code.formatted()),
+            success: false,
+            is_critical: critical,
+        }
+    }
+
+    /// Verifica se a falha deve abortar a execução.
+    pub fn should_abort(&self) -> bool {
+        !self.success && self.is_critical
     }
 }
 
@@ -142,20 +251,32 @@ impl Extractor {
     /// - `extractions`: Lista de regras de extração do step
     /// - `response_body`: Body da resposta HTTP (JSON)
     /// - `response_headers`: Headers da resposta HTTP
+    /// - `status_code`: Código de status HTTP (para extração de status)
     ///
     /// ## Retorno:
     /// - Lista de resultados (sucesso ou falha para cada extração)
     /// - HashMap com os valores extraídos com sucesso (para popular o Context)
+    /// - bool indicando se alguma extração crítica falhou
     pub fn process(
         extractions: &[Extraction],
         response_body: Option<&Value>,
         response_headers: &HashMap<String, String>,
     ) -> (Vec<ExtractionResult>, HashMap<String, Value>) {
+        Self::process_with_status(extractions, response_body, response_headers, None)
+    }
+
+    /// Processa extrações com suporte a status_code.
+    pub fn process_with_status(
+        extractions: &[Extraction],
+        response_body: Option<&Value>,
+        response_headers: &HashMap<String, String>,
+        status_code: Option<u16>,
+    ) -> (Vec<ExtractionResult>, HashMap<String, Value>) {
         let mut results = Vec::with_capacity(extractions.len());
         let mut extracted_values = HashMap::new();
 
         for extraction in extractions {
-            let result = Self::extract_single(extraction, response_body, response_headers);
+            let result = Self::extract_single(extraction, response_body, response_headers, status_code);
 
             // Se sucesso, adiciona ao HashMap de valores
             if result.success {
@@ -170,25 +291,58 @@ impl Extractor {
         (results, extracted_values)
     }
 
+    /// Verifica se alguma extração crítica falhou.
+    pub fn has_critical_failure(results: &[ExtractionResult]) -> bool {
+        results.iter().any(|r| r.should_abort())
+    }
+
     /// Processa uma única extração.
     fn extract_single(
         extraction: &Extraction,
         response_body: Option<&Value>,
         response_headers: &HashMap<String, String>,
+        status_code: Option<u16>,
     ) -> ExtractionResult {
         let source = extraction.source.to_lowercase();
         let target = extraction.target.clone();
         let path = extraction.path.clone();
+        let critical = extraction.critical;
+        let all_values = extraction.all_values;
 
-        match source.as_str() {
-            "body" => Self::extract_from_body(&target, &path, response_body),
+        let mut result = match source.as_str() {
+            "body" => Self::extract_from_body(&target, &path, response_body, all_values),
             "header" => Self::extract_from_header(&target, &path, response_headers),
+            "status_code" | "statuscode" | "status" => {
+                Self::extract_status_code(&target, status_code)
+            }
             _ => ExtractionResult::failure_with_code(
                 target,
                 source.clone(),
                 path,
-                format!("Fonte de extração desconhecida '{}'. Use 'body' ou 'header'.", source),
+                format!("Fonte de extração desconhecida '{}'. Use 'body', 'header' ou 'status_code'.", source),
                 ErrorCode::EXTRACTION_INVALID_SOURCE,
+            ),
+        };
+
+        // Define flag de crítico no resultado
+        result.is_critical = critical;
+        result
+    }
+
+    /// Extrai o código de status HTTP.
+    fn extract_status_code(target: &str, status_code: Option<u16>) -> ExtractionResult {
+        match status_code {
+            Some(code) => ExtractionResult::success(
+                target.to_string(),
+                "status_code".to_string(),
+                "".to_string(),
+                Value::Number(code.into()),
+            ),
+            None => ExtractionResult::failure(
+                target.to_string(),
+                "status_code".to_string(),
+                "".to_string(),
+                "Status code não disponível.".to_string(),
             ),
         }
     }
@@ -203,6 +357,7 @@ impl Extractor {
         target: &str,
         path: &str,
         response_body: Option<&Value>,
+        all_values: bool,
     ) -> ExtractionResult {
         let body = match response_body {
             Some(b) => b,
@@ -218,11 +373,11 @@ impl Extractor {
 
         // Verifica se é extração por regex
         if let Some(regex_pattern) = path.strip_prefix("regex:") {
-            return Self::extract_with_regex(target, regex_pattern, body);
+            return Self::extract_with_regex(target, regex_pattern, body, all_values);
         }
 
         // Extração por JSONPath
-        Self::extract_with_jsonpath(target, path, body)
+        Self::extract_with_jsonpath(target, path, body, all_values)
     }
 
     /// Extrai valor usando JSONPath.
@@ -232,7 +387,9 @@ impl Extractor {
     /// - `data.token` → Convertido para JSONPath
     /// - `$.users[0].id` → Acesso a arrays
     /// - `$.items[*].name` → Todos os items (retorna array)
-    fn extract_with_jsonpath(target: &str, path: &str, body: &Value) -> ExtractionResult {
+    ///
+    /// Se `all_values` for true, retorna todos os matches como array.
+    fn extract_with_jsonpath(target: &str, path: &str, body: &Value, all_values: bool) -> ExtractionResult {
         // Normaliza o path para JSONPath
         let jsonpath = if path.starts_with('$') {
             path.to_string()
@@ -242,7 +399,7 @@ impl Extractor {
 
         // Usa navegação manual por enquanto (serde_json_path será adicionado depois)
         // Isso permite funcionar sem dependência externa inicialmente
-        match navigate_json(body, &jsonpath) {
+        match navigate_json_multi(body, &jsonpath, all_values) {
             Ok(value) => {
                 if value.is_null() {
                     ExtractionResult::failure_with_code(
@@ -275,7 +432,8 @@ impl Extractor {
     ///
     /// O primeiro grupo de captura `()` é usado como valor.
     /// Se não houver grupo, o match completo é usado.
-    fn extract_with_regex(target: &str, pattern: &str, body: &Value) -> ExtractionResult {
+    /// Se `all_values` for true, retorna todos os matches como array.
+    fn extract_with_regex(target: &str, pattern: &str, body: &Value, all_values: bool) -> ExtractionResult {
         // Converte body para string para aplicar regex
         let body_str = match body {
             Value::String(s) => s.clone(),
@@ -284,29 +442,58 @@ impl Extractor {
 
         match Regex::new(pattern) {
             Ok(re) => {
-                match re.captures(&body_str) {
-                    Some(caps) => {
-                        // Usa o primeiro grupo de captura, ou o match completo
-                        let value = caps
-                            .get(1)
-                            .or_else(|| caps.get(0))
-                            .map(|m| m.as_str())
-                            .unwrap_or("");
+                if all_values {
+                    // Retorna todos os matches como array
+                    let matches: Vec<Value> = re.captures_iter(&body_str)
+                        .filter_map(|caps| {
+                            caps.get(1)
+                                .or_else(|| caps.get(0))
+                                .map(|m| Value::String(m.as_str().to_string()))
+                        })
+                        .collect();
 
+                    if matches.is_empty() {
+                        ExtractionResult::failure_with_code(
+                            target.to_string(),
+                            "body".to_string(),
+                            format!("regex:{}", pattern),
+                            format!("Padrão regex '{}' não encontrou match no body.", pattern),
+                            ErrorCode::EXTRACTION_REGEX_NO_MATCH,
+                        )
+                    } else {
                         ExtractionResult::success(
                             target.to_string(),
                             "body".to_string(),
                             format!("regex:{}", pattern),
-                            Value::String(value.to_string()),
+                            Value::Array(matches),
                         )
                     }
-                    None => ExtractionResult::failure_with_code(
-                        target.to_string(),
-                        "body".to_string(),
-                        format!("regex:{}", pattern),
-                        format!("Padrão regex '{}' não encontrou match no body.", pattern),
-                        ErrorCode::EXTRACTION_REGEX_NO_MATCH,
-                    ),
+                } else {
+                    // Retorna apenas o primeiro match
+                    match re.captures(&body_str) {
+                        Some(caps) => {
+                            // Usa o primeiro grupo de captura, ou o match completo
+                            let value = caps
+                                .get(1)
+                                .or_else(|| caps.get(0))
+                                .map(|m| m.as_str())
+                                .unwrap_or("");
+
+                            ExtractionResult::success(
+                                target.to_string(),
+                                "body".to_string(),
+                                format!("regex:{}", pattern),
+                                Value::String(value.to_string()),
+                            )
+                        }
+                        None => ExtractionResult::failure_with_code(
+                            target.to_string(),
+                            "body".to_string(),
+                            format!("regex:{}", pattern),
+                            format!("Padrão regex '{}' não encontrou match no body.", pattern),
+                            ErrorCode::EXTRACTION_REGEX_NO_MATCH,
+                        ),
+                    }
                 }
             }
             Err(e) => ExtractionResult::failure_with_code(
@@ -361,6 +548,14 @@ impl Extractor {
 /// - `$.array[0]` → Acesso a índice de array
 /// - `$.array[*]` → Todos os elementos (retorna array)
 fn navigate_json(value: &Value, path: &str) -> Result<Value> {
+    navigate_json_multi(value, path, false)
+}
+
+/// Navega em um Value JSON com suporte a múltiplos valores.
+///
+/// Se `all_values` for true e houver múltiplos resultados (ex: wildcard),
+/// retorna todos como array. Caso contrário, retorna o primeiro.
+fn navigate_json_multi(value: &Value, path: &str, all_values: bool) -> Result<Value> {
     // Remove o prefixo "$." se presente
     let clean_path = path.strip_prefix("$.").unwrap_or(path);
 
@@ -371,7 +566,7 @@ fn navigate_json(value: &Value, path: &str) -> Result<Value> {
     let mut current = value.clone();
 
     for segment in split_path(clean_path) {
-        current = navigate_segment(&current, &segment)?;
+        current = navigate_segment(&current, &segment, all_values)?;
     }
 
     Ok(current)
@@ -421,7 +616,7 @@ fn split_path(path: &str) -> Vec<String> {
 }
 
 /// Navega um único segmento do path.
-fn navigate_segment(value: &Value, segment: &str) -> Result<Value> {
+fn navigate_segment(value: &Value, segment: &str, _all_values: bool) -> Result<Value> {
     // Índice de array: [0], [1], [*]
     if segment.starts_with('[') && segment.ends_with(']') {
         let index_str = &segment[1..segment.len() - 1];
@@ -524,6 +719,8 @@ mod tests {
             source: "body".to_string(),
             path: "$.token".to_string(),
             target: "auth_token".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, values) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -549,11 +746,15 @@ mod tests {
                 source: "body".to_string(),
                 path: "$.data.user.id".to_string(),
                 target: "user_id".to_string(),
+                all_values: false,
+                critical: false,
             },
             Extraction {
                 source: "body".to_string(),
                 path: "$.data.user.name".to_string(),
                 target: "user_name".to_string(),
+                all_values: false,
+                critical: false,
             },
         ];
 
@@ -572,6 +773,8 @@ mod tests {
             source: "body".to_string(),
             path: "$.missing_field".to_string(),
             target: "result".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, values) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -596,6 +799,8 @@ mod tests {
             source: "header".to_string(),
             path: "X-Request-Id".to_string(),
             target: "request_id".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, values) = Extractor::process(&[extraction], None, &headers);
@@ -614,6 +819,8 @@ mod tests {
             source: "header".to_string(),
             path: "Content-Type".to_string(),  // Diferente case
             target: "content_type".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, values) = Extractor::process(&[extraction], None, &headers);
@@ -629,6 +836,8 @@ mod tests {
             source: "header".to_string(),
             path: "X-Missing".to_string(),
             target: "missing".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], None, &headers);
@@ -648,6 +857,8 @@ mod tests {
             source: "body".to_string(),
             path: "regex:Bearer\\s+(\\S+)".to_string(),
             target: "jwt_token".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, values) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -666,6 +877,8 @@ mod tests {
             source: "body".to_string(),
             path: "regex:Bearer\\s+(\\S+)".to_string(),
             target: "token".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -681,6 +894,8 @@ mod tests {
             source: "body".to_string(),
             path: "regex:[invalid".to_string(),
             target: "result".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -709,21 +924,29 @@ mod tests {
                 source: "body".to_string(),
                 path: "$.access_token".to_string(),
                 target: "access_token".to_string(),
+                all_values: false,
+                critical: false,
             },
             Extraction {
                 source: "body".to_string(),
                 path: "$.refresh_token".to_string(),
                 target: "refresh_token".to_string(),
+                all_values: false,
+                critical: false,
             },
             Extraction {
                 source: "body".to_string(),
                 path: "$.expires_in".to_string(),
                 target: "expires_in".to_string(),
+                all_values: false,
+                critical: false,
             },
             Extraction {
                 source: "header".to_string(),
                 path: "X-RateLimit-Remaining".to_string(),
                 target: "rate_limit".to_string(),
+                all_values: false,
+                critical: false,
             },
         ];
 
@@ -748,6 +971,8 @@ mod tests {
             source: "body".to_string(),
             path: "$.token".to_string(),
             target: "token".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], None, &HashMap::new());
@@ -762,6 +987,8 @@ mod tests {
             source: "unknown".to_string(),
             path: "test".to_string(),
             target: "result".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], None, &HashMap::new());
@@ -777,6 +1004,8 @@ mod tests {
             source: "body".to_string(),
             path: "$.token".to_string(),
             target: "token".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -796,6 +1025,8 @@ mod tests {
             source: "body".to_string(),
             path: "$.data.missing_field".to_string(),
             target: "token".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -810,6 +1041,8 @@ mod tests {
             source: "header".to_string(),
             path: "X-Missing-Header".to_string(),
             target: "header".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], None, &HashMap::new());
@@ -825,6 +1058,8 @@ mod tests {
             source: "body".to_string(),
             path: "regex:token=(\\w+)".to_string(),
             target: "token".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -835,10 +1070,13 @@ mod tests {
 
     #[test]
     fn test_error_code_invalid_source() {
+        // Note: Now "statuscode" is valid, so we use a truly invalid source
         let extraction = Extraction {
-            source: "statuscode".to_string(),
+            source: "invalid_source".to_string(),
             path: "test".to_string(),
             target: "result".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], None, &HashMap::new());
@@ -854,6 +1092,8 @@ mod tests {
             source: "body".to_string(),
             path: "regex:[invalid(".to_string(),
             target: "token".to_string(),
+            all_values: false,
+            critical: false,
         };
 
         let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -891,16 +1131,22 @@ mod tests {
                 source: "body".to_string(),
                 path: "$.data.access_token".to_string(),
                 target: "auth_token".to_string(),
+                all_values: false,
+                critical: false,
             },
             Extraction {
                 source: "body".to_string(),
                 path: "$.data.user.id".to_string(),
                 target: "user_id".to_string(),
+                all_values: false,
+                critical: false,
             },
             Extraction {
                 source: "header".to_string(),
                 path: "X-Request-Id".to_string(),
                 target: "request_id".to_string(),
+                all_values: false,
+                critical: false,
             },
         ];
 
@@ -929,5 +1175,243 @@ mod tests {
 
         let user_id = ctx.variables.get("user_id").unwrap();
         assert_eq!(user_id, &json!(42));
+    }
+
+    // ------------------------------------------------------------------------
+    // Testes de extração de status_code
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_extract_status_code() {
+        let extraction = Extraction {
+            source: "status_code".to_string(),
+            path: "".to_string(),
+            target: "http_status".to_string(),
+            all_values: false,
+            critical: false,
+        };
+
+        let (results, values) = Extractor::process_with_status(
+            &[extraction],
+            None,
+            &HashMap::new(),
+            Some(200),
+        );
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].success);
+        assert_eq!(values.get("http_status"), Some(&json!(200)));
+        assert_eq!(results[0].value_type, Some(ValueType::Number));
+    }
+
+    #[test]
+    fn test_extract_status_code_not_available() {
+        let extraction = Extraction {
+            source: "status_code".to_string(),
+            path: "".to_string(),
+            target: "http_status".to_string(),
+            all_values: false,
+            critical: false,
+        };
+
+        let (results, _) = Extractor::process_with_status(
+            &[extraction],
+            None,
+            &HashMap::new(),
+            None,
+        );
+
+        assert!(!results[0].success);
+        assert!(results[0].error.as_ref().unwrap().contains("não disponível"));
+    }
+
+    // ------------------------------------------------------------------------
+    // Testes de value_type
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_value_type_string() {
+        let body = json!({"name": "test"});
+        let extraction = Extraction {
+            source: "body".to_string(),
+            path: "$.name".to_string(),
+            target: "name".to_string(),
+            all_values: false,
+            critical: false,
+        };
+
+        let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
+
+        assert!(results[0].success);
+        assert_eq!(results[0].value_type, Some(ValueType::String));
+    }
+
+    #[test]
+    fn test_value_type_number() {
+        let body = json!({"count": 42});
+        let extraction = Extraction {
+            source: "body".to_string(),
+            path: "$.count".to_string(),
+            target: "count".to_string(),
+            all_values: false,
+            critical: false,
+        };
+
+        let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
+
+        assert!(results[0].success);
+        assert_eq!(results[0].value_type, Some(ValueType::Number));
+    }
+
+    #[test]
+    fn test_value_type_boolean() {
+        let body = json!({"active": true});
+        let extraction = Extraction {
+            source: "body".to_string(),
+            path: "$.active".to_string(),
+            target: "active".to_string(),
+            all_values: false,
+            critical: false,
+        };
+
+        let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
+
+        assert!(results[0].success);
+        assert_eq!(results[0].value_type, Some(ValueType::Boolean));
+    }
+
+    #[test]
+    fn test_value_type_array() {
+        let body = json!({"items": [1, 2, 3]});
+        let extraction = Extraction {
+            source: "body".to_string(),
+            path: "$.items".to_string(),
+            target: "items".to_string(),
+            all_values: false,
+            critical: false,
+        };
+
+        let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
+
+        assert!(results[0].success);
+        assert_eq!(results[0].value_type, Some(ValueType::Array));
+    }
+
+    // ------------------------------------------------------------------------
+    // Testes de all_values (múltiplos resultados)
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_all_values_regex() {
+        let body = json!("token1=abc token2=def token3=ghi");
+        let extraction = Extraction {
+            source: "body".to_string(),
+            path: "regex:token\\d=(\\w+)".to_string(),
+            target: "tokens".to_string(),
+            all_values: true,
+            critical: false,
+        };
+
+        let (results, values) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
+
+        assert!(results[0].success);
+        let tokens = values.get("tokens").unwrap();
+        assert!(tokens.is_array());
+        let arr = tokens.as_array().unwrap();
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0], json!("abc"));
+        assert_eq!(arr[1], json!("def"));
+        assert_eq!(arr[2], json!("ghi"));
+    }
+
+    #[test]
+    fn test_all_values_false_returns_first() {
+        let body = json!("token1=abc token2=def");
+        let extraction = Extraction {
+            source: "body".to_string(),
+            path: "regex:token\\d=(\\w+)".to_string(),
+            target: "token".to_string(),
+            all_values: false,
+            critical: false,
+        };
+
+        let (results, values) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
+
+        assert!(results[0].success);
+        // Com all_values=false, retorna apenas o primeiro
+        assert_eq!(values.get("token"), Some(&json!("abc")));
+    }
+
+    // ------------------------------------------------------------------------
+    // Testes de critical (falhas críticas)
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_critical_extraction_failure() {
+        let body = json!({"data": {}});
+        let extraction = Extraction {
+            source: "body".to_string(),
+            path: "$.data.missing_token".to_string(),
+            target: "token".to_string(),
+            all_values: false,
+            critical: true,  // Esta é crítica!
+        };
+
+        let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
+
+        assert!(!results[0].success);
+        assert!(results[0].is_critical);
+        assert!(results[0].should_abort());
+        assert!(Extractor::has_critical_failure(&results));
+    }
+
+    #[test]
+    fn test_non_critical_extraction_failure() {
+        let body = json!({"data": {}});
+        let extraction = Extraction {
+            source: "body".to_string(),
+            path: "$.data.optional_field".to_string(),
+            target: "optional".to_string(),
+            all_values: false,
+            critical: false,  // Não é crítica
+        };
+
+        let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
+
+        assert!(!results[0].success);
+        assert!(!results[0].is_critical);
+        assert!(!results[0].should_abort());
+        assert!(!Extractor::has_critical_failure(&results));
+    }
+
+    #[test]
+    fn test_mixed_critical_extractions() {
+        let body = json!({"token": "abc123"});
+        let extractions = vec![
+            Extraction {
+                source: "body".to_string(),
+                path: "$.token".to_string(),
+                target: "token".to_string(),
+                all_values: false,
+                critical: true,  // Crítica, mas vai passar
+            },
+            Extraction {
+                source: "body".to_string(),
+                path: "$.missing".to_string(),
+                target: "missing".to_string(),
+                all_values: false,
+                critical: false,  // Não crítica, vai falhar
+            },
+        ];
+
+        let (results, _) = Extractor::process(&extractions, Some(&body), &HashMap::new());
+
+        // Token passou
+        assert!(results[0].success);
+        // Missing falhou, mas não é crítica
+        assert!(!results[1].success);
+        assert!(!results[1].is_critical);
+        // Não deve abortar
+        assert!(!Extractor::has_critical_failure(&results));
     }
 }

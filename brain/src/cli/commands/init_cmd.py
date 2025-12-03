@@ -94,7 +94,7 @@ def init(ctx: click.Context, directory: str, force: bool) -> None:
     Use --force para reinicializar um workspace existente.
     """
     console: Console = ctx.obj["console"]
-    
+
     # Resolve o diretório
     target_dir = Path(directory).resolve()
     aqa_dir = target_dir / ".aqa"
@@ -131,10 +131,10 @@ def init(ctx: click.Context, directory: str, force: bool) -> None:
     tree = Tree(f"📁 [bold blue]{target_dir.name}[/bold blue]")
     aqa_tree = tree.add("📁 [cyan].aqa/[/cyan]")
     aqa_tree.add("📄 [green]config.yaml[/green]")
-    
+
     plans_tree = aqa_tree.add("📁 [cyan]plans/[/cyan]")
     plans_tree.add("[dim].gitkeep[/dim]")
-    
+
     reports_tree = aqa_tree.add("📁 [cyan]reports/[/cyan]")
     reports_tree.add("[dim].gitkeep[/dim]")
 

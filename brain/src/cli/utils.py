@@ -9,6 +9,7 @@ Funções auxiliares compartilhadas entre os comandos do CLI.
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,7 @@ def load_config() -> dict[str, Any]:
     """
     # Procura .aqa/config.yaml subindo na hierarquia
     current = Path.cwd()
-    
+
     while current != current.parent:
         config_path = current / ".aqa" / "config.yaml"
         if config_path.exists():
@@ -66,41 +67,104 @@ def get_default_model() -> str:
     return os.environ.get("AQA_MODEL", "gpt-4")
 
 
-def get_runner_path() -> Path | None:
+def get_runner_path(runner_path_override: str | None = None) -> Path | None:
     """
-    Localiza o binário do Runner.
+    Localiza o binário do Runner com suporte cross-platform.
 
-    ## Busca em:
-    1. Variável de ambiente AQA_RUNNER_PATH
-    2. ./runner/target/release/runner (produção)
-    3. ./runner/target/debug/runner (desenvolvimento)
-    4. runner no PATH do sistema
+    ## Ordem de Busca:
+    1. Parâmetro runner_path_override (passado via --runner-path)
+    2. Variável de ambiente AQA_RUNNER_PATH
+    3. ./runner/target/release/runner (produção - local)
+    4. ./runner/target/debug/runner (desenvolvimento - local)
+    5. ~/.cargo/bin/runner (cargo install)
+    6. /usr/local/bin/runner (instalação global Unix)
+    7. runner no PATH do sistema (via shutil.which)
+
+    ## Parâmetros:
+        runner_path_override: Caminho explícito passado pelo usuário
 
     ## Retorna:
         Path para o binário, ou None se não encontrar.
     """
-    # 1. Variável de ambiente
+    binary_name = "runner.exe" if os.name == "nt" else "runner"
+
+    # 1. Override passado pelo usuário
+    if runner_path_override:
+        path = Path(runner_path_override)
+        if path.exists() and path.is_file():
+            return path
+        # Pode ser um diretório
+        if path.is_dir():
+            candidate = path / binary_name
+            if candidate.exists():
+                return candidate
+
+    # 2. Variável de ambiente
     if env_path := os.environ.get("AQA_RUNNER_PATH"):
         path = Path(env_path)
         if path.exists():
             return path
 
-    # 2. Caminho relativo (release)
-    release_path = Path("runner/target/release/runner")
-    if os.name == "nt":
-        release_path = release_path.with_suffix(".exe")
+    # 3. Caminho relativo (release)
+    release_path = Path("runner/target/release") / binary_name
     if release_path.exists():
-        return release_path
+        return release_path.resolve()
 
-    # 3. Caminho relativo (debug)
-    debug_path = Path("runner/target/debug/runner")
-    if os.name == "nt":
-        debug_path = debug_path.with_suffix(".exe")
+    # 4. Caminho relativo (debug)
+    debug_path = Path("runner/target/debug") / binary_name
     if debug_path.exists():
-        return debug_path
+        return debug_path.resolve()
 
-    # 4. Não encontrou
+    # 5. Cargo bin directory
+    cargo_home = os.environ.get("CARGO_HOME", str(Path.home() / ".cargo"))
+    cargo_bin = Path(cargo_home) / "bin" / binary_name
+    if cargo_bin.exists():
+        return cargo_bin
+
+    # 6. Global install locations (Unix)
+    if os.name != "nt":
+        for global_path in [
+            Path("/usr/local/bin/runner"),
+            Path("/usr/bin/runner"),
+        ]:
+            if global_path.exists():
+                return global_path
+
+    # 7. Sistema PATH
+    which_result = shutil.which("runner")
+    if which_result:
+        return Path(which_result)
+
+    # Não encontrou
     return None
+
+
+def get_runner_search_paths() -> list[str]:
+    """
+    Lista todos os caminhos onde o Runner é buscado.
+
+    Útil para diagnóstico quando o Runner não é encontrado.
+
+    ## Retorna:
+        Lista de caminhos pesquisados.
+    """
+    binary_name = "runner.exe" if os.name == "nt" else "runner"
+    paths: list[str] = []
+
+    paths.append("$AQA_RUNNER_PATH (env)")
+    paths.append(f"./runner/target/release/{binary_name}")
+    paths.append(f"./runner/target/debug/{binary_name}")
+
+    cargo_home = os.environ.get("CARGO_HOME", str(Path.home() / ".cargo"))
+    paths.append(f"{cargo_home}/bin/{binary_name}")
+
+    if os.name != "nt":
+        paths.append("/usr/local/bin/runner")
+        paths.append("/usr/bin/runner")
+
+    paths.append("PATH (via which)")
+
+    return paths
 
 
 def format_duration(ms: int) -> str:
@@ -114,11 +178,11 @@ def format_duration(ms: int) -> str:
     """
     if ms < 1000:
         return f"{ms}ms"
-    
+
     seconds = ms / 1000
     if seconds < 60:
         return f"{seconds:.1f}s"
-    
+
     minutes = int(seconds // 60)
     remaining_seconds = int(seconds % 60)
     return f"{minutes}m {remaining_seconds}s"

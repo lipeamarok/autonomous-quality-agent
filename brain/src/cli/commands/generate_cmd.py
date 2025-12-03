@@ -91,7 +91,7 @@ def generate(
 
     # Carrega configuração do workspace
     config = load_config()
-    
+
     # Resolve valores (CLI > config > default)
     final_model = model or config.get("model") or get_default_model()
     final_base_url = base_url or config.get("base_url", "https://api.example.com")
@@ -141,12 +141,12 @@ def generate(
 
     # Output do plano
     json_output = plan.to_json()
-    
+
     if output:
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json_output, encoding="utf-8")
-        
+
         console.print()
         console.print(Panel(
             f"[green]✅ Plano salvo em: {output_path}[/green]\n\n"
@@ -158,7 +158,7 @@ def generate(
     else:
         # Imprime no stdout (para piping)
         print(json_output)
-        
+
         # Resumo no stderr
         error_console = Console(stderr=True)
         error_console.print(

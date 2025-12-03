@@ -23,6 +23,9 @@ aqa validate plans/*.json
 
 # Modo strict (erros em warnings)
 aqa validate --strict plan.json
+
+# Saída JSON para CI
+aqa --json validate plan.json
 ```
 """
 
@@ -30,12 +33,31 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
 from rich.panel import Panel
 
 from ...validator import UTDLValidator
+
+
+# Console para saída JSON (não silenciável)
+_json_console = Console()
+
+
+def _print_json_validation_result(results: list[dict[str, Any]], all_valid: bool) -> None:
+    """Imprime resultado de validação em formato JSON."""
+    output: dict[str, Any] = {
+        "success": all_valid,
+        "files": results,
+        "summary": {
+            "total": len(results),
+            "valid": sum(1 for r in results if r["valid"]),
+            "invalid": sum(1 for r in results if not r["valid"]),
+        },
+    }
+    _json_console.print_json(data=output)
 
 
 @click.command()
@@ -64,16 +86,22 @@ def validate(
     """
     console: Console = ctx.obj["console"]
     verbose: bool = ctx.obj["verbose"]
+    json_output: bool = ctx.obj.get("json_output", False)
+    quiet: bool = ctx.obj.get("quiet", False)
 
     validator = UTDLValidator()
     all_valid = True
     total_errors = 0
     total_warnings = 0
+    json_results: list[dict[str, Any]] = []
 
     # Processa cada arquivo
     for file_path in files:
         path = Path(file_path)
-        console.print(f"\n🔍 Validando: [cyan]{path.name}[/cyan]")
+        file_result: dict[str, Any] = {"file": str(path), "valid": False, "errors": [], "warnings": []}
+
+        if not quiet and not json_output:
+            console.print(f"\n🔍 Validando: [cyan]{path.name}[/cyan]")
 
         try:
             # Carrega JSON
@@ -84,38 +112,60 @@ def validate(
             result = validator.validate(plan_data)
 
             if result.is_valid:
+                file_result["valid"] = True
+                file_result["warnings"] = result.warnings
+
                 if result.warnings:
-                    console.print(f"  [yellow]⚠️  Válido com {len(result.warnings)} warning(s)[/yellow]")
                     total_warnings += len(result.warnings)
-                    if verbose:
-                        for warning in result.warnings:
-                            console.print(f"    [dim]• {warning}[/dim]")
                     if strict:
                         all_valid = False
+                        file_result["valid"] = False
+
+                    if not quiet and not json_output:
+                        console.print(f"  [yellow]⚠️  Válido com {len(result.warnings)} warning(s)[/yellow]")
+                        if verbose:
+                            for warning in result.warnings:
+                                console.print(f"    [dim]• {warning}[/dim]")
                 else:
-                    console.print("  [green]✅ Válido[/green]")
+                    if not quiet and not json_output:
+                        console.print("  [green]✅ Válido[/green]")
             else:
-                console.print(f"  [red]❌ Inválido ({len(result.errors)} erro(s))[/red]")
+                file_result["valid"] = False
+                file_result["errors"] = result.errors
                 all_valid = False
                 total_errors += len(result.errors)
-                
-                # Mostra erros
-                for error in result.errors:
-                    console.print(f"    [red]• {error}[/red]")
+
+                if not quiet and not json_output:
+                    console.print(f"  [red]❌ Inválido ({len(result.errors)} erro(s))[/red]")
+                    for error in result.errors:
+                        console.print(f"    [red]• {error}[/red]")
 
         except json.JSONDecodeError as e:
-            console.print(f"  [red]❌ JSON inválido: {e}[/red]")
+            file_result["errors"] = [f"JSON inválido: {e}"]
             all_valid = False
             total_errors += 1
+
+            if not quiet and not json_output:
+                console.print(f"  [red]❌ JSON inválido: {e}[/red]")
 
         except Exception as e:
-            console.print(f"  [red]❌ Erro ao ler arquivo: {e}[/red]")
+            file_result["errors"] = [f"Erro ao ler arquivo: {e}"]
             all_valid = False
             total_errors += 1
 
-    # Resumo final
+            if not quiet and not json_output:
+                console.print(f"  [red]❌ Erro ao ler arquivo: {e}[/red]")
+
+        json_results.append(file_result)
+
+    # Saída JSON
+    if json_output:
+        _print_json_validation_result(json_results, all_valid)
+        raise SystemExit(0 if all_valid else 1)
+
+    # Resumo final (modo normal)
     console.print()
-    
+
     if all_valid:
         if total_warnings > 0:
             console.print(Panel(

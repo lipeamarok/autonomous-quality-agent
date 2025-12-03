@@ -37,3 +37,6 @@ reportMissingTypeStubs = false
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+filterwarnings = [
+    "ignore::DeprecationWarning:pydantic.*:",
+]

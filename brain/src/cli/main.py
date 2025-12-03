@@ -14,16 +14,44 @@ aqa (grupo principal)
 ├── validate  → Valida sintaxe de um plano UTDL
 └── run       → Executa plano (ou gera + executa)
 ```
+
+## Flags Globais:
+
+- `--verbose / -v` → Modo verbose (mais detalhes)
+- `--quiet / -q` → Modo silencioso (só erros)
+- `--json` → Saída estruturada JSON (para CI/CD)
 """
 
 from __future__ import annotations
 
+import logging
+
 import click
 from rich.console import Console
+from rich.logging import RichHandler
 
 # Console global para output formatado
 console = Console()
 error_console = Console(stderr=True)
+
+# Console silencioso (para modo --quiet)
+quiet_console = Console(quiet=True)
+
+
+def setup_logging(verbose: bool, quiet: bool) -> None:
+    """Configura logging baseado em flags."""
+    if quiet:
+        level = logging.ERROR
+    elif verbose:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+
+    logging.basicConfig(
+        level=level,
+        format="%(message)s",
+        handlers=[RichHandler(console=error_console, show_time=False, show_path=False)],
+    )
 
 
 # =============================================================================
@@ -34,12 +62,25 @@ error_console = Console(stderr=True)
 @click.group()
 @click.version_option(version="0.3.0", prog_name="aqa")
 @click.option(
-    "--verbose", "-v",
+    "--verbose",
+    "-v",
     is_flag=True,
-    help="Modo verbose (mostra mais detalhes)"
+    help="Modo verbose (mostra mais detalhes)",
+)
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    help="Modo silencioso (suprime banners, mostra só erros)",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    help="Saída estruturada em JSON (para CI/CD)",
 )
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool) -> None:
+def cli(ctx: click.Context, verbose: bool, quiet: bool, json_output: bool) -> None:
     """
     🧪 AQA — Autonomous Quality Agent
 
@@ -53,11 +94,28 @@ def cli(ctx: click.Context, verbose: bool) -> None:
       aqa validate plan.json             # Valida plano UTDL
       aqa run plan.json                  # Executa plano existente
       aqa run --swagger api.yaml         # Gera e executa
+
+    \b
+    Flags Globais:
+      -v, --verbose  Mostra logs detalhados
+      -q, --quiet    Suprime saída (só erros)
+      --json         Saída JSON estruturada
     """
+    # Configura logging
+    setup_logging(verbose, quiet)
+
     # Armazena configuração no contexto para passar aos subcomandos
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
-    ctx.obj["console"] = console
+    ctx.obj["quiet"] = quiet
+    ctx.obj["json_output"] = json_output
+
+    # Escolhe console baseado em flags
+    if json_output or quiet:
+        ctx.obj["console"] = quiet_console
+    else:
+        ctx.obj["console"] = console
+
     ctx.obj["error_console"] = error_console
 
 
@@ -81,6 +139,7 @@ cli.add_command(run)
 # =============================================================================
 # PONTO DE ENTRADA
 # =============================================================================
+
 
 def main() -> None:
     """Entry point para o comando `aqa`."""
