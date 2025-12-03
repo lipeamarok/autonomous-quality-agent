@@ -391,37 +391,37 @@ fn validate_wait_params(step: &Step, errors: &mut Vec<ValidationError>) {
 /// A → B → C → A  (ciclo!)
 ///
 /// Explorando A: marca A como "explorando"
-/// Explorando B: marca B como "explorando"  
+/// Explorando B: marca B como "explorando"
 /// Explorando C: marca C como "explorando"
 /// C depende de A, mas A está "explorando" → CICLO DETECTADO!
 /// ```
 fn validate_dag(steps: &[Step]) -> Result<(), Vec<ValidationError>> {
     use std::collections::HashMap;
-    
+
     // Mapa de step_id → lista de dependências
     let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
-    
+
     // Constrói o grafo de dependências
     for step in steps {
         let deps: Vec<&str> = step.depends_on.iter().map(|s| s.as_str()).collect();
         graph.insert(step.id.as_str(), deps);
     }
-    
+
     // Estado de cada nó: 0=branco, 1=cinza, 2=preto
     let mut color: HashMap<&str, u8> = HashMap::new();
     for step in steps {
         color.insert(step.id.as_str(), 0);
     }
-    
+
     let mut errors = Vec::new();
-    
+
     // Executa DFS a partir de cada nó não visitado
     for step in steps {
         if color.get(step.id.as_str()) == Some(&0) {
             detect_cycle_dfs(step.id.as_str(), &graph, &mut color, &mut errors);
         }
     }
-    
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -440,7 +440,7 @@ fn detect_cycle_dfs<'a>(
 ) -> bool {
     // Marca como cinza (em processamento)
     color.insert(node, 1);
-    
+
     // Visita todas as dependências
     if let Some(deps) = graph.get(node) {
         for dep in deps {
@@ -464,7 +464,7 @@ fn detect_cycle_dfs<'a>(
             }
         }
     }
-    
+
     // Marca como preto (processamento completo)
     color.insert(node, 2);
     false

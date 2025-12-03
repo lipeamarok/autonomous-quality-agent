@@ -215,11 +215,11 @@ async fn main() {
     // Processa o subcomando escolhido pelo usuário.
     // Em Rust, `match` é como um `switch` em outras linguagens, mas mais poderoso.
     match &cli.command {
-        Commands::Execute { 
-            file, 
-            output, 
-            parallel, 
-            otel, 
+        Commands::Execute {
+            file,
+            output,
+            parallel,
+            otel,
             otel_endpoint,
             silent,
             verbose,
@@ -299,8 +299,8 @@ async fn main() {
 /// - `execution_id`: UUID único desta execução
 /// - `silent`: Se true, suprime logs informativos
 async fn execute_plan(
-    file_path: &PathBuf, 
-    output_path: &Option<PathBuf>, 
+    file_path: &PathBuf,
+    output_path: &Option<PathBuf>,
     parallel: bool,
     execution_id: &str,
     silent: bool,

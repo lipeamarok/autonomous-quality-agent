@@ -31,8 +31,12 @@
 //! | `${random_int}`  | Inteiro aleatório 0-4294967295     | `2847593021`               |
 //! | `${env:VAR}`     | Variável de ambiente               | (valor da variável)        |
 //! | `${ENV_VAR}`     | Variável de ambiente (formato legado) | (valor da variável)     |
+//! | `${base64:text}` | Codifica texto em Base64           | `dGV4dA==`                 |
+//! | `${sha256:text}` | Hash SHA-256 do texto (hex)        | `9f86d081884c7d659a2f...`  |
 
 use std::collections::HashMap;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+use sha2::{Sha256, Digest};
 use anyhow::{anyhow, Result};
 use chrono::{Utc, Local};
 use once_cell::sync::Lazy;
@@ -120,13 +124,32 @@ impl Context {
     /// - `key`: Nome da variável (qualquer tipo que implemente `Into<String>`)
     /// - `value`: Valor JSON a armazenar
     ///
+    /// ## Comportamento:
+    /// - Se a chave já existir, o valor será sobrescrito e um warning será logado.
+    /// - Isso ajuda a detectar extrações conflitantes entre steps.
+    ///
     /// ## Exemplo:
     /// ```rust
     /// ctx.set("auth_token", Value::String("abc123".to_string()));
     /// ctx.set("retry_count", Value::Number(3.into()));
     /// ```
     pub fn set(&mut self, key: impl Into<String>, value: Value) {
-        self.variables.insert(key.into(), value);
+        let key_str = key.into();
+        
+        // Proteção contra sobrescrita acidental de variáveis
+        if let Some(old_value) = self.variables.get(&key_str) {
+            // Só loga warning se o valor realmente mudou
+            if old_value != &value {
+                tracing::warn!(
+                    key = %key_str,
+                    old_value = %old_value,
+                    new_value = %value,
+                    "Variável sobrescrita no contexto. Verifique se dois steps extraem a mesma chave."
+                );
+            }
+        }
+        
+        self.variables.insert(key_str, value);
     }
 
     /// Adiciona múltiplas variáveis de uma vez.
@@ -327,6 +350,33 @@ impl Context {
         }
 
         // ====================================================================
+        // FUNÇÃO BASE64 - Formato ${base64:texto}
+        // ====================================================================
+        
+        // Codifica o texto em Base64 (RFC 4648 standard).
+        // Útil para headers de autenticação Basic, payloads binários, etc.
+        if let Some(text) = token.strip_prefix("base64:") {
+            // Primeiro interpola o texto interno caso contenha variáveis
+            let interpolated = self.interpolate_str(text).unwrap_or_else(|_| text.to_string());
+            return Ok(BASE64_STANDARD.encode(interpolated.as_bytes()));
+        }
+
+        // ====================================================================
+        // FUNÇÃO SHA256 - Formato ${sha256:texto}
+        // ====================================================================
+        
+        // Calcula o hash SHA-256 do texto (retorna hex lowercase).
+        // Útil para checksums, validação de integridade, tokens de cache.
+        if let Some(text) = token.strip_prefix("sha256:") {
+            // Primeiro interpola o texto interno caso contenha variáveis
+            let interpolated = self.interpolate_str(text).unwrap_or_else(|_| text.to_string());
+            let mut hasher = Sha256::new();
+            hasher.update(interpolated.as_bytes());
+            let result = hasher.finalize();
+            return Ok(format!("{:x}", result));
+        }
+
+        // ====================================================================
         // VARIÁVEIS DE AMBIENTE - Formato legado ${ENV_VAR_NAME}
         // ====================================================================
 
@@ -480,5 +530,50 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("não definida"));
+    }
+
+    #[test]
+    fn test_base64_encoding() {
+        let ctx = Context::new();
+        
+        // Testa codificação base64 básica
+        let result = ctx.interpolate_str("${base64:hello}").unwrap();
+        assert_eq!(result, "aGVsbG8=");
+        
+        // Testa com texto mais longo
+        let result = ctx.interpolate_str("${base64:user:password}").unwrap();
+        assert_eq!(result, "dXNlcjpwYXNzd29yZA==");
+    }
+
+    #[test]
+    fn test_sha256_hashing() {
+        let ctx = Context::new();
+        
+        // Testa hash SHA-256 (verificado com ferramentas externas)
+        let result = ctx.interpolate_str("${sha256:hello}").unwrap();
+        assert_eq!(result, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        
+        // Testa hash vazio
+        let result = ctx.interpolate_str("${sha256:}").unwrap();
+        assert_eq!(result, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    }
+
+    #[test]
+    fn test_base64_in_header() {
+        let ctx = Context::new();
+        
+        // Simula header de autenticação Basic
+        let result = ctx.interpolate_str("Basic ${base64:admin:secret123}").unwrap();
+        assert_eq!(result, "Basic YWRtaW46c2VjcmV0MTIz");
+    }
+
+    #[test]
+    fn test_sha256_for_cache_key() {
+        let ctx = Context::new();
+        
+        // Simula geração de cache key
+        let result = ctx.interpolate_str("cache:${sha256:mykey}").unwrap();
+        assert!(result.starts_with("cache:"));
+        assert_eq!(result.len(), 6 + 64); // "cache:" + 64 hex chars
     }
 }

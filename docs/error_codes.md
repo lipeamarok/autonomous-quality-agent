@@ -6,6 +6,7 @@ Os códigos permitem automação, pesquisa e internacionalização.
 ## Formato
 
 Todos os códigos seguem o padrão `E{categoria}{número}`:
+
 - **E** = Prefixo de erro
 - **{categoria}** = Dígito 1-5 indicando categoria
 - **{número}** = Três dígitos identificando erro específico
@@ -137,6 +138,7 @@ Bugs no próprio Runner. Se você ver esses, reporte!
 ### Como resolver E5xxx
 
 Estes são bugs no Runner. Por favor:
+
 1. Anote o código de erro e a mensagem completa
 2. Guarde o plano UTDL que causou o erro
 3. Abra uma issue no repositório com essas informações
@@ -167,7 +169,7 @@ println!("{}", error); // [E3001] Status code não corresponde (step: login_step
 def handle_runner_error(error: dict):
     code = error.get("code", "")
     category = int(code[1]) if len(code) == 5 else 0
-    
+
     if category == 1:
         # Erro de validação - problema no UTDL gerado
         regenerate_plan()

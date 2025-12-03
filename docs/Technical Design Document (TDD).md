@@ -704,6 +704,10 @@ Aparece em qualquer string:
 
 - `${env:ADMIN_PASS}` — variável de ambiente (formato preferido)
 
+- `${base64:texto}` — codifica texto em Base64 (útil para auth Basic)
+
+- `${sha256:texto}` — hash SHA-256 do texto em hexadecimal
+
 > **Nota:** O Runner suporta ambos os formatos para variáveis de ambiente:
 > `${ENV_VAR_NAME}` e `${env:VAR_NAME}`. O formato `${env:}` é preferido por ser mais explícito.
 
@@ -1159,7 +1163,89 @@ O Brain:
 
 ---
 
-### **4.12 Fluxo Dinâmico Completo**
+### **4.12 Configuração Centralizada (BrainConfig)**
+
+O Brain utiliza uma classe de configuração centralizada baseada em Pydantic que consolida todas as opções em um único ponto de acesso.
+
+**Arquivo:** `brain/src/config.py`
+
+```python
+class BrainConfig(BaseModel):
+    model: str = "gpt-5.1"           # Modelo LLM a usar
+    max_llm_retries: int = 3         # Tentativas de correção (1-10)
+    temperature: float = 0.2         # Temperatura (0.0-2.0)
+    force_schema: bool = True        # Força validação estrita
+    verbose: bool = False            # Logs detalhados
+    cache_enabled: bool = True       # Usa cache de hash
+    cache_dir: str = ".brain_cache"  # Diretório do cache
+    strict_validation: bool = False  # Warnings viram erros
+```
+
+**Fontes de configuração (em ordem de prioridade):**
+1. Parâmetros passados diretamente
+2. Variáveis de ambiente (`BRAIN_MODEL`, `BRAIN_VERBOSE`, etc.)
+3. Valores padrão
+
+---
+
+### **4.13 Cache de Hash dos Insumos (PlanCache)**
+
+Para evitar regenerar planos quando os mesmos inputs são fornecidos, o Brain implementa um cache baseado em hash SHA-256.
+
+**Arquivo:** `brain/src/cache.py`
+
+**Estrutura do cache:**
+```
+.brain_cache/
+├── index.json          # Mapa de hash → arquivo
+├── abc123def456.json   # Plano cacheado
+└── ...
+```
+
+**Funcionamento:**
+1. Calcula fingerprint SHA-256 do input (requirements + base_url)
+2. Se existe no cache → retorna plano imediatamente
+3. Se não existe → gera via LLM e armazena
+
+**Benefícios:**
+- **Economia**: Evita chamadas repetidas ao LLM
+- **Velocidade**: Cache é instantâneo vs segundos do LLM
+- **Consistência**: Mesmo input = mesmo output
+- **Debugging**: Facilita reproduzir problemas
+
+---
+
+### **4.14 Validador UTDL Independente**
+
+O validador foi separado do Generator para permitir reutilização em diferentes contextos (CLI, editor, testes).
+
+**Arquivo:** `brain/src/validator/utdl_validator.py`
+
+```python
+class UTDLValidator:
+    SUPPORTED_SPEC_VERSIONS = {"0.1"}
+    VALID_ACTIONS = {"http_request", "wait", "sleep"}
+    
+    def validate(self, data: dict) -> ValidationResult:
+        """Valida um plano UTDL."""
+        ...
+    
+    def validate_json(self, json_str: str) -> ValidationResult:
+        """Valida a partir de string JSON."""
+        ...
+```
+
+**Validações realizadas:**
+1. Estrutura Pydantic (campos obrigatórios, tipos)
+2. spec_version suportada
+3. IDs de steps únicos
+4. Dependências existem
+5. Sem ciclos (DFS com coloração)
+6. Actions válidas
+
+---
+
+### **4.15 Fluxo Dinâmico Completo**
 
 ```scss
 User Input
@@ -1178,7 +1264,7 @@ Validation Guard (Pydantic)
 
 ```
 
-___
+---
 
 ### Por que essa abordagem é robusta?
 
@@ -1188,7 +1274,7 @@ ___
 
 3. **Modularidade:** Se amanhã quisermos trocar o GPT-5 pelo Llama-3 rodando local, mudamos apenas a classe `LLMInterface`, o resto do pipeline de validação se mantém.
 
-___
+---
 
 ## 5. Detalhamento de Componentes: The Runner (Rust)
 
@@ -1299,11 +1385,12 @@ Executores implementados no MVP:
 - **WaitExecutor** → step.action = "wait" ou "sleep" (alias)
 
 > **Nota:** O Runner aceita tanto `wait` quanto `sleep` como action para pausar a execução.
-> Ambos usam o parâmetro `duration_ms` para especificar o tempo em milissegundos.
+> Ambos usam o parâmetro `duration_ms` ou o alias `ms` para especificar o tempo em milissegundos.
 >
-> Exemplo:
+> Exemplos:
 > ```json
 > { "id": "pause", "action": "sleep", "params": { "duration_ms": 1000 } }
+> { "id": "pause", "action": "wait", "params": { "ms": 500 } }
 > ```
 
 Executores futuros (sem alterar o resto da arquitetura):
@@ -1346,9 +1433,44 @@ Suporta:
 
 - nenhum test plan pode vazar valores para outro
 
+#### Proteção contra sobrescrita de variáveis
+
+O Context detecta quando dois steps tentam extrair a mesma variável com valores diferentes e emite um warning no log, ajudando a identificar conflitos de extração.
+
 ---
 
-### 5.6 Pipeline de Execução (The Execution Loop)
+### 5.6 Limites de Execução (Rate Limiting)
+
+O Runner implementa políticas de limite para proteger contra planos UTDL malformados ou maliciosos gerados pela IA.
+
+**Arquivo:** `runner/src/limits/mod.rs`
+
+| Limite | Padrão | Descrição |
+|--------|--------|-----------|
+| `max_steps` | 100 | Máximo de steps por plano |
+| `max_parallel` | 10 | Máximo de steps paralelos |
+| `max_retries_total` | 50 | Máximo de retries no plano todo |
+| `max_execution_secs` | 300 | Timeout total (5 min) |
+| `max_step_timeout` | 30 | Timeout por step (segundos) |
+
+**Variáveis de ambiente:**
+```bash
+RUNNER_MAX_STEPS=50
+RUNNER_MAX_PARALLEL=5
+RUNNER_MAX_RETRIES=30
+RUNNER_MAX_EXECUTION_SECS=600
+RUNNER_MAX_STEP_TIMEOUT=60
+```
+
+**Por que limites são importantes:**
+1. **Proteção contra DoS**: IA pode gerar planos infinitos
+2. **Recursos controlados**: Evita consumir toda CPU/memória
+3. **Previsibilidade**: Sabe-se quanto tempo/recursos serão usados
+4. **Debug facilitado**: Planos problemáticos falham cedo
+
+---
+
+### 5.7 Pipeline de Execução (The Execution Loop)
 
 Fluxo completo:
 
@@ -1430,7 +1552,7 @@ Com:
 
 ---
 
-### 5.7 Telemetria e Logs (Observability)
+### 5.8 Telemetria e Logs (Observability)
 
 O Runner não deve apenas imprimir no console. Ele deve ser um cidadão de observabilidade.
 
@@ -1505,7 +1627,7 @@ export OTEL_SERVICE_NAME=autonomous-quality-runner
 
 ---
 
-### 5.8 Políticas de Erro
+### 5.9 Políticas de Erro
 
 Erro fatal (abortar plano):
 
@@ -1552,7 +1674,7 @@ O Runner utiliza códigos de erro padronizados para facilitar integração com C
 
 ---
 
-### 5.9 Invariantes do Runner
+### 5.10 Invariantes do Runner
 
 O Runner **sempre garante**:
 
@@ -1574,7 +1696,7 @@ O Runner **sempre garante**:
 
 ---
 
-### 5.10 Justificativa da Escolha de Rust
+### 5.11 Justificativa da Escolha de Rust
 
 #### Segurança de memória
 
@@ -1604,7 +1726,7 @@ O Runner **sempre garante**:
 
 ---
 
-### 5.11 Futuro: Executor UI (chromium-bidi)
+### 5.12 Futuro: Executor UI (chromium-bidi)
 
 Graças ao trait StepExecutor:
 
@@ -1918,6 +2040,7 @@ autonomous-quality-agent/
 │
 ├── schemas/                     # Fonte da verdade do protocolo
 │   ├── utdl_v0.1.json           # Schema principal
+│   ├── runner_report.schema.json # Schema do relatório de execução
 │   ├── utdl_v0.1.pydantic.py    # Models (gerado automaticamente)
 │   ├── examples/                # Casos reais para teste
 │   │   ├── login_flow.utdl.json
@@ -1927,11 +2050,13 @@ autonomous-quality-agent/
 ├── brain/                       # The Architect (Python)
 │   ├── pyproject.toml
 │   ├── src/
+│   │   ├── cache.py             # Cache de hash dos insumos
+│   │   ├── config.py            # Configuração centralizada (BrainConfig)
 │   │   ├── ingestion/           # Parsers e Normalizadores
 │   │   ├── context/             # RAG / Memory
 │   │   ├── llm/                 # Interfaces OpenAI/Claude/Llama
 │   │   ├── generator/           # Construção do UTDL
-│   │   └── validator/           # Pydantic Models
+│   │   └── validator/           # Pydantic Models + UTDLValidator independente
 │   └── tests/
 │       ├── unit/
 │       └── integration/
@@ -1941,10 +2066,15 @@ autonomous-quality-agent/
 │   ├── src/
 │   │   ├── main.rs              # CLI
 │   │   ├── protocol/            # Structs Serde
+│   │   ├── loader/              # Parser e carregador de planos
 │   │   ├── planner/             # DAG Builder
 │   │   ├── dispatcher/          # Scheduler de Steps
 │   │   ├── executors/           # HttpExecutor, WaitExecutor…
-│   │   ├── context/             # Variáveis e interpolação
+│   │   ├── context/             # Variáveis, interpolação e funções mágicas
+│   │   ├── errors/              # Códigos de erro estruturados (E1xxx-E5xxx)
+│   │   ├── limits/              # Limites de execução (rate limiting)
+│   │   ├── validation/          # Validação de UTDL
+│   │   ├── retry/               # Políticas de retry
 │   │   └── telemetry/           # Tracing + OTEL
 │   └── tests/
 │       ├── unit/
@@ -1998,6 +2128,10 @@ autonomous-quality-agent/
 - otel
 
 - thiserror
+
+- base64 (codificação Base64)
+
+- sha2 (hashing SHA-256)
 
 - clap
 
@@ -2092,7 +2226,7 @@ Toda PR deve:
 
 ---
 
-# **7.7 Reprodutibilidade**
+### **7.7 Reprodutibilidade**
 
 O repositório possui:
 

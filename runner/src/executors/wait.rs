@@ -45,13 +45,38 @@ use super::StepExecutor;
 ///
 /// Esta struct é usada para deserializar os parâmetros do step.
 /// O atributo `#[derive(Deserialize)]` permite converter JSON para esta struct.
+///
+/// ## Formatos aceitos:
+/// - `{ "duration_ms": 1000 }` - Formato canônico
+/// - `{ "ms": 1000 }` - Alias mais curto
+///
+/// Se ambos forem fornecidos, `duration_ms` tem precedência.
 #[derive(Debug, Deserialize)]
 struct WaitParams {
-    /// Duração do delay em milissegundos.
+    /// Duração do delay em milissegundos (formato canônico).
     ///
     /// Deve ser um número inteiro positivo.
     /// Exemplo: 1000 = 1 segundo, 500 = meio segundo
-    duration_ms: u64,
+    #[serde(default)]
+    duration_ms: Option<u64>,
+    
+    /// Duração do delay em milissegundos (alias curto).
+    ///
+    /// Alternativa mais concisa para `duration_ms`.
+    /// Se `duration_ms` estiver presente, este campo é ignorado.
+    #[serde(default)]
+    ms: Option<u64>,
+}
+
+impl WaitParams {
+    /// Retorna a duração em milissegundos, priorizando `duration_ms` sobre `ms`.
+    ///
+    /// ## Retorno:
+    /// - `Some(u64)` se pelo menos um dos campos estiver definido
+    /// - `None` se nenhum campo estiver definido
+    fn get_duration(&self) -> Option<u64> {
+        self.duration_ms.or(self.ms)
+    }
 }
 
 // ============================================================================
@@ -135,26 +160,34 @@ impl StepExecutor for WaitExecutor {
         // `serde_json::from_value` converte o Value para WaitParams.
         let params: WaitParams = serde_json::from_value(step.params.clone()).map_err(|e| {
             anyhow!(
-                "Parâmetros inválidos para {}: {}. Esperado: {{ \"duration_ms\": <número> }}",
+                "Parâmetros inválidos para {}: {}. Esperado: {{ \"duration_ms\": <número> }} ou {{ \"ms\": <número> }}",
                 step.action,
                 e
             )
         })?;
+        
+        // Obtém a duração, priorizando duration_ms sobre ms.
+        let duration_ms = params.get_duration().ok_or_else(|| {
+            anyhow!(
+                "Parâmetros incompletos para {}: forneça 'duration_ms' ou 'ms'",
+                step.action
+            )
+        })?;
 
         // Registra a duração no span OTEL.
-        tracing::Span::current().record("duration_ms", params.duration_ms);
+        tracing::Span::current().record("duration_ms", duration_ms);
 
         // Log informativo.
         info!(
             step_id = %step.id,
             action = %step.action,
-            duration_ms = params.duration_ms,
+            duration_ms = duration_ms,
             "⏳ Aguardando..."
         );
 
         // Executa o delay.
         // `sleep` é uma função assíncrona do Tokio que não bloqueia a thread.
-        sleep(Duration::from_millis(params.duration_ms)).await;
+        sleep(Duration::from_millis(duration_ms)).await;
 
         // Calcula a duração real.
         let elapsed = start.elapsed().as_millis() as u64;
@@ -265,5 +298,72 @@ mod tests {
 
         assert_eq!(result.status, StepStatus::Passed);
         assert!(result.duration_ms >= 50);
+    }
+
+    #[tokio::test]
+    async fn test_wait_with_ms_alias() {
+        let executor = WaitExecutor::new();
+        let step = Step {
+            id: "wait_ms".to_string(),
+            description: Some("Test wait with ms alias".to_string()),
+            depends_on: vec![],
+            action: "wait".to_string(),
+            params: json!({ "ms": 75 }), // Usando alias 'ms'
+            assertions: vec![],
+            extract: vec![],
+            recovery_policy: None,
+        };
+        let mut context = Context::new();
+
+        let result = executor.execute(&step, &mut context).await.unwrap();
+
+        assert_eq!(result.status, StepStatus::Passed);
+        assert!(result.duration_ms >= 75);
+        assert!(result.duration_ms < 150);
+    }
+
+    #[tokio::test]
+    async fn test_duration_ms_takes_precedence_over_ms() {
+        let executor = WaitExecutor::new();
+        let step = Step {
+            id: "wait_both".to_string(),
+            description: Some("Both duration_ms and ms provided".to_string()),
+            depends_on: vec![],
+            action: "wait".to_string(),
+            params: json!({ "duration_ms": 50, "ms": 200 }), // duration_ms deve ter precedência
+            assertions: vec![],
+            extract: vec![],
+            recovery_policy: None,
+        };
+        let mut context = Context::new();
+
+        let result = executor.execute(&step, &mut context).await.unwrap();
+
+        assert_eq!(result.status, StepStatus::Passed);
+        // Deve usar duration_ms (50), não ms (200)
+        assert!(result.duration_ms >= 50);
+        assert!(result.duration_ms < 150); // Confirma que não esperou 200ms
+    }
+
+    #[tokio::test]
+    async fn test_wait_missing_duration() {
+        let executor = WaitExecutor::new();
+        let step = Step {
+            id: "wait_no_duration".to_string(),
+            description: None,
+            depends_on: vec![],
+            action: "wait".to_string(),
+            params: json!({}), // Sem duration_ms nem ms
+            assertions: vec![],
+            extract: vec![],
+            recovery_policy: None,
+        };
+        let mut context = Context::new();
+
+        let result = executor.execute(&step, &mut context).await;
+        
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("duration_ms") || err_msg.contains("ms"));
     }
 }
