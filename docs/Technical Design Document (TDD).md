@@ -569,6 +569,7 @@ _**Schema Geral:**_
 |recovery_policy|object|❌|Política de resiliência|
 
 > **Actions suportadas:**
+>
 > - `http_request` — chamada HTTP
 > - `wait` — pausa por N milissegundos
 > - `sleep` — alias para `wait`
@@ -1182,6 +1183,7 @@ class BrainConfig(BaseModel):
 ```
 
 **Fontes de configuração (em ordem de prioridade):**
+
 1. Parâmetros passados diretamente
 2. Variáveis de ambiente (`BRAIN_MODEL`, `BRAIN_VERBOSE`, etc.)
 3. Valores padrão
@@ -1195,6 +1197,7 @@ Para evitar regenerar planos quando os mesmos inputs são fornecidos, o Brain im
 **Arquivo:** `brain/src/cache.py`
 
 **Estrutura do cache:**
+
 ```
 .brain_cache/
 ├── index.json          # Mapa de hash → arquivo
@@ -1203,11 +1206,13 @@ Para evitar regenerar planos quando os mesmos inputs são fornecidos, o Brain im
 ```
 
 **Funcionamento:**
+
 1. Calcula fingerprint SHA-256 do input (requirements + base_url)
 2. Se existe no cache → retorna plano imediatamente
 3. Se não existe → gera via LLM e armazena
 
 **Benefícios:**
+
 - **Economia**: Evita chamadas repetidas ao LLM
 - **Velocidade**: Cache é instantâneo vs segundos do LLM
 - **Consistência**: Mesmo input = mesmo output
@@ -1236,6 +1241,7 @@ class UTDLValidator:
 ```
 
 **Validações realizadas:**
+
 1. Estrutura Pydantic (campos obrigatórios, tipos)
 2. spec_version suportada
 3. IDs de steps únicos
@@ -1388,6 +1394,7 @@ Executores implementados no MVP:
 > Ambos usam o parâmetro `duration_ms` ou o alias `ms` para especificar o tempo em milissegundos.
 >
 > Exemplos:
+>
 > ```json
 > { "id": "pause", "action": "sleep", "params": { "duration_ms": 1000 } }
 > { "id": "pause", "action": "wait", "params": { "ms": 500 } }
@@ -1454,6 +1461,7 @@ O Runner implementa políticas de limite para proteger contra planos UTDL malfor
 | `max_step_timeout` | 30 | Timeout por step (segundos) |
 
 **Variáveis de ambiente:**
+
 ```bash
 RUNNER_MAX_STEPS=50
 RUNNER_MAX_PARALLEL=5
@@ -1463,6 +1471,7 @@ RUNNER_MAX_STEP_TIMEOUT=60
 ```
 
 **Por que limites são importantes:**
+
 1. **Proteção contra DoS**: IA pode gerar planos infinitos
 2. **Recursos controlados**: Evita consumir toda CPU/memória
 3. **Previsibilidade**: Sabe-se quanto tempo/recursos serão usados
@@ -1660,6 +1669,7 @@ O Runner utiliza códigos de erro padronizados para facilitar integração com C
 |**E5xxx**|Internos|E5001 (panic), E5002 (executor não encontrado), E5003 (serialização)|
 
 **Exemplo de erro estruturado:**
+
 ```json
 {
   "code": "E3002",
@@ -2813,92 +2823,234 @@ python brain/main.py --input "Testar login"
 
 ---
 
-### Fase 3 — MVP FULL (Semana 5–6)
+### Fase 3 — MVP FULL - VERSÃO PROFISSIONAL E EXPANDIDA
 >
-> **Objetivo: entregar o MVP funcional, robusto e demonstrável.**
+> **Objetivo:**
+Entregar o primeiro MVP utilizável por terceiros, com:
+
+geração de plano via IA
+
+ingestão de Swagger
+
+execução paralela no Runner
+
+relatórios estruturados
+
+logs, telemetria, tracing
+
+CLI simples o suficiente para alguém usar sem precisar perguntar nada
 
 ---
 
 #### **3.1 — Runner Avançado: Extraction + Context (dia 1–3)**
 
-Tarefas:
+Tarefas obrigatórias
 
-- Refinar interpolação `${var}` e `extract` existentes, cobrindo casos de erro e validando que o contexto global é preservado por execução.
+✔ Implementar interpolação ${var}
+✔ Implementar extract (jsonpath, header, body, regex)
+✔ Context global isolado por execução
+✔ Suporte às funções mágicas ${timestamp}, ${uuid}, ${env:VAR}, ${sha256}, ${base64}
+✔ Prevenir colisões com warning explícito
+✔ Validar tipo do valor extraído (string? número? objeto?)
 
-Checklist:
+Schema do Context
+Um arquivo context.schema.json descrevendo como cada variável deve ser serializada no report.
 
-- Login → extrai token → passo seguinte usa token.
+Context Snapshot por step
+Cada step adiciona:
+
+```bash
+context_before
+context_after
+```
+
+Isso turbina debug → vira ouro no relatório final.
+
+Extraction validation
+Erro claro para:
+
+jsonpath inválido
+
+campo não encontrado
+
+extração que gera null onde valor obrigatório é esperado
+
+Retorno estruturado do Runner (OBRIGATÓRIO antes da CLI)
+Criar RunnerReport:
+
+```json
+{
+  "execution_id": "...",
+  "started_at": "...",
+  "finished_at": "...",
+  "steps": [...],
+  "summary": {
+    "success": 14,
+    "failed": 1,
+    "duration_ms": 3675
+  }
+}
+```
 
 ---
 
 #### **3.2 — Observabilidade (dia 4–5)**
 
-Tarefas:
+Tarefas obrigatórias
 
-- Adicionar `tracing` a cada step.
+✔ OTEL tracing por step
+✔ Exporter stdout + arquivo JSON
+✔ Logs coloridos no terminal
+✔ Step metrics: duração, status, dependências, erro
 
-- Exportar spans OTEL.
+Adicionado:
 
-- Logs coloridos no terminal.
+🔸 Traços hierárquicos (pai → filho)
 
-Checklist:
+Execution span
 
-- Cada step tem:
+Step span
 
-  - trace_id
+Extract span
 
-  - duração
+HTTP span
 
-  - método
+Retry span
 
-  - status
+🔸 Métricas extras úteis para debug
+
+número de retries
+
+tamanho do payload
+
+latência total e latência de rede separadas
+
+código de erro interno (E1xxx etc)
+
+Formato estruturado para logs
+Mesmo os logs coloridos deveriam gerar uma versão JSON paralela.
+
+Dash OTLP futuro
+Preparar o código para aceitar um:
+
+```makefile
+OTEL_EXPORTER_OTLP_ENDPOINT=
+```
+
+Não implementar agora, mas deixar plugável.
 
 ---
 
 #### **3.3 — Brain: Ingestão de Swagger (dia 5–6)**
 
-Tarefas:
+Tarefas obrigatórias
 
-- Parser simples do OpenAPI.
+✔ Parser simples de OpenAPI
+✔ Detectar endpoints
+✔ Identificar métodos, tipos de entrada e saída
+✔ Criar testes automáticos:
 
-- Gerador de casos iniciais:
+- status 200
+- invalid input
+- missing fields
+- request malformatado
 
-  - status_code
+Adicionado:
 
-  - happy path
+🔸 Canonicalização do modelo OpenAPI
+O Brain deve converter qualquer Swagger em um modelo interno padronizado, antes de gerar UTDL.
 
-  - invalid request
+🔸 Detecção automática de segurança
+Se o Swagger tem:
 
-Checklist:
+```yaml
+security:
+  - bearerAuth: []
+```
 
-- Brain gera plano completo a partir de um Swagger pequeno.
+Então o Brain deve automaticamente gerar uma etapa de login ou marcar dependência.
+
+🔸 Casos negativos automáticos
+Além de invalid_request, incluir:
+
+missing_required_fields
+
+invalid_type
+
+string_too_long
+
+enum_invalid_value
+
+🔸 Mapeamento de parâmetros por localização
+Body, query, path, header → tudo deve virar parâmetros UTDL.
+
+🔸 Validação entre Brain→Runner
+Testes de contrato:
+
+Brain gera UTDL válido pelo schema
+
+Runner aceita e executa sem erro
 
 ---
 
 ## **3.4 — Documentação e Demo Final (dia 6)**
 
-Tarefas:
+Tarefas obrigatórias
 
-- README.md com instruções:
+✔ README.md
+✔ Guia de instalação (Rust + Python)
+✔ Executar demo com make demo
+✔ Exemplo de Swagger + exemplo de input natural
 
-  - instalação
+Adicionado:
 
-  - rodar demo
+🔸 CLI de verdade (subcomandos)
+O CLI precisa nascer assim:
 
-  - estrutura do projeto
-
-Checklist:
-
-- Você roda:
-
+```bash
+aqa plan --input "Quero testar login"
+aqa run plan.json
+aqa run http://localhost:8000/openapi.json
+aqa validate plan.json
+aqa explain plan.json
 ```
-make run-demo
+
+🔸 Modo interativo
+Perguntas guiadas:
+
+```bash
+? Qual endpoint você quer testar?  /login
+? Deseja adicionar casos negativos?  (y/n)
+? Deseja adicionar retries?         (y/n)
 ```
 
-→ Brain gera
-→ Runner executa
-→ Report sai
-→ Logs aparecem
+🔸 Demo FULL automática
+
+```go
+make demo
+```
+
+Executa:
+
+1. Brain gera UTDL (via input natural + via Swagger)
+
+2. Runner executa com paralelismo
+
+3. Report aparece com steps coloridos
+
+4. Tracing exportado
+
+5. arquivo plan.json salvo
+
+6. arquivo report.json salvo
+
+🔸 “Mínimo produto vendável”
+Tudo deve funcionar com:
+
+```bash
+pip install aqa
+aqa demo
+```
 
 **Marco emocional:**
 **O MVP está completo, funcional e demonstrável.**

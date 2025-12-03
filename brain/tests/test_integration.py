@@ -544,8 +544,8 @@ class TestCacheProviderModel:
         cache = PlanCache(cache_dir=temp_cache_dir, enabled=True)
 
         # Modifica plano para diferenciar
-        plan_openai = {**valid_plan_dict, "meta": {**valid_plan_dict["meta"], "name": "OpenAI Plan"}}
-        plan_xai = {**valid_plan_dict, "meta": {**valid_plan_dict["meta"], "name": "xAI Plan"}}
+        plan_openai: PlanDict = {**valid_plan_dict, "meta": {**valid_plan_dict["meta"], "name": "OpenAI Plan"}}
+        plan_xai: PlanDict = {**valid_plan_dict, "meta": {**valid_plan_dict["meta"], "name": "xAI Plan"}}
 
         cache.store("req", "https://api.com", plan_openai, provider="openai", model="gpt-5.1")
         cache.store("req", "https://api.com", plan_xai, provider="xai", model="grok-4")

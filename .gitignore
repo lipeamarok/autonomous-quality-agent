@@ -24,10 +24,14 @@ brain/htmlcov/
 runner/target/
 runner/**/*.rs.bk
 
-# UTDL Reports & Plans (Runtime data)
+# Output (Runtime data - reports, generated plans, cache)
+output/
 plans/*.json
 reports/*.json
-report.json
+
+# Brain cache
+brain/.brain_cache/
+.brain_cache/
 
 # Sensíveis
 .env

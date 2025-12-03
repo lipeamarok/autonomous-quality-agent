@@ -1,5 +1,16 @@
 {
     "python.defaultInterpreterPath": "${workspaceFolder}\\brain\\.venv\\Scripts\\python.exe",
     "python.terminal.activateEnvironment": true,
-    "python.analysis.typeCheckingMode": "strict"
+    "python.analysis.typeCheckingMode": "strict",
+
+    // Markdownlint - regras desabilitadas (preferência pessoal)
+    "markdownlint.config": {
+        "MD024": false,
+        "MD029": false,
+        "MD031": false,
+        "MD032": false,
+        "MD036": false,
+        "MD040": false,
+        "MD041": false
+    }
 }
