@@ -49,6 +49,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use serde_json::Value;
 
+use crate::extractors::ExtractionResult;
+
 // ============================================================================
 // ESTRUTURA PRINCIPAL: PLAN
 // ============================================================================
@@ -417,6 +419,21 @@ pub struct StepResult {
     /// `#[serde(skip_serializing_if)]` faz com que não apareça no JSON se for None.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+
+    /// Snapshot do contexto ANTES da execução deste step.
+    /// Útil para debug: ver quais variáveis estavam disponíveis.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_before: Option<HashMap<String, Value>>,
+
+    /// Snapshot do contexto APÓS a execução deste step.
+    /// Mostra o estado atualizado, incluindo valores extraídos.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_after: Option<HashMap<String, Value>>,
+
+    /// Resultados das extrações realizadas neste step.
+    /// Inclui sucesso/falha de cada regra de extração.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extractions: Option<Vec<ExtractionResult>>,
 }
 
 // ============================================================================

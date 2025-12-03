@@ -206,6 +206,9 @@ impl StepExecutor for WaitExecutor {
             status: StepStatus::Passed,
             duration_ms: elapsed,
             error: None,
+            context_before: None,
+            context_after: None,
+            extractions: None,
         })
     }
 }

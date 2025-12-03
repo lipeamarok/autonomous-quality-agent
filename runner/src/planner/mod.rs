@@ -322,6 +322,9 @@ impl DagPlanner {
                                         status: StepStatus::Skipped,
                                         duration_ms: 0,
                                         error: Some(format!("Dependency '{}' failed", dep)),
+                                        context_before: None,
+                                        context_after: None,
+                                        extractions: None,
                                     };
 
                                     results_clone.lock().await.push(result);
@@ -349,6 +352,9 @@ impl DagPlanner {
                                         status: StepStatus::Failed,
                                         duration_ms: 0,
                                         error: Some(e.to_string()),
+                                        context_before: None,
+                                        context_after: None,
+                                        extractions: None,
                                     }
                                 }
                             }
@@ -359,6 +365,9 @@ impl DagPlanner {
                                 status: StepStatus::Failed,
                                 duration_ms: 0,
                                 error: Some(format!("No executor for action: {}", step.action)),
+                                context_before: None,
+                                context_after: None,
+                                extractions: None,
                             }
                         }
                     };

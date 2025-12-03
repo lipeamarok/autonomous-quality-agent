@@ -36,9 +36,11 @@
 use async_trait::async_trait;
 use crate::protocol::{Step, StepResult, StepStatus, Assertion, Extraction};
 use crate::context::Context;
+use crate::extractors::{Extractor, ExtractionResult};
 use super::StepExecutor;
 use anyhow::{Result, anyhow};
 use std::time::Instant;
+use std::collections::HashMap;
 use reqwest::{Client, Method, header::HeaderMap};
 use serde_json::Value;
 
@@ -327,47 +329,65 @@ impl HttpExecutor {
 
     /// Aplica as regras de extração para salvar dados da resposta no contexto.
     ///
+    /// Usa o módulo `extractors` para processar cada regra de extração
+    /// e retorna resultados estruturados para o relatório.
+    ///
     /// ## Parâmetros:
     /// - `extracts`: Lista de regras de extração
     /// - `body`: Body JSON da resposta
     /// - `headers`: Headers da resposta
     /// - `context`: Contexto onde salvar os valores extraídos
+    ///
+    /// ## Retorno:
+    /// Lista de resultados de extração (para inclusão no relatório)
     fn apply_extractions(
         &self,
         extracts: &[Extraction],
         body: &Value,
         headers: &HeaderMap,
         context: &mut Context,
-    ) {
-        for rule in extracts {
-            match rule.source.as_str() {
-                // Extrai do body JSON.
-                "body" => {
-                    // Converte o path para JSON Pointer.
-                    let pointer = if rule.path.starts_with('/') {
-                        rule.path.clone()
-                    } else {
-                        format!("/{}", rule.path.replace('.', "/"))
-                    };
+    ) -> Vec<ExtractionResult> {
+        // Converte HeaderMap para HashMap<String, String> para o Extractor
+        let headers_map: HashMap<String, String> = headers
+            .iter()
+            .filter_map(|(k, v)| {
+                v.to_str().ok().map(|v_str| (k.as_str().to_string(), v_str.to_string()))
+            })
+            .collect();
 
-                    // Se encontrar o valor, salva no contexto.
-                    if let Some(val) = body.pointer(&pointer) {
-                        context.set(rule.target.clone(), val.clone());
-                    }
-                }
+        // Usa o módulo Extractor para processar
+        let (results, extracted_values) = Extractor::process(
+            extracts,
+            Some(body),
+            &headers_map,
+        );
 
-                // Extrai de um header.
-                "header" => {
-                    if let Some(val) = headers.get(&rule.path) {
-                        if let Ok(str_val) = val.to_str() {
-                            context.set(rule.target.clone(), Value::String(str_val.to_string()));
-                        }
-                    }
-                }
+        // Popula o contexto com os valores extraídos
+        for (key, value) in extracted_values {
+            context.set(key, value);
+        }
 
-                _ => {}
+        // Loga resultados das extrações
+        for result in &results {
+            if result.success {
+                tracing::debug!(
+                    target = %result.target,
+                    source = %result.source,
+                    path = %result.path,
+                    "Extraction succeeded"
+                );
+            } else {
+                tracing::warn!(
+                    target = %result.target,
+                    source = %result.source,
+                    path = %result.path,
+                    error = %result.error.as_deref().unwrap_or("unknown"),
+                    "Extraction failed"
+                );
             }
         }
+
+        results
     }
 }
 
@@ -401,6 +421,11 @@ impl StepExecutor for HttpExecutor {
     async fn execute(&self, step: &Step, context: &mut Context) -> Result<StepResult> {
         let span = tracing::Span::current();
         let start_time = Instant::now();
+
+        // ====================================================================
+        // SNAPSHOT: CONTEXTO ANTES DA EXECUÇÃO
+        // ====================================================================
+        let context_before = context.variables.clone();
 
         // ====================================================================
         // PASSO 1: PARSE DOS PARÂMETROS
@@ -512,11 +537,17 @@ impl StepExecutor for HttpExecutor {
                         status: StepStatus::Failed,
                         duration_ms: duration,
                         error: Some(error_msg),
+                        context_before: Some(context_before),
+                        context_after: Some(context.variables.clone()),
+                        extractions: None,
                     });
                 }
 
                 // Aplica as extrações.
-                self.apply_extractions(&step.extract, &body_json, &headers, context);
+                let extraction_results = self.apply_extractions(&step.extract, &body_json, &headers, context);
+
+                // Captura contexto após extrações
+                let context_after = context.variables.clone();
 
                 // Retorna sucesso.
                 Ok(StepResult {
@@ -524,6 +555,9 @@ impl StepExecutor for HttpExecutor {
                     status: StepStatus::Passed,
                     duration_ms: duration,
                     error: None,
+                    context_before: Some(context_before),
+                    context_after: Some(context_after),
+                    extractions: if extraction_results.is_empty() { None } else { Some(extraction_results) },
                 })
             },
             Err(e) => {
@@ -534,6 +568,9 @@ impl StepExecutor for HttpExecutor {
                     status: StepStatus::Failed,
                     duration_ms: duration,
                     error: Some(e.to_string()),
+                    context_before: Some(context_before),
+                    context_after: Some(context.variables.clone()),
+                    extractions: None,
                 })
             }
         }

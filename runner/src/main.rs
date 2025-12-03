@@ -53,6 +53,9 @@ mod errors;
 /// Módulo de executores: implementações de ações (HTTP, Wait, etc.).
 mod executors;
 
+/// Módulo de extração: captura dados de respostas HTTP para o contexto.
+mod extractors;
+
 /// Módulo de limites: políticas de rate-limiting e proteção.
 mod limits;
 
@@ -454,6 +457,9 @@ async fn execute_sequential(
                     status: StepStatus::Failed,
                     duration_ms: 0,
                     error: Some(format!("Unknown action: {}", step.action)),
+                    context_before: None,
+                    context_after: None,
+                    extractions: None,
                 }
             }
         };
@@ -516,6 +522,9 @@ async fn execute_step_with_retry(
                         status: StepStatus::Passed, // Ignora falha
                         duration_ms: result.duration_ms,
                         error: None,
+                        context_before: result.context_before,
+                        context_after: result.context_after,
+                        extractions: result.extractions,
                     };
                 }
 
@@ -532,6 +541,9 @@ async fn execute_step_with_retry(
                         status: StepStatus::Passed,
                         duration_ms: 0,
                         error: None,
+                        context_before: None,
+                        context_after: None,
+                        extractions: None,
                     };
                 }
 
@@ -541,6 +553,9 @@ async fn execute_step_with_retry(
                         status: StepStatus::Failed,
                         duration_ms: 0,
                         error: Some(e.to_string()),
+                        context_before: None,
+                        context_after: None,
+                        extractions: None,
                     };
                 }
             }

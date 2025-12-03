@@ -170,6 +170,30 @@ impl ErrorCode {
     pub const ASSERTION_PATH_NOT_FOUND: Self = Self(3005);
 
     // ========================================================================
+    // E3xxx: Extraction Errors (Phase 3)
+    // ========================================================================
+
+    /// Extraction path not found in response body.
+    /// Cause: The specified JSON path doesn't exist.
+    pub const EXTRACTION_PATH_NOT_FOUND: Self = Self(3010);
+
+    /// Extraction header not found in response.
+    /// Cause: The specified header name doesn't exist.
+    pub const EXTRACTION_HEADER_NOT_FOUND: Self = Self(3011);
+
+    /// Extraction regex failed to match.
+    /// Cause: The regex pattern didn't match the body.
+    pub const EXTRACTION_REGEX_NO_MATCH: Self = Self(3012);
+
+    /// Invalid extraction source specified.
+    /// Cause: Unknown source type (not body/header/statuscode).
+    pub const EXTRACTION_INVALID_SOURCE: Self = Self(3013);
+
+    /// Invalid regex pattern in extraction.
+    /// Cause: The regex pattern is malformed.
+    pub const EXTRACTION_INVALID_REGEX: Self = Self(3014);
+
+    // ========================================================================
     // E4xxx: Configuração/Ambiente
     // ========================================================================
     // Erros de setup, variáveis de ambiente, arquivos.
@@ -269,6 +293,12 @@ impl ErrorCode {
             3003 => "Assertion header falhou",
             3004 => "Assertion latency falhou",
             3005 => "Path JSON não encontrado",
+            // E3xxx: Extraction
+            3010 => "Extraction path not found",
+            3011 => "Extraction header not found",
+            3012 => "Extraction regex no match",
+            3013 => "Invalid extraction source",
+            3014 => "Invalid extraction regex",
             // E4xxx: Configuração
             4001 => "Variável de ambiente não definida",
             4002 => "Variável de contexto não encontrada",
