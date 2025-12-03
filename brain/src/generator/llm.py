@@ -1,28 +1,73 @@
 """
-Integração com LLM para Geração de UTDL.
+================================================================================
+INTEGRAÇÃO COM LLM PARA GERAÇÃO DE UTDL
+================================================================================
 
-Este módulo utiliza o LiteLLM para abstrair o provedor LLM específico
-(OpenAI, Claude, Gemini, etc.), permitindo trocar modelos facilmente.
+Este módulo é o "cérebro" do Brain - ele se comunica com modelos de linguagem
+(como GPT-4, Claude, etc.) para gerar planos de teste automaticamente.
 
-Funcionalidades principais:
+## Para todos entenderem:
+
+Imagine que você tem um assistente muito inteligente que entende linguagem
+natural. Você diz "quero testar a API de login" e ele gera automaticamente
+todas as requisições HTTP, validações e dependências necessárias.
+
+Este módulo:
+1. Recebe uma descrição em português/inglês do que testar
+2. Envia para um modelo de IA (LLM = Large Language Model)
+3. Recebe um JSON com o plano de testes
+4. Valida se o JSON está correto
+5. Se não estiver, pede para a IA corrigir (até 3 tentativas)
+
+## Funcionalidades principais:
 - Geração de planos UTDL a partir de requisitos em linguagem natural
-- Validação automática via Pydantic
+- Validação automática via Pydantic (biblioteca de validação Python)
 - Loop de autocorreção quando a validação falha
 - Extração robusta de JSON de respostas de LLM
+
+## Tecnologias usadas:
+- LiteLLM: Biblioteca que abstrai diferentes provedores (OpenAI, Anthropic, etc.)
+- Pydantic: Para validação de dados estruturados
+
+## Exemplo de uso:
+    >>> generator = UTDLGenerator(model="gpt-4")
+    >>> plan = generator.generate("Testar API de login", "https://api.example.com")
+    >>> print(plan.to_json())
 """
 
+# =============================================================================
+# IMPORTS - Bibliotecas necessárias
+# =============================================================================
+
+# __future__.annotations permite usar tipos mais modernos em Python 3.9+
 from __future__ import annotations
 
+# json: Para parsear e serializar JSON (formato de dados)
 import json
+
+# re: Expressões regulares para buscar padrões em texto
 import re
+
+# typing: Anotações de tipo para melhor documentação e checagem
 from typing import Any
 
+# ValidationError: Exceção lançada quando dados não passam na validação
 from pydantic import ValidationError
 
+# completion: Função do LiteLLM que faz chamadas a qualquer LLM
+# type: ignore porque o LiteLLM não tem tipos definidos
 from litellm import completion  # type: ignore[import-untyped]
 
+# Plan: Nosso modelo Pydantic que define a estrutura do plano UTDL
 from ..validator import Plan
+
+# Prompts: Os templates de texto que enviamos ao LLM
 from .prompts import ERROR_CORRECTION_PROMPT, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+
+
+# =============================================================================
+# CLASSE PRINCIPAL - UTDLGenerator
+# =============================================================================
 
 
 class UTDLGenerator:
@@ -33,12 +78,26 @@ class UTDLGenerator:
     planos de teste válidos. Inclui um loop de autocorreção que reenvia
     erros de validação ao LLM até obter um plano válido.
 
-    Attributes:
+    ## Para todos entenderem:
+
+    Pense nesta classe como um "tradutor" entre você e a IA:
+    - Você diz o que quer testar em português
+    - A classe formata isso de um jeito que a IA entende
+    - A IA responde com um JSON
+    - A classe valida se o JSON está correto
+    - Se não estiver, a classe pede correção automaticamente
+
+    ## Atributos:
         model: Identificador do modelo LLM (ex: "gpt-4", "claude-3-opus")
         max_correction_attempts: Máximo de tentativas de correção
         temperature: Temperatura para sampling (0.0 = determinístico)
 
-    Example:
+    ## Sobre temperature:
+    - 0.0: Respostas sempre iguais (determinístico)
+    - 0.2: Pouca variação (recomendado para código)
+    - 1.0: Muita criatividade (pode gerar erros)
+
+    ## Exemplo:
         >>> generator = UTDLGenerator(model="gpt-4")
         >>> plan = generator.generate("Testar API de login", "https://api.example.com")
         >>> print(plan.to_json())
@@ -53,11 +112,20 @@ class UTDLGenerator:
         """
         Inicializa o gerador UTDL.
 
-        Args:
-            model: Modelo LLM a usar (compatível com LiteLLM)
-            max_correction_attempts: Máximo de tentativas de autocorreção
-            temperature: Temperatura para geração (menor = mais determinístico)
+        ## Para todos entenderem:
+        Este é o "construtor" da classe. É chamado quando você cria
+        um novo gerador: `generator = UTDLGenerator(model="gpt-4")`
+
+        ## Parâmetros:
+            model: Modelo LLM a usar. Exemplos:
+                - "gpt-4": OpenAI GPT-4 (melhor qualidade)
+                - "gpt-3.5-turbo": OpenAI GPT-3.5 (mais barato)
+                - "claude-3-opus-20240229": Anthropic Claude
+            max_correction_attempts: Quantas vezes tentar corrigir erros
+            temperature: Quão "criativa" a IA deve ser (0.0-1.0)
         """
+        # Armazena configurações como atributos do objeto
+        # "self" é a referência ao próprio objeto em Python
         self.model = model
         self.max_correction_attempts = max_correction_attempts
         self.temperature = temperature
@@ -70,46 +138,73 @@ class UTDLGenerator:
         """
         Gera um plano UTDL validado a partir de uma descrição de requisitos.
 
-        O método faz uma chamada inicial ao LLM e, se a validação falhar,
-        entra em um loop de autocorreção enviando os erros de volta ao LLM
-        até obter um plano válido ou esgotar as tentativas.
+        ## Para todos entenderem:
+        Esta é a função principal! Você passa uma descrição do que quer
+        testar e ela retorna um plano de testes completo e validado.
 
-        Args:
+        ## Como funciona internamente:
+        1. Formata o prompt com os requisitos do usuário
+        2. Envia para o LLM e recebe JSON bruto
+        3. Tenta validar o JSON
+        4. Se falhar, entra no loop de correção:
+           - Envia os erros de volta para o LLM
+           - LLM corrige e retorna novo JSON
+           - Repete até validar ou esgotar tentativas
+
+        ## Parâmetros:
             requirement: Descrição em linguagem natural do que testar
+                Exemplo: "Testar o fluxo de login com email e senha"
             base_url: URL base da API sob teste
+                Exemplo: "https://api.meusite.com"
 
-        Returns:
-            Objeto Plan validado e pronto para execução
+        ## Retorna:
+            Objeto Plan validado e pronto para execução pelo Runner
 
-        Raises:
-            ValueError: Se não conseguir gerar um plano válido após max tentativas
+        ## Erros possíveis:
+            ValueError: Se não conseguir gerar um plano válido após
+                        todas as tentativas de correção
         """
+        # Formata o prompt do usuário usando o template
+        # .format() substitui {requirement} e {base_url} pelos valores reais
         user_prompt = USER_PROMPT_TEMPLATE.format(
             requirement=requirement,
             base_url=base_url,
         )
 
-        # Geração inicial
+        # Faz a primeira chamada ao LLM
+        # raw_json é a string JSON retornada pelo LLM
         raw_json = self._call_llm(SYSTEM_PROMPT, user_prompt)
+
+        # Variável para guardar os últimos erros (para mensagem final)
         last_errors: str | None = None
 
         # Loop de validação e autocorreção
+        # range(3) = [0, 1, 2] = 3 tentativas
         for attempt in range(self.max_correction_attempts):
+            # Tenta validar o JSON
+            # Retorna (Plan, None) se válido ou (None, "erros") se inválido
             plan, errors = self._validate_json(raw_json)
 
+            # Se validou com sucesso, retorna o plano!
             if plan is not None:
                 return plan
 
+            # Guarda os erros para possível mensagem final
             last_errors = errors
 
-            # Tenta correção
+            # Informa ao usuário que estamos tentando corrigir
             print(f"Validação falhou (tentativa {attempt + 1}). Solicitando correção...")
+
+            # Prepara prompt de correção com os erros encontrados
             correction_prompt = ERROR_CORRECTION_PROMPT.format(
                 errors=errors,
                 original_json=raw_json,
             )
+
+            # Chama o LLM novamente pedindo correção
             raw_json = self._call_llm(SYSTEM_PROMPT, correction_prompt)
 
+        # Se chegou aqui, esgotou todas as tentativas sem sucesso
         raise ValueError(
             f"Falha ao gerar UTDL válido após {self.max_correction_attempts} tentativas. "
             f"Últimos erros: {last_errors}"
@@ -119,76 +214,138 @@ class UTDLGenerator:
         """
         Faz chamada ao LLM e retorna o conteúdo da resposta.
 
-        Args:
-            system_prompt: Prompt de sistema com instruções e schema
-            user_prompt: Prompt do usuário com requisitos específicos
+        ## Para todos entenderem:
+        Esta função é quem realmente "conversa" com a IA.
+        O underscore no início (_call_llm) indica que é uma função
+        "privada" - só deve ser usada internamente pela classe.
 
-        Returns:
+        ## Como funciona:
+        1. Monta uma lista de mensagens (sistema + usuário)
+        2. Chama a API do LLM via LiteLLM
+        3. Extrai o JSON da resposta
+
+        ## Parâmetros:
+            system_prompt: Instruções gerais para a IA (quem ela é,
+                          o que deve fazer, o schema do JSON)
+            user_prompt: O pedido específico do usuário
+
+        ## Retorna:
             String JSON extraída da resposta do LLM
         """
+        # Chama a API do LLM
+        # "completion" é a função do LiteLLM que faz a mágica
         response: Any = completion(
             model=self.model,
             messages=[
+                # Mensagem de sistema: define o "papel" da IA
                 {"role": "system", "content": system_prompt},
+                # Mensagem do usuário: o pedido específico
                 {"role": "user", "content": user_prompt},
             ],
             temperature=self.temperature,
         )
+
+        # Extrai o texto da resposta
+        # A estrutura é: response.choices[0].message.content
         content: str = str(response.choices[0].message.content or "")
+
+        # Extrai e retorna apenas o JSON (remove markdown, texto extra, etc.)
         return self._extract_json(content)
 
     def _extract_json(self, content: str) -> str:
         """
         Extrai JSON da resposta do LLM.
 
-        Lida com casos onde o LLM envolve o JSON em blocos de código markdown
-        ou inclui texto adicional antes/depois do JSON.
+        ## Para todos entenderem:
+        Às vezes o LLM retorna o JSON "embrulhado" em coisas extras:
+        - Blocos de código markdown: ```json ... ```
+        - Texto antes: "Aqui está o plano: {...}"
+        - Texto depois: "{...} Espero que ajude!"
 
-        Args:
+        Esta função remove tudo isso e retorna só o JSON limpo.
+
+        ## Técnica usada:
+        1. Primeiro, tenta encontrar blocos de código markdown
+        2. Se não encontrar, procura por { e } correspondentes
+        3. Conta os colchetes para achar o par correto
+
+        ## Parâmetros:
             content: Texto bruto da resposta do LLM
 
-        Returns:
+        ## Retorna:
             String contendo apenas o JSON extraído
         """
-        # Tenta encontrar JSON em blocos de código
+        # Tenta encontrar JSON em blocos de código markdown
+        # Regex: ```json ... ``` ou ``` ... ```
+        # [\s\S]*? significa "qualquer caractere, incluindo newlines, não-guloso"
         json_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", content)
         if json_match:
+            # .group(1) retorna o conteúdo capturado pelo primeiro ()
             return json_match.group(1).strip()
 
-        # Tenta encontrar JSON bruto (começa com {)
+        # Se não achou bloco de código, procura JSON bruto
+        # Encontra a primeira chave de abertura
         json_start = content.find("{")
         if json_start != -1:
-            # Encontra a chave de fechamento correspondente
+            # Usa contador de profundidade para achar a chave de fechamento correspondente
+            # Isso é necessário porque o JSON pode ter objetos aninhados
             depth = 0
             for i, char in enumerate(content[json_start:]):
                 if char == "{":
-                    depth += 1
+                    depth += 1  # Encontrou abertura, aumenta profundidade
                 elif char == "}":
-                    depth -= 1
+                    depth -= 1  # Encontrou fechamento, diminui profundidade
                     if depth == 0:
+                        # Chegou na profundidade 0 = achou o par correspondente
                         return content[json_start : json_start + i + 1]
 
+        # Se nada funcionou, retorna o conteúdo limpo
         return content.strip()
 
     def _validate_json(self, raw_json: str) -> tuple[Plan | None, str | None]:
         """
         Valida string JSON contra o schema UTDL usando Pydantic.
 
-        Args:
+        ## Para todos entenderem:
+        Esta função verifica se o JSON gerado pelo LLM está correto:
+        1. O JSON é válido sintaticamente? (vírgulas, aspas, etc.)
+        2. O JSON segue o schema UTDL? (tem os campos certos?)
+
+        ## Tipo de retorno:
+        - tuple[Plan | None, str | None]
+        - Isso significa: retorna uma tupla de dois valores
+        - (Plan, None) se válido: retorna o plano e nenhum erro
+        - (None, "erros") se inválido: retorna nenhum plano e os erros
+
+        ## Parâmetros:
             raw_json: String JSON a validar
 
-        Returns:
+        ## Retorna:
             Tupla (Plan, None) se válido, ou (None, string_de_erros) se inválido
         """
         try:
+            # Primeiro, parseia o JSON para um dicionário Python
+            # json.loads = JSON string -> Python dict
             data = json.loads(raw_json)
+
+            # Depois, valida contra o modelo Pydantic
+            # model_validate verifica todos os campos e tipos
             plan = Plan.model_validate(data)
+
+            # Se chegou aqui, tudo certo!
             return plan, None
+
         except json.JSONDecodeError as e:
+            # JSON mal formado (faltando vírgula, aspas erradas, etc.)
             return None, f"JSON inválido: {e}"
+
         except ValidationError as e:
+            # JSON válido, mas não segue o schema UTDL
+            # Formata os erros de forma legível
             error_messages: list[str] = []
             for error in e.errors():
+                # error["loc"] é o caminho do campo com erro
+                # Ex: ("steps", 0, "id") -> "steps.0.id"
                 loc = ".".join(str(x) for x in error["loc"])
                 error_messages.append(f"{loc}: {error['msg']}")
             return None, "\n".join(error_messages)

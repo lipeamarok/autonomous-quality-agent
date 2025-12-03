@@ -1,66 +1,184 @@
-//! Módulo de Validação de UTDL.
+//! # Módulo de Validação de UTDL
 //!
-//! Valida planos UTDL antes da execução para evitar panics
-//! e fornecer mensagens de erro claras.
+//! Este módulo valida planos UTDL antes da execução para garantir
+//! que o arquivo de teste está correto e evitar erros durante a execução.
+//!
+//! ## Para leigos:
+//!
+//! Imagine que você está preenchendo um formulário importante.
+//! Antes de enviar, o sistema verifica se todos os campos obrigatórios
+//! estão preenchidos e se os valores fazem sentido.
+//! Este módulo faz exatamente isso para os arquivos de teste.
+//!
+//! ## Por que validar?
+//!
+//! - **Prevenir erros tardios**: Melhor descobrir problemas antes de executar
+//! - **Mensagens claras**: Erros específicos ajudam a corrigir rapidamente
+//! - **Fail-fast**: Se algo está errado, paramos imediatamente
+//!
+//! ## Validações realizadas:
+//!
+//! 1. **spec_version**: Verifica se a versão do formato é suportada
+//! 2. **Plano não vazio**: Deve ter pelo menos um step
+//! 3. **Actions válidas**: Apenas ações conhecidas são aceitas
+//! 4. **Parâmetros completos**: Campos obrigatórios presentes
+//! 5. **Dependências existem**: Não referencia steps inexistentes
+//! 6. **Sem ciclos**: Evita dependências circulares
+//!
+//! ## Exemplo de uso:
+//!
+//! ```ignore
+//! let plan = loader::load_plan("test.json")?;
+//!
+//! match validate_plan(&plan) {
+//!     Ok(()) => println!("Plano válido!"),
+//!     Err(errors) => {
+//!         for err in errors {
+//!             eprintln!("Erro: {}", err);
+//!         }
+//!     }
+//! }
+//! ```
 
 use crate::protocol::{Plan, Step};
 use thiserror::Error;
 
+// ============================================================================
+// TIPOS DE ERRO
+// ============================================================================
+
 /// Erros de validação de UTDL.
+///
+/// Cada variante representa um tipo específico de problema encontrado.
+/// O atributo `#[error(...)]` define a mensagem que será exibida.
+///
+/// ## Para leigos:
+///
+/// `enum` em Rust é como uma lista de opções possíveis.
+/// Aqui listamos todos os tipos de erro que podem acontecer.
 #[derive(Debug, Error)]
 pub enum ValidationError {
+    /// Versão do formato UTDL não é suportada.
+    /// Exemplo: spec_version "2.0" quando só suportamos "0.1"
     #[error("Plano com spec_version '{version}' não suportada. Versão esperada: {expected}")]
     UnsupportedSpecVersion { version: String, expected: String },
 
+    /// Ação (action) do step não é reconhecida.
+    /// Exemplo: "browser_click" quando só temos "http_request", "wait", "sleep"
     #[error("Step '{step_id}': action '{action}' não é conhecida. Ações válidas: http_request, wait, sleep")]
     UnknownAction { step_id: String, action: String },
 
+    /// Parâmetro obrigatório não foi informado.
+    /// Exemplo: http_request sem "method" ou "path"
     #[error("Step '{step_id}': parâmetro obrigatório '{param}' está ausente")]
     MissingParam { step_id: String, param: String },
 
+    /// Dependência referencia um step que não existe.
+    /// Exemplo: depends_on: ["step_xyz"] mas não existe step com id "step_xyz"
     #[error("Step '{step_id}': dependência '{dep}' não existe no plano")]
     UnknownDependency { step_id: String, dep: String },
 
+    /// Dependência circular detectada (A depende de B que depende de A).
+    /// Isso causaria loop infinito na execução.
     #[error("Step '{step_id}': dependência circular detectada")]
     CircularDependency { step_id: String },
 
+    /// Plano não tem nenhum step para executar.
     #[error("Plano vazio: nenhum step definido")]
     EmptyPlan,
 
+    /// Step tem ID vazio ou apenas espaços.
     #[error("Step '{step_id}': ID vazio não é permitido")]
     EmptyStepId { step_id: String },
 
+    /// Método HTTP inválido (não é GET, POST, PUT, etc).
     #[error("Step '{step_id}': método HTTP '{method}' inválido")]
     InvalidHttpMethod { step_id: String, method: String },
 }
 
+// ============================================================================
+// CONSTANTES
+// ============================================================================
+
 /// Versão UTDL suportada pelo Runner.
-/// Alinhado com TDD e Brain: "0.1" simples.
+///
+/// Esta constante DEVE estar alinhada com o que o Brain gera
+/// e o que está documentado no TDD.
+///
+/// Versão atual: "0.1" (formato simples, sem prefixo "utdl/")
 pub const SUPPORTED_SPEC_VERSION: &str = "0.1";
 
-/// Ações conhecidas pelo Runner.
-/// Nota: 'sleep' é alias de 'wait' para compatibilidade.
+/// Lista de ações (actions) que o Runner sabe executar.
+///
+/// Se uma action não está aqui, o plano será rejeitado na validação.
+/// Isso é melhor que falhar durante a execução.
+///
+/// Ações atuais:
+/// - `http_request`: Faz requisição HTTP
+/// - `wait`: Pausa a execução
+/// - `sleep`: Alias de wait (mesmo comportamento)
 const KNOWN_ACTIONS: &[&str] = &["http_request", "wait", "sleep"];
 
-/// Métodos HTTP válidos.
+/// Métodos HTTP válidos conforme RFC 7231 e RFC 5789.
+///
+/// Requisições com outros métodos serão rejeitadas.
 const VALID_HTTP_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
 
-/// Resultado de validação.
+// ============================================================================
+// TIPOS AUXILIARES
+// ============================================================================
+
+/// Tipo de resultado para validação.
+///
+/// ## Para leigos:
+///
+/// `Result<(), Vec<ValidationError>>` significa:
+/// - `Ok(())` = Sucesso, sem valor de retorno (o `()` é "nada")
+/// - `Err(Vec<ValidationError>)` = Falha, com lista de erros
+///
+/// Usamos Vec (vetor/lista) porque pode haver múltiplos erros
+/// e queremos reportar todos de uma vez.
 pub type ValidationResult = Result<(), Vec<ValidationError>>;
+
+// ============================================================================
+// FUNÇÃO PRINCIPAL DE VALIDAÇÃO
+// ============================================================================
 
 /// Valida um plano UTDL completo.
 ///
-/// Retorna Ok(()) se válido, ou Err com lista de todos os erros encontrados.
+/// Esta é a função principal de validação. Ela analisa todo o plano
+/// e coleta TODOS os erros encontrados (não para no primeiro).
 ///
-/// Validações realizadas:
-/// - spec_version deve ser "0.1"
-/// - Plano deve ter ao menos um step
-/// - Cada step deve ter action válida
-/// - Dependências devem existir e não formar ciclos
+/// ## Parâmetros:
+///
+/// - `plan`: Referência ao plano carregado
+///
+/// ## Retorno:
+///
+/// - `Ok(())`: Plano é válido, pode executar
+/// - `Err(Vec<ValidationError>)`: Lista de todos os problemas encontrados
+///
+/// ## Validações realizadas:
+///
+/// 1. spec_version deve ser "0.1"
+/// 2. Plano deve ter ao menos um step
+/// 3. Cada step passa pela validação individual
+///
+/// ## Exemplo:
+///
+/// ```ignore
+/// match validate_plan(&plan) {
+///     Ok(()) => execute_plan(plan),
+///     Err(errors) => show_errors(errors),
+/// }
+/// ```
 pub fn validate_plan(plan: &Plan) -> ValidationResult {
+    // Cria vetor vazio para acumular erros.
+    // Vec é como uma lista dinâmica que pode crescer.
     let mut errors = Vec::new();
 
-    // Verifica spec_version
+    // Verifica spec_version.
+    // Se não bate com a versão suportada, adiciona erro.
     if plan.spec_version != SUPPORTED_SPEC_VERSION {
         errors.push(ValidationError::UnsupportedSpecVersion {
             version: plan.spec_version.clone(),
@@ -68,20 +186,30 @@ pub fn validate_plan(plan: &Plan) -> ValidationResult {
         });
     }
 
-    // Verifica se o plano tem steps
+    // Verifica se o plano tem steps.
+    // Um plano sem steps não faz sentido executar.
     if plan.steps.is_empty() {
         errors.push(ValidationError::EmptyPlan);
+        // Retorna early porque sem steps não há o que validar mais.
         return Err(errors);
     }
 
-    // Coleta IDs de todos os steps para validar dependências
+    // Coleta IDs de todos os steps.
+    // Isso é usado para verificar se as dependências existem.
+    //
+    // Para leigos:
+    // `.iter()` percorre cada step
+    // `.map(|s| s.id.as_str())` pega só o ID de cada um
+    // `.collect()` junta tudo em um vetor
     let step_ids: Vec<&str> = plan.steps.iter().map(|s| s.id.as_str()).collect();
 
-    // Valida cada step
+    // Valida cada step individualmente.
     for step in &plan.steps {
         validate_step(step, &step_ids, &mut errors);
     }
 
+    // Retorna resultado.
+    // Se não há erros, Ok(()). Se há, Err com a lista.
     if errors.is_empty() {
         Ok(())
     } else {
@@ -89,17 +217,38 @@ pub fn validate_plan(plan: &Plan) -> ValidationResult {
     }
 }
 
+// ============================================================================
+// VALIDAÇÃO DE STEP INDIVIDUAL
+// ============================================================================
+
 /// Valida um step individual.
+///
+/// Esta função é chamada para cada step do plano.
+/// Ela verifica:
+/// - ID não está vazio
+/// - Action é conhecida
+/// - Parâmetros específicos da action estão presentes
+/// - Dependências existem e não formam ciclos
+///
+/// ## Parâmetros:
+///
+/// - `step`: O step a validar
+/// - `all_step_ids`: Lista de todos os IDs do plano
+/// - `errors`: Vetor onde adicionar erros encontrados
 fn validate_step(step: &Step, all_step_ids: &[&str], errors: &mut Vec<ValidationError>) {
-    // Verifica ID vazio
+    // Verifica ID vazio.
+    // `.trim()` remove espaços em branco.
+    // `.is_empty()` verifica se está vazio.
     if step.id.trim().is_empty() {
         errors.push(ValidationError::EmptyStepId {
             step_id: "<vazio>".to_string(),
         });
-        return; // Não faz sentido continuar sem ID
+        // Não faz sentido continuar sem ID válido.
+        return;
     }
 
-    // Verifica action conhecida
+    // Verifica se a action é conhecida.
+    // `.contains()` procura na lista de actions válidas.
     if !KNOWN_ACTIONS.contains(&step.action.as_str()) {
         errors.push(ValidationError::UnknownAction {
             step_id: step.id.clone(),
@@ -107,22 +256,28 @@ fn validate_step(step: &Step, all_step_ids: &[&str], errors: &mut Vec<Validation
         });
     }
 
-    // Valida parâmetros específicos por action
+    // Valida parâmetros específicos por action.
+    // `match` é como um switch/case em outras linguagens.
+    // Cada action tem parâmetros obrigatórios diferentes.
     match step.action.as_str() {
         "http_request" => validate_http_request_params(step, errors),
         "wait" | "sleep" => validate_wait_params(step, errors),
-        _ => {} // Ações desconhecidas já foram reportadas
+        _ => {} // Ações desconhecidas já foram reportadas acima
     }
 
-    // Verifica dependências
+    // Verifica dependências.
+    // Para cada dependência declarada, verifica se existe.
     for dep in &step.depends_on {
+        // Verifica se o step referenciado existe.
         if !all_step_ids.contains(&dep.as_str()) {
             errors.push(ValidationError::UnknownDependency {
                 step_id: step.id.clone(),
                 dep: dep.clone(),
             });
         }
-        // Verifica auto-referência (dependência circular simples)
+
+        // Verifica auto-referência (step depende de si mesmo).
+        // Isso é uma dependência circular simples.
         if dep == &step.id {
             errors.push(ValidationError::CircularDependency {
                 step_id: step.id.clone(),
@@ -131,18 +286,39 @@ fn validate_step(step: &Step, all_step_ids: &[&str], errors: &mut Vec<Validation
     }
 }
 
-/// Valida parâmetros de http_request.
+// ============================================================================
+// VALIDAÇÃO DE PARÂMETROS ESPECÍFICOS
+// ============================================================================
+
+/// Valida parâmetros obrigatórios de http_request.
+///
+/// Uma requisição HTTP precisa obrigatoriamente de:
+/// - `method`: GET, POST, PUT, DELETE, etc.
+/// - `path`: O caminho da URL (ex: "/api/users")
+///
+/// ## Para leigos:
+///
+/// Para fazer uma requisição HTTP, você precisa dizer:
+/// 1. O que você quer fazer (GET=buscar, POST=criar, etc.)
+/// 2. Onde fazer (o caminho/endpoint)
 fn validate_http_request_params(step: &Step, errors: &mut Vec<ValidationError>) {
-    // Verifica method
+    // Verifica se method existe e é válido.
+    //
+    // `.get("method")` busca a chave "method" nos params
+    // `.and_then(|v| v.as_str())` converte para string se existir
     let method = step.params.get("method").and_then(|v| v.as_str());
+
     match method {
+        // Method não foi informado.
         None => {
             errors.push(ValidationError::MissingParam {
                 step_id: step.id.clone(),
                 param: "method".to_string(),
             });
         }
+        // Method foi informado, verifica se é válido.
         Some(m) => {
+            // `.to_uppercase()` converte para maiúsculas para comparar
             if !VALID_HTTP_METHODS.contains(&m.to_uppercase().as_str()) {
                 errors.push(ValidationError::InvalidHttpMethod {
                     step_id: step.id.clone(),
@@ -152,7 +328,8 @@ fn validate_http_request_params(step: &Step, errors: &mut Vec<ValidationError>) 
         }
     }
 
-    // Verifica path
+    // Verifica se path existe.
+    // Path é o caminho da URL (ex: "/api/users/123")
     if step.params.get("path").and_then(|v| v.as_str()).is_none() {
         errors.push(ValidationError::MissingParam {
             step_id: step.id.clone(),
@@ -161,8 +338,18 @@ fn validate_http_request_params(step: &Step, errors: &mut Vec<ValidationError>) 
     }
 }
 
-/// Valida parâmetros de wait.
+/// Valida parâmetros obrigatórios de wait/sleep.
+///
+/// Uma ação de espera precisa de:
+/// - `duration_ms`: Tempo em milissegundos
+///
+/// ## Para leigos:
+///
+/// Para pausar a execução, você precisa dizer por quanto tempo.
+/// O tempo é em milissegundos (1000ms = 1 segundo).
 fn validate_wait_params(step: &Step, errors: &mut Vec<ValidationError>) {
+    // Verifica se duration_ms existe e é um número.
+    // `.as_u64()` tenta converter para número inteiro sem sinal.
     if step.params.get("duration_ms").and_then(|v| v.as_u64()).is_none() {
         errors.push(ValidationError::MissingParam {
             step_id: step.id.clone(),
@@ -171,6 +358,10 @@ fn validate_wait_params(step: &Step, errors: &mut Vec<ValidationError>) {
     }
 }
 
+// ============================================================================
+// TESTES
+// ============================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +369,7 @@ mod tests {
     use serde_json::json;
     use std::collections::HashMap;
 
+    /// Cria um plano de teste com os steps fornecidos.
     fn create_test_plan(steps: Vec<Step>) -> Plan {
         Plan {
             spec_version: SUPPORTED_SPEC_VERSION.to_string(), // Usa versão suportada

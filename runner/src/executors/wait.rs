@@ -1,9 +1,29 @@
-//! Executor para as ações `wait` e `sleep`.
+//! # Executor Wait/Sleep - Delays e Pausas
 //!
-//! Este executor implementa delays/pausas entre steps,
-//! útil para simular tempo de espera ou rate limiting.
+//! Este executor implementa pausas na execução dos testes.
+//! É útil para simular delays entre requisições ou aguardar processamento.
 //!
-//! Nota: `sleep` é um alias de `wait` para compatibilidade com diferentes specs.
+//! ## Actions suportadas:
+//! - `wait` - Pausa a execução pelo tempo especificado
+//! - `sleep` - Alias de `wait` (mesma funcionalidade)
+//!
+//! ## Casos de uso:
+//! - **Rate limiting**: Evitar exceder limites de API
+//! - **Processamento assíncrono**: Aguardar um job processar
+//! - **Simulação de usuário**: Delays realistas entre ações
+//! - **Debugging**: Pausar para inspecionar estado
+//!
+//! ## Exemplo de uso no UTDL:
+//!
+//! ```json
+//! {
+//!   "id": "wait_processing",
+//!   "action": "wait",
+//!   "params": {
+//!     "duration_ms": 2000
+//!   }
+//! }
+//! ```
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -17,47 +37,102 @@ use crate::protocol::{Step, StepResult, StepStatus};
 
 use super::StepExecutor;
 
-/// Parâmetros para a ação `wait`/`sleep`.
+// ============================================================================
+// PARÂMETROS DO WAIT
+// ============================================================================
+
+/// Parâmetros esperados para a ação `wait`/`sleep`.
+///
+/// Esta struct é usada para deserializar os parâmetros do step.
+/// O atributo `#[derive(Deserialize)]` permite converter JSON para esta struct.
 #[derive(Debug, Deserialize)]
 struct WaitParams {
     /// Duração do delay em milissegundos.
+    ///
+    /// Deve ser um número inteiro positivo.
+    /// Exemplo: 1000 = 1 segundo, 500 = meio segundo
     duration_ms: u64,
 }
 
+// ============================================================================
+// WAIT EXECUTOR
+// ============================================================================
+
 /// Executor para as ações `wait` e `sleep`.
 ///
-/// Permite pausar a execução por um tempo especificado,
-/// útil para:
-/// - Simular delays entre requests
-/// - Aguardar processamento assíncrono
-/// - Rate limiting manual
+/// Este executor é muito simples: ele apenas pausa a execução
+/// pelo tempo especificado e retorna sucesso.
 ///
-/// `sleep` é tratado como alias de `wait` para compatibilidade.
+/// ## Por que ter um executor separado para isso?
+///
+/// Manter a mesma arquitetura para todas as ações permite:
+/// - Consistência no código
+/// - Mesma interface de instrumentação (spans OTEL)
+/// - Fácil adição de funcionalidades (ex: wait condicional no futuro)
+///
+/// ## Thread Safety:
+///
+/// O `WaitExecutor` não tem estado interno, então é completamente
+/// thread-safe e pode ser usado em execução paralela sem problemas.
 pub struct WaitExecutor;
 
 impl WaitExecutor {
+    /// Cria um novo WaitExecutor.
+    ///
+    /// Como não há estado, isso apenas retorna uma instância vazia.
     pub fn new() -> Self {
         Self
     }
 }
 
+/// Implementação de Default para WaitExecutor.
+///
+/// Permite criar com `WaitExecutor::default()`.
 impl Default for WaitExecutor {
     fn default() -> Self {
         Self::new()
     }
 }
 
+// ============================================================================
+// IMPLEMENTAÇÃO DO TRAIT
+// ============================================================================
+
 #[async_trait]
 impl StepExecutor for WaitExecutor {
+    /// Verifica se este executor lida com a action especificada.
+    ///
+    /// Retorna `true` para:
+    /// - "wait" - Ação principal
+    /// - "sleep" - Alias para compatibilidade
     fn can_handle(&self, action: &str) -> bool {
         action == "wait" || action == "sleep"
     }
 
+    /// Executa o delay.
+    ///
+    /// ## Fluxo:
+    /// 1. Parseia os parâmetros para obter `duration_ms`
+    /// 2. Registra no span OTEL
+    /// 3. Aguarda o tempo especificado
+    /// 4. Retorna sucesso com a duração real
+    ///
+    /// ## Parâmetros esperados:
+    /// ```json
+    /// { "duration_ms": 1000 }
+    /// ```
+    ///
+    /// ## Nota sobre precisão:
+    ///
+    /// A duração real pode ser ligeiramente maior que a especificada
+    /// devido ao overhead do sistema operacional e do runtime Tokio.
     #[instrument(skip(self, _context), fields(step_id = %step.id, duration_ms))]
     async fn execute(&self, step: &Step, _context: &mut Context) -> Result<StepResult> {
+        // Marca o início para calcular a duração real.
         let start = Instant::now();
 
-        // Parse dos parâmetros
+        // Parseia os parâmetros do step.
+        // `serde_json::from_value` converte o Value para WaitParams.
         let params: WaitParams = serde_json::from_value(step.params.clone()).map_err(|e| {
             anyhow!(
                 "Parâmetros inválidos para {}: {}. Esperado: {{ \"duration_ms\": <número> }}",
@@ -66,8 +141,10 @@ impl StepExecutor for WaitExecutor {
             )
         })?;
 
+        // Registra a duração no span OTEL.
         tracing::Span::current().record("duration_ms", params.duration_ms);
 
+        // Log informativo.
         info!(
             step_id = %step.id,
             action = %step.action,
@@ -75,17 +152,22 @@ impl StepExecutor for WaitExecutor {
             "⏳ Aguardando..."
         );
 
-        // Executa o delay
+        // Executa o delay.
+        // `sleep` é uma função assíncrona do Tokio que não bloqueia a thread.
         sleep(Duration::from_millis(params.duration_ms)).await;
 
+        // Calcula a duração real.
         let elapsed = start.elapsed().as_millis() as u64;
 
+        // Log de conclusão.
         info!(
             step_id = %step.id,
             actual_duration_ms = elapsed,
             "✅ Wait concluído"
         );
 
+        // Retorna sucesso.
+        // Wait sempre passa (a menos que haja erro nos parâmetros).
         Ok(StepResult {
             step_id: step.id.clone(),
             status: StepStatus::Passed,
@@ -95,11 +177,16 @@ impl StepExecutor for WaitExecutor {
     }
 }
 
+// ============================================================================
+// TESTES
+// ============================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Cria um step de wait para testes.
     fn create_wait_step(duration_ms: u64) -> Step {
         Step {
             id: "wait_step".to_string(),
@@ -155,7 +242,7 @@ mod tests {
     #[tokio::test]
     async fn test_wait_executor_handles_sleep_action() {
         let executor = WaitExecutor::new();
-        // Verifica que 'sleep' é reconhecido como alias
+        // Verifica que 'sleep' é reconhecido como alias.
         assert!(executor.can_handle("sleep"));
     }
 

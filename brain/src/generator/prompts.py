@@ -1,15 +1,49 @@
 """
-Prompts de Sistema para Geração de UTDL.
+================================================================================
+PROMPTS DE SISTEMA PARA GERAÇÃO DE UTDL
+================================================================================
 
-Este módulo contém os prompts que definem a "personalidade" e restrições
-do LLM ao gerar planos de teste. Os prompts são cuidadosamente projetados
-para maximizar a taxa de geração de JSON válido.
+Este módulo contém os "scripts" que ensinamos à IA para gerar planos de teste.
+Os prompts são cuidadosamente projetados para maximizar a taxa de sucesso.
 
-Componentes:
-- SYSTEM_PROMPT: Define o papel do LLM e o schema UTDL completo
-- USER_PROMPT_TEMPLATE: Template para requisitos do usuário
-- ERROR_CORRECTION_PROMPT: Template para loop de autocorreção
+## Para todos entenderem:
+
+Quando falamos com uma IA como GPT-4, precisamos dar instruções claras.
+Esses "prompts" são como um manual de instruções que diz para a IA:
+- Quem ela é (Engenheiro de QA Sênior)
+- O que ela deve fazer (gerar JSON no formato UTDL)
+- Quais regras seguir (schema, validações, etc.)
+
+## Componentes deste módulo:
+
+1. **SYSTEM_PROMPT**: O "manual completo" para a IA
+   - Define o papel (QA Engineer)
+   - Explica o schema UTDL
+   - Lista todas as regras e restrições
+
+2. **USER_PROMPT_TEMPLATE**: Template para pedidos do usuário
+   - Insere os requisitos específicos
+   - Define a URL base da API
+
+3. **ERROR_CORRECTION_PROMPT**: Template para correção de erros
+   - Usado quando a primeira tentativa falha
+   - Mostra os erros para a IA corrigir
+
+## Por que isso importa?
+
+A qualidade do prompt determina diretamente a qualidade do resultado.
+Um prompt bem escrito:
+- Reduz erros de validação
+- Gera planos mais completos
+- Evita tentativas de correção desnecessárias
 """
+
+# =============================================================================
+# PROMPT DE SISTEMA - O "Manual" da IA
+# =============================================================================
+
+# Este é o prompt mais importante. Ele define TUDO que a IA precisa saber.
+# Usamos uma string multilinha (""") para facilitar a leitura.
 
 SYSTEM_PROMPT = """Você é um Engenheiro de QA Sênior especializado em automação de testes de API.
 Sua tarefa é analisar documentação de API ou requisitos e gerar um plano de testes completo no formato UTDL (Universal Test Definition Language).
@@ -83,6 +117,13 @@ OPERADORES:
 Lembre-se: Retorne APENAS o JSON. Sem explicações. Sem blocos de código markdown.
 """
 
+# =============================================================================
+# TEMPLATE DO PROMPT DO USUÁRIO
+# =============================================================================
+
+# Este template é preenchido com os dados específicos de cada requisição.
+# {requirement} e {base_url} são substituídos pelos valores reais.
+
 USER_PROMPT_TEMPLATE = """Gere um plano de teste UTDL para a seguinte API/requisitos:
 
 {requirement}
@@ -92,6 +133,13 @@ URL Base: {base_url}
 Gere um plano de teste completo com steps, assertions e extractions apropriados.
 Retorne APENAS JSON válido.
 """
+
+# =============================================================================
+# TEMPLATE DE CORREÇÃO DE ERROS
+# =============================================================================
+
+# Este prompt é usado quando a primeira tentativa falha na validação.
+# Mostramos os erros específicos para que a IA possa corrigir.
 
 ERROR_CORRECTION_PROMPT = """O JSON que você gerou tem erros de validação.
 Por favor, corrija os problemas abaixo e retorne APENAS o JSON corrigido:

@@ -1,3 +1,38 @@
+//! # Executor HTTP - Requisições HTTP com Validação
+//!
+//! Este é o executor mais importante do Runner. Ele executa requisições HTTP
+//! e valida as respostas usando assertions.
+//!
+//! ## O que este executor faz?
+//!
+//! 1. **Constrói a requisição** (método, URL, headers, body)
+//! 2. **Interpola variáveis** em headers e body
+//! 3. **Executa a requisição** usando o cliente HTTP (reqwest)
+//! 4. **Valida a resposta** com assertions (status, body, headers, latency)
+//! 5. **Extrai dados** da resposta para uso em steps seguintes
+//!
+//! ## Fluxo de execução:
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────────┐
+//! │                        execute()                                 │
+//! └───────────────────────────┬─────────────────────────────────────┘
+//!                             │
+//!    ┌────────────────────────┼────────────────────────────────┐
+//!    ▼                        ▼                                ▼
+//! ┌──────────┐          ┌──────────┐                    ┌──────────┐
+//! │ 1. Parse │          │ 2. Build │                    │ 3. Send  │
+//! │  params  │    →     │ request  │         →          │ request  │
+//! └──────────┘          └──────────┘                    └──────────┘
+//!                                                              │
+//!    ┌─────────────────────────────────────────────────────────┘
+//!    ▼
+//! ┌──────────────────────────────────────────────────────────────┐
+//! │ 4. Validate   │ 5. Extract   │ 6. Return StepResult          │
+//! │  assertions   │    data      │                               │
+//! └──────────────────────────────────────────────────────────────┘
+//! ```
+
 use async_trait::async_trait;
 use crate::protocol::{Step, StepResult, StepStatus, Assertion, Extraction};
 use crate::context::Context;
@@ -7,13 +42,29 @@ use std::time::Instant;
 use reqwest::{Client, Method, header::HeaderMap};
 use serde_json::Value;
 
+// ============================================================================
+// FUNÇÕES AUXILIARES
+// ============================================================================
+
 /// Compara dois valores JSON numéricos usando uma função de comparação.
+///
+/// Esta função é usada para assertions que comparam números (gt, lt, gte, lte).
+///
+/// ## Parâmetros:
+/// - `actual`: Valor obtido da resposta
+/// - `expected`: Valor esperado na assertion
+/// - `cmp`: Função de comparação (ex: |a, b| a > b)
+///
+/// ## Retorno:
+/// - `true` se a comparação passar
+/// - `false` se falhar ou os valores não forem numéricos
 fn compare_values<F>(actual: &Value, expected: &Value, cmp: F) -> bool
 where
     F: Fn(f64, f64) -> bool,
 {
     match (actual, expected) {
         (Value::Number(a), Value::Number(b)) => {
+            // Tenta converter ambos para f64 para comparação.
             if let (Some(a_f), Some(b_f)) = (a.as_f64(), b.as_f64()) {
                 cmp(a_f, b_f)
             } else {
@@ -24,29 +75,81 @@ where
     }
 }
 
-/// Contexto de uma resposta HTTP para validação de assertions.
+// ============================================================================
+// CONTEXTO DE RESPOSTA
+// ============================================================================
+
+/// Estrutura que agrupa informações da resposta HTTP para validação.
+///
+/// Usada internamente por `validate_assertions` para ter acesso
+/// a todos os dados da resposta em um só lugar.
 struct ResponseContext<'a> {
+    /// Código de status HTTP (200, 201, 404, 500, etc.)
     status: u16,
+
+    /// Body da resposta parseado como JSON.
+    /// Será `Value::Null` se não for JSON válido.
     body: &'a Value,
+
+    /// Headers da resposta.
     headers: &'a HeaderMap,
+
+    /// Tempo de resposta em milissegundos.
     duration_ms: u64,
 }
 
-/// Executor responsible for handling "http_request" actions.
+// ============================================================================
+// HTTP EXECUTOR
+// ============================================================================
+
+/// Executor responsável por ações "http_request".
+///
+/// Usa a biblioteca `reqwest` para fazer requisições HTTP assíncronas.
+///
+/// ## Recursos:
+/// - Suporte a todos os métodos HTTP (GET, POST, PUT, DELETE, PATCH, etc.)
+/// - Interpolação de variáveis em headers, body e path
+/// - Validação completa via assertions
+/// - Extração de dados da resposta
+/// - Instrumentação OpenTelemetry
 pub struct HttpExecutor {
+    /// Cliente HTTP reutilizável.
+    ///
+    /// Reusar o cliente é mais eficiente porque mantém
+    /// o connection pool entre requisições.
     client: Client,
 }
 
 impl HttpExecutor {
+    /// Cria um novo HttpExecutor.
+    ///
+    /// O cliente HTTP é criado uma vez e reutilizado para todas as requisições.
     pub fn new() -> Self {
         Self {
             client: Client::new(),
         }
     }
 
+    /// Valida todas as assertions contra a resposta.
+    ///
+    /// Itera sobre cada assertion definida no step e verifica
+    /// se a resposta atende aos critérios.
+    ///
+    /// ## Parâmetros:
+    /// - `assertions`: Lista de assertions do step
+    /// - `ctx`: Contexto da resposta (status, body, headers, latency)
+    ///
+    /// ## Retorno:
+    /// - `None` se todas as assertions passaram
+    /// - `Some(String)` com a mensagem de erro da primeira que falhou
     fn validate_assertions(&self, assertions: &[Assertion], ctx: &ResponseContext) -> Option<String> {
         for assertion in assertions {
             match assertion.assertion_type.as_str() {
+                // ============================================================
+                // ASSERTION: STATUS_CODE
+                // ============================================================
+                // Valida o código de status HTTP da resposta.
+                // Exemplo: { "type": "status_code", "operator": "eq", "value": 200 }
                 "status_code" => {
                     let expected = assertion.value.as_u64().unwrap_or(0) as u16;
                     let passed = match assertion.operator.as_str() {
@@ -65,14 +168,23 @@ impl HttpExecutor {
                         ));
                     }
                 }
+
+                // ============================================================
+                // ASSERTION: JSON_BODY
+                // ============================================================
+                // Valida um campo específico do body JSON.
+                // Exemplo: { "type": "json_body", "path": "data.id", "operator": "eq", "value": 123 }
                 "json_body" => {
                     if let Some(path) = &assertion.path {
+                        // Converte o path para formato JSON Pointer.
+                        // "data.user.id" → "/data/user/id"
                         let pointer = if path.starts_with('/') {
                             path.clone()
                         } else {
                             format!("/{}", path.replace('.', "/"))
                         };
 
+                        // Tenta encontrar o valor no body usando JSON Pointer.
                         if let Some(actual) = ctx.body.pointer(&pointer) {
                             let passed = match assertion.operator.as_str() {
                                 "eq" => actual == &assertion.value,
@@ -81,7 +193,7 @@ impl HttpExecutor {
                                     assertion.value.as_str().map(|needle| s.contains(needle)).unwrap_or(false)
                                 }).unwrap_or(false),
                                 "exists" => true, // Se chegou aqui, existe
-                                "not_exists" => false, // Se chegou aqui, existe, então falha
+                                "not_exists" => false, // Se chegou aqui, existe → falha
                                 "gt" => compare_values(actual, &assertion.value, |a, b| a > b),
                                 "lt" => compare_values(actual, &assertion.value, |a, b| a < b),
                                 "gte" | "ge" => compare_values(actual, &assertion.value, |a, b| a >= b),
@@ -96,19 +208,32 @@ impl HttpExecutor {
                                 ));
                             }
                         } else {
-                            // Path não existe
+                            // O path não foi encontrado no body.
                             if assertion.operator == "not_exists" {
                                 continue; // OK, não existe como esperado
                             }
                             if assertion.operator == "exists" {
-                                return Some(format!("Assertion failed: path '{}' should exist but was not found", path));
+                                return Some(format!(
+                                    "Assertion failed: path '{}' should exist but was not found",
+                                    path
+                                ));
                             }
-                            return Some(format!("Assertion failed: path '{}' not found in response body", path));
+                            return Some(format!(
+                                "Assertion failed: path '{}' not found in response body",
+                                path
+                            ));
                         }
                     }
                 }
+
+                // ============================================================
+                // ASSERTION: HEADER
+                // ============================================================
+                // Valida um header da resposta HTTP.
+                // Exemplo: { "type": "header", "path": "Content-Type", "operator": "contains", "value": "json" }
                 "header" => {
                     if let Some(header_name) = &assertion.path {
+                        // Tenta obter o valor do header.
                         let header_value = ctx.headers.get(header_name)
                             .and_then(|v| v.to_str().ok());
 
@@ -162,6 +287,12 @@ impl HttpExecutor {
                         }
                     }
                 }
+
+                // ============================================================
+                // ASSERTION: LATENCY
+                // ============================================================
+                // Valida o tempo de resposta da requisição.
+                // Exemplo: { "type": "latency", "operator": "lt", "value": 500 }
                 "latency" => {
                     let expected = assertion.value.as_u64().unwrap_or(0);
                     let passed = match assertion.operator.as_str() {
@@ -179,14 +310,28 @@ impl HttpExecutor {
                         ));
                     }
                 }
+
+                // Tipo de assertion desconhecido.
                 _ => {
-                    tracing::warn!(assertion_type = %assertion.assertion_type, "Unknown assertion type, skipping");
+                    tracing::warn!(
+                        assertion_type = %assertion.assertion_type,
+                        "Unknown assertion type, skipping"
+                    );
                 }
             }
         }
+
+        // Todas as assertions passaram.
         None
     }
 
+    /// Aplica as regras de extração para salvar dados da resposta no contexto.
+    ///
+    /// ## Parâmetros:
+    /// - `extracts`: Lista de regras de extração
+    /// - `body`: Body JSON da resposta
+    /// - `headers`: Headers da resposta
+    /// - `context`: Contexto onde salvar os valores extraídos
     fn apply_extractions(
         &self,
         extracts: &[Extraction],
@@ -196,17 +341,22 @@ impl HttpExecutor {
     ) {
         for rule in extracts {
             match rule.source.as_str() {
+                // Extrai do body JSON.
                 "body" => {
+                    // Converte o path para JSON Pointer.
                     let pointer = if rule.path.starts_with('/') {
                         rule.path.clone()
                     } else {
                         format!("/{}", rule.path.replace('.', "/"))
                     };
 
+                    // Se encontrar o valor, salva no contexto.
                     if let Some(val) = body.pointer(&pointer) {
                         context.set(rule.target.clone(), val.clone());
                     }
                 }
+
+                // Extrai de um header.
                 "header" => {
                     if let Some(val) = headers.get(&rule.path) {
                         if let Ok(str_val) = val.to_str() {
@@ -214,18 +364,28 @@ impl HttpExecutor {
                         }
                     }
                 }
+
                 _ => {}
             }
         }
     }
 }
 
+// ============================================================================
+// IMPLEMENTAÇÃO DO TRAIT STEP EXECUTOR
+// ============================================================================
+
 #[async_trait]
 impl StepExecutor for HttpExecutor {
+    /// Retorna true se a action for "http_request".
     fn can_handle(&self, action: &str) -> bool {
         action == "http_request"
     }
 
+    /// Executa uma requisição HTTP.
+    ///
+    /// Este método é instrumentado com OpenTelemetry para gerar spans
+    /// com atributos da requisição e resposta.
     #[tracing::instrument(
         name = "http_request",
         skip_all,
@@ -242,45 +402,55 @@ impl StepExecutor for HttpExecutor {
         let span = tracing::Span::current();
         let start_time = Instant::now();
 
-        // 1. Parse parameters
+        // ====================================================================
+        // PASSO 1: PARSE DOS PARÂMETROS
+        // ====================================================================
+
         let params = &step.params;
+
+        // Extrai o método HTTP (GET, POST, PUT, DELETE, etc.)
         let method_str = params.get("method")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'method' in params"))?;
 
+        // Extrai o path da requisição.
         let path_str = params.get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'path' in params"))?;
 
-        // Resolve URL (Base URL + Path)
-        // Note: We need to access config from context or pass it down.
-        // For now, we'll assume context has a special variable or we need to refactor execute signature.
-        // Refactoring execute to take Plan Config is a larger change.
-        // Quick fix: Check if path is absolute, if not, try to find base_url in context variables (set by main).
-
+        // Interpola variáveis no path.
         let interpolated_path = context.interpolate_str(path_str)?;
 
+        // ====================================================================
+        // PASSO 2: CONSTRUÇÃO DA URL
+        // ====================================================================
+
+        // Se o path já é uma URL completa, usa diretamente.
+        // Senão, combina com a base_url do contexto.
         let url = if interpolated_path.starts_with("http") {
             interpolated_path
         } else {
-            // Try to get base_url from context, default to empty if not found (will likely fail)
             let base = context.get("base_url")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             format!("{}{}", base.trim_end_matches('/'), interpolated_path)
         };
 
+        // Converte a string do método para o enum Method.
         let method = Method::from_bytes(method_str.as_bytes())
             .map_err(|e| anyhow!("Invalid HTTP method: {}", e))?;
 
-        // Record OTEL attributes
+        // Registra atributos no span OTEL.
         span.record("http.method", method_str);
         span.record("http.url", &url);
 
-        // 2. Build Request
+        // ====================================================================
+        // PASSO 3: CONSTRUÇÃO DA REQUISIÇÃO
+        // ====================================================================
+
         let mut request_builder = self.client.request(method, &url);
 
-        // Add Headers
+        // Adiciona headers (com interpolação de variáveis).
         if let Some(headers) = params.get("headers").and_then(|h| h.as_object()) {
             for (k, v) in headers {
                 if let Some(v_str) = v.as_str() {
@@ -290,18 +460,23 @@ impl StepExecutor for HttpExecutor {
             }
         }
 
-        // Add Body
+        // Adiciona body (com interpolação recursiva).
         if let Some(body) = params.get("body") {
             let resolved = context.interpolate_value(body)?;
             request_builder = request_builder.json(&resolved);
         }
 
-        // 3. Execute Request
-        let response = request_builder.send().await;
+        // ====================================================================
+        // PASSO 4: EXECUÇÃO DA REQUISIÇÃO
+        // ====================================================================
 
+        let response = request_builder.send().await;
         let duration = start_time.elapsed().as_millis() as u64;
 
-        // 4. Handle Result
+        // ====================================================================
+        // PASSO 5: PROCESSAMENTO DA RESPOSTA
+        // ====================================================================
+
         match response {
             Ok(resp) => {
                 let status = resp.status().as_u16();
@@ -309,12 +484,19 @@ impl StepExecutor for HttpExecutor {
                 let raw_body = resp.text().await.unwrap_or_default();
                 let body_json: Value = serde_json::from_str(&raw_body).unwrap_or(Value::Null);
 
-                // Record OTEL attributes for response
+                // Registra atributos da resposta no span OTEL.
                 span.record("http.status_code", status as i64);
                 span.record("http.duration_ms", duration as i64);
 
-                tracing::info!(method = %method_str, %url, status, duration_ms = duration, "HTTP step finished");
+                tracing::info!(
+                    method = %method_str,
+                    %url,
+                    status,
+                    duration_ms = duration,
+                    "HTTP step finished"
+                );
 
+                // Cria o contexto de resposta para validação.
                 let response_ctx = ResponseContext {
                     status,
                     body: &body_json,
@@ -322,6 +504,7 @@ impl StepExecutor for HttpExecutor {
                     duration_ms: duration,
                 };
 
+                // Valida as assertions.
                 if let Some(error_msg) = self.validate_assertions(&step.assertions, &response_ctx) {
                     tracing::warn!(error = %error_msg, "Assertion failed");
                     return Ok(StepResult {
@@ -332,8 +515,10 @@ impl StepExecutor for HttpExecutor {
                     });
                 }
 
+                // Aplica as extrações.
                 self.apply_extractions(&step.extract, &body_json, &headers, context);
 
+                // Retorna sucesso.
                 Ok(StepResult {
                     step_id: step.id.clone(),
                     status: StepStatus::Passed,
@@ -342,6 +527,7 @@ impl StepExecutor for HttpExecutor {
                 })
             },
             Err(e) => {
+                // Erro na requisição (rede, DNS, timeout, etc.)
                 tracing::error!(error = %e, "HTTP request failed");
                 Ok(StepResult {
                     step_id: step.id.clone(),

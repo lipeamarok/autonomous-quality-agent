@@ -3,12 +3,73 @@
 //! Fornece integração completa com OpenTelemetry para observabilidade distribuída.
 //! Exporta traces/spans com atributos detalhados de cada requisição HTTP.
 //!
-//! ## Funcionalidades
+//! ## Para todos entenderem:
 //!
-//! - Configuração de tracer com OTLP exporter
-//! - Suporte a sampling configurável
-//! - Spans instrumentados com atributos HTTP semânticos
-//! - Integração com tracing-subscriber
+//! Telemetria é como ter uma câmera gravando tudo que seu programa faz.
+//! Você pode depois assistir a gravação para entender:
+//! - Por que algo demorou?
+//! - Onde aconteceu um erro?
+//! - Qual foi o caminho de uma requisição?
+//!
+//! OpenTelemetry é um padrão da indústria para isso.
+//! Os dados podem ser visualizados em ferramentas como:
+//! - Jaeger
+//! - Zipkin
+//! - Grafana Tempo
+//! - AWS X-Ray
+//!
+//! ## Conceitos:
+//!
+//! ### Trace (rastreamento)
+//!
+//! Um trace é como uma "história" de uma operação.
+//! Por exemplo: "Usuário fez login" pode envolver:
+//! - Receber a requisição
+//! - Validar credenciais
+//! - Buscar no banco
+//! - Retornar resposta
+//!
+//! ### Span (intervalo)
+//!
+//! Cada pedaço do trace é um span.
+//! Spans podem ter filhos (hierarquia).
+//!
+//! ```text
+//! [Login Request] ─────────────────────────────────>
+//!   [Validate] ───>
+//!              [DB Query] ────────>
+//!                               [Response] ─>
+//! ```
+//!
+//! ### Atributos
+//!
+//! Metadados sobre cada span:
+//! - http.method: "GET"
+//! - http.status_code: 200
+//! - http.url: "/api/users"
+//!
+//! ## Configuração via variáveis de ambiente:
+//!
+//! - `OTEL_SERVICE_NAME`: Nome do serviço
+//! - `OTEL_EXPORTER_OTLP_ENDPOINT`: URL do coletor OTLP
+//! - `OTEL_TRACES_SAMPLER_ARG`: Taxa de sampling (0.0-1.0)
+//!
+//! ## Exemplo de uso:
+//!
+//! ```ignore
+//! let config = TelemetryConfig {
+//!     service_name: "my-tests".to_string(),
+//!     otlp_endpoint: Some("http://localhost:4317".to_string()),
+//!     sampling_ratio: 1.0, // 100% dos traces
+//!     ..Default::default()
+//! };
+//!
+//! init_telemetry(config)?;
+//!
+//! // ... executar testes ...
+//!
+//! shutdown_telemetry(); // Flush dos dados
+//! ```
 
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, KeyValue};
@@ -22,27 +83,48 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
+// ============================================================================
+// CONFIGURAÇÃO
+// ============================================================================
+
 /// Configuração do sistema de telemetria.
+///
+/// Esta struct contém todas as opções para configurar o rastreamento.
+/// Pode ser criada manualmente ou via `from_env()`.
 #[derive(Debug, Clone)]
 pub struct TelemetryConfig {
     /// Nome do serviço para identificação nos traces.
+    /// Aparece em dashboards e ajuda a filtrar dados.
     pub service_name: String,
-    /// Endpoint OTLP para envio de traces (ex: "http://localhost:4317").
+
+    /// Endpoint OTLP para envio de traces.
+    /// Exemplo: "http://localhost:4317" (gRPC)
+    /// Se None, apenas loga para console.
     pub otlp_endpoint: Option<String>,
-    /// Taxa de sampling (0.0 a 1.0). 1.0 = 100% dos traces.
+
+    /// Taxa de sampling (0.0 a 1.0).
+    /// - 1.0 = 100% dos traces são coletados
+    /// - 0.1 = 10% dos traces são coletados
+    /// - 0.0 = nenhum trace é coletado
     pub sampling_ratio: f64,
-    /// Se deve habilitar logging para console também.
+
+    /// Se deve habilitar logging para console.
+    /// Útil para desenvolvimento e debugging.
     pub enable_console_logging: bool,
-    /// Nível de log mínimo.
+
+    /// Nível de log mínimo (INFO, DEBUG, WARN, ERROR).
     pub log_level: Level,
 }
 
+/// Implementação de Default para TelemetryConfig.
+///
+/// Valores padrão são conservadores e funcionam sem configuração extra.
 impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
             service_name: "autonomous-quality-agent-runner".to_string(),
-            otlp_endpoint: None,
-            sampling_ratio: 1.0,
+            otlp_endpoint: None,       // Sem OTLP por padrão
+            sampling_ratio: 1.0,       // 100% por padrão
             enable_console_logging: true,
             log_level: Level::INFO,
         }
@@ -52,13 +134,27 @@ impl Default for TelemetryConfig {
 impl TelemetryConfig {
     /// Cria configuração a partir de variáveis de ambiente.
     ///
-    /// Variáveis suportadas:
-    /// - OTEL_SERVICE_NAME: Nome do serviço
-    /// - OTEL_EXPORTER_OTLP_ENDPOINT: Endpoint OTLP
-    /// - OTEL_TRACES_SAMPLER_ARG: Taxa de sampling (0.0-1.0)
+    /// Esta é a forma recomendada em produção, pois permite
+    /// configurar sem recompilar o código.
+    ///
+    /// ## Variáveis suportadas:
+    ///
+    /// - `OTEL_SERVICE_NAME`: Nome do serviço
+    /// - `OTEL_EXPORTER_OTLP_ENDPOINT`: URL do coletor OTLP
+    /// - `OTEL_TRACES_SAMPLER_ARG`: Taxa de sampling (0.0-1.0)
+    ///
+    /// ## Exemplo:
+    ///
+    /// ```bash
+    /// export OTEL_SERVICE_NAME="my-tests"
+    /// export OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger:4317"
+    /// export OTEL_TRACES_SAMPLER_ARG="0.5"  # 50% sampling
+    /// ```
     pub fn from_env() -> Self {
+        // Começa com valores padrão.
         let mut config = Self::default();
 
+        // Sobrescreve com variáveis de ambiente se existirem.
         if let Ok(name) = std::env::var("OTEL_SERVICE_NAME") {
             config.service_name = name;
         }
@@ -69,6 +165,7 @@ impl TelemetryConfig {
 
         if let Ok(ratio) = std::env::var("OTEL_TRACES_SAMPLER_ARG") {
             if let Ok(r) = ratio.parse::<f64>() {
+                // Garante que o valor está entre 0.0 e 1.0.
                 config.sampling_ratio = r.clamp(0.0, 1.0);
             }
         }
@@ -77,38 +174,51 @@ impl TelemetryConfig {
     }
 }
 
+// ============================================================================
+// INICIALIZAÇÃO
+// ============================================================================
+
 /// Inicializa o sistema de telemetria com OpenTelemetry.
 ///
-/// Configura:
-/// - Tracer com OTLP exporter (se endpoint configurado)
-/// - Sampler com ratio configurável
-/// - Integração com tracing-subscriber
+/// Esta função configura toda a infraestrutura de rastreamento:
+/// 1. Cria o TracerProvider com exporter OTLP (se configurado)
+/// 2. Configura o sampler (taxa de coleta)
+/// 3. Integra com tracing-subscriber para spans automáticos
 ///
-/// # Exemplo
+/// ## Parâmetros:
 ///
-/// ```ignore
-/// let config = TelemetryConfig {
-///     service_name: "my-service".to_string(),
-///     otlp_endpoint: Some("http://localhost:4317".to_string()),
-///     sampling_ratio: 0.5, // 50% dos traces
-///     ..Default::default()
-/// };
-/// init_telemetry(config)?;
-/// ```
+/// - `config`: Configuração do sistema de telemetria
+///
+/// ## Retorno:
+///
+/// - `Ok(Some(Tracer))`: OTLP configurado, tracer retornado
+/// - `Ok(None)`: Apenas console logging (sem OTLP)
+/// - `Err`: Erro ao configurar
+///
+/// ## Para todos entenderem sobre tracing-subscriber:
+///
+/// O tracing-subscriber é uma biblioteca que recebe "eventos de log"
+/// e decide o que fazer com eles (imprimir, enviar para servidor, etc).
+/// Aqui configuramos para enviar para OpenTelemetry.
 pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<Option<Tracer>> {
+    // Configura filtro de nível de log.
+    // Primeiro tenta ler de RUST_LOG, senão usa o padrão.
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(config.log_level.to_string()));
 
-    // Se temos endpoint OTLP, configuramos o exporter
+    // Se temos endpoint OTLP, configuramos o exporter.
     if let Some(endpoint) = &config.otlp_endpoint {
         let tracer = init_otlp_tracer(&config.service_name, endpoint, config.sampling_ratio)?;
 
+        // Cria layer que envia spans para OpenTelemetry.
         let telemetry_layer = OpenTelemetryLayer::new(tracer.clone());
 
+        // Monta o subscriber com as layers.
         let subscriber = tracing_subscriber::registry()
             .with(env_filter)
             .with(telemetry_layer);
 
+        // Adiciona console logging se habilitado.
         if config.enable_console_logging {
             subscriber
                 .with(tracing_subscriber::fmt::layer().compact())
@@ -126,7 +236,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<Option<Tracer>>
 
         Ok(Some(tracer))
     } else {
-        // Sem OTLP, apenas console logging
+        // Sem OTLP, apenas console logging.
         let subscriber = tracing_subscriber::registry().with(env_filter);
 
         if config.enable_console_logging {
@@ -142,28 +252,47 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<Option<Tracer>>
     }
 }
 
+// ============================================================================
+// TRACER OTLP
+// ============================================================================
+
 /// Cria um tracer com OTLP exporter.
+///
+/// Esta função cria a infraestrutura de baixo nível:
+/// - Exporter que envia dados via gRPC
+/// - Sampler que decide quais traces coletar
+/// - TracerProvider que gerencia tudo
+///
+/// ## Parâmetros:
+///
+/// - `service_name`: Nome do serviço
+/// - `endpoint`: URL do coletor OTLP (ex: "http://localhost:4317")
+/// - `sampling_ratio`: Taxa de sampling (0.0-1.0)
 fn init_otlp_tracer(
     service_name: &str,
     endpoint: &str,
     sampling_ratio: f64,
 ) -> anyhow::Result<Tracer> {
+    // Configura o sampler baseado na taxa.
     let sampler = if sampling_ratio >= 1.0 {
-        Sampler::AlwaysOn
+        Sampler::AlwaysOn      // 100%: sempre coleta
     } else if sampling_ratio <= 0.0 {
-        Sampler::AlwaysOff
+        Sampler::AlwaysOff     // 0%: nunca coleta
     } else {
+        // Entre 0 e 1: coleta baseado no trace ID.
+        // Isso garante que traces relacionados são coletados juntos.
         Sampler::TraceIdRatioBased(sampling_ratio)
     };
 
-    // Cria o TracerProvider manualmente
+    // Cria o TracerProvider com batch exporter.
+    // Batch significa que acumula spans e envia em lotes (mais eficiente).
     let tracer_provider = TracerProvider::builder()
         .with_batch_exporter(
             opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint(endpoint)
-                .build_span_exporter()?,
-            Tokio,
+                .tonic()                          // Usa gRPC (protocolo binário)
+                .with_endpoint(endpoint)          // URL do coletor
+                .build_span_exporter()?,          // Cria o exporter
+            Tokio,                                // Usa runtime Tokio
         )
         .with_config(
             sdktrace::Config::default()
@@ -176,19 +305,38 @@ fn init_otlp_tracer(
         )
         .build();
 
-    // Obtém o tracer do provider
+    // Obtém o tracer do provider.
     let tracer = tracer_provider.tracer(service_name.to_string());
 
-    // Registra o provider globalmente
+    // Registra o provider globalmente.
+    // Isso permite usar `global::tracer()` em qualquer lugar.
     global::set_tracer_provider(tracer_provider);
 
     Ok(tracer)
 }
 
+// ============================================================================
+// ENCERRAMENTO
+// ============================================================================
+
 /// Encerra o sistema de telemetria, flushing traces pendentes.
 ///
-/// Deve ser chamado antes do encerramento da aplicação para garantir
-/// que todos os traces sejam enviados.
+/// **IMPORTANTE**: Deve ser chamado antes do encerramento da aplicação.
+///
+/// Por quê? O batch exporter acumula spans na memória.
+/// Se a aplicação terminar sem flush, esses spans são perdidos.
+///
+/// ## Exemplo:
+///
+/// ```ignore
+/// async fn main() {
+///     init_telemetry(config)?;
+///
+///     run_tests().await;
+///
+///     shutdown_telemetry(); // <-- Não esquecer!
+/// }
+/// ```
 pub fn shutdown_telemetry() {
     global::shutdown_tracer_provider();
     tracing::info!("Telemetria OTEL encerrada");

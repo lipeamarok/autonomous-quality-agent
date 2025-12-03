@@ -28,3 +28,6 @@ runner/**/*.rs.bk
 plans/*.json
 reports/*.json
 report.json
+
+# Sensíveis
+.env

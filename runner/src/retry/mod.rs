@@ -1,9 +1,61 @@
-//! Módulo de Retry com RecoveryPolicy.
+//! # Módulo de Retry com RecoveryPolicy
 //!
-//! Implementa algoritmo de retry exponencial com suporte a estratégias:
-//! - `retry`: tenta novamente até max_attempts com backoff exponencial
-//! - `fail_fast`: falha imediatamente sem retry
-//! - `ignore`: marca como passed mesmo se falhar
+//! Implementa estratégias de recuperação para steps que falham,
+//! permitindo retry automático com backoff exponencial.
+//!
+//! ## Para todos entenderem:
+//!
+//! Às vezes, um teste falha por motivos temporários:
+//! - Servidor estava ocupado
+//! - Rede teve um soluço
+//! - Recurso ainda não estava pronto
+//!
+//! Este módulo permite "tentar de novo" automaticamente,
+//! esperando um pouco mais a cada tentativa.
+//!
+//! ## Estratégias de Recuperação:
+//!
+//! ### 1. retry (tentar novamente)
+//!
+//! Tenta novamente até `max_attempts` vezes.
+//! Entre cada tentativa, espera cada vez mais (backoff exponencial).
+//!
+//! Exemplo: backoff_ms=100, backoff_factor=2
+//! - 1ª falha: espera 100ms
+//! - 2ª falha: espera 200ms (100 × 2)
+//! - 3ª falha: espera 400ms (200 × 2)
+//!
+//! ### 2. fail_fast (falhar imediatamente)
+//!
+//! Não tenta novamente. Se falhou, falhou.
+//! É o comportamento padrão.
+//!
+//! ### 3. ignore (ignorar falha)
+//!
+//! Se falhar, marca como sucesso mesmo assim.
+//! Útil para steps opcionais.
+//!
+//! ## Exemplo de uso no UTDL:
+//!
+//! ```json
+//! {
+//!   "id": "step_com_retry",
+//!   "recovery_policy": {
+//!     "strategy": "retry",
+//!     "max_attempts": 3,
+//!     "backoff_ms": 100,
+//!     "backoff_factor": 2.0
+//!   }
+//! }
+//! ```
+//!
+//! ## O que é Backoff Exponencial?
+//!
+//! É uma técnica onde esperamos cada vez mais entre tentativas.
+//! Isso evita sobrecarregar um servidor que está com problemas.
+//!
+//! Se todos os clientes tentassem imediatamente, o servidor
+//! nunca conseguiria se recuperar. Com backoff, damos tempo.
 
 use std::time::Duration;
 use tokio::time::sleep;
@@ -11,40 +63,75 @@ use tracing::{info, warn};
 
 use crate::protocol::RecoveryPolicy;
 
-/// Estratégias de recuperação suportadas.
+// ============================================================================
+// ESTRATÉGIAS DE RECUPERAÇÃO
+// ============================================================================
+
+/// Enum que representa as estratégias de recuperação.
+///
+/// Usamos enum ao invés de strings para segurança de tipos.
+/// O compilador garante que só usamos valores válidos.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecoveryStrategy {
-    /// Retry com backoff exponencial
+    /// Tenta novamente com backoff exponencial.
     Retry,
-    /// Falha imediatamente
+    /// Falha imediatamente sem retry.
     FailFast,
-    /// Ignora falhas (marca como passed)
+    /// Ignora falhas e marca como sucesso.
     Ignore,
 }
 
 impl RecoveryStrategy {
+    /// Converte string para RecoveryStrategy.
+    ///
+    /// Aceita variações comuns como:
+    /// - "retry" → Retry
+    /// - "fail_fast" ou "failfast" → FailFast
+    /// - "ignore" → Ignore
+    /// - Qualquer outro valor → FailFast (comportamento conservador)
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "retry" => Self::Retry,
             "fail_fast" | "failfast" => Self::FailFast,
             "ignore" => Self::Ignore,
-            _ => Self::FailFast, // Default conservador
+            _ => Self::FailFast, // Default conservador: não tentar novamente
         }
     }
 }
 
+// ============================================================================
+// RETRY EXECUTOR
+// ============================================================================
+
 /// Executor de retry com backoff exponencial.
 ///
-/// Nota: Esta estrutura é mantida para testes e uso futuro.
-/// A lógica de retry inline em main.rs é usada na execução real.
+/// Esta struct encapsula uma política de recuperação e fornece
+/// um método genérico para executar operações com retry.
+///
+/// ## Para todos entenderem:
+///
+/// É como um assistente que:
+/// 1. Tenta fazer algo
+/// 2. Se falhar, olha para as regras (policy)
+/// 3. Decide se tenta de novo ou desiste
+/// 4. Se tentar de novo, espera um pouco primeiro
+///
+/// ## Nota de implementação:
+///
+/// Esta estrutura é usada principalmente em testes.
+/// A lógica de retry em produção está inline em main.rs
+/// para melhor integração com o fluxo de execução.
 #[allow(dead_code)]
 pub struct RetryExecutor {
+    /// A política de recuperação (max_attempts, backoff_ms, etc.)
     policy: RecoveryPolicy,
+    /// A estratégia parseada para enum.
     strategy: RecoveryStrategy,
 }
 
 #[allow(dead_code)]
 impl RetryExecutor {
+    /// Cria um novo RetryExecutor a partir de uma política.
     pub fn new(policy: RecoveryPolicy) -> Self {
         let strategy = RecoveryStrategy::from_str(&policy.strategy);
         Self { policy, strategy }
@@ -52,14 +139,25 @@ impl RetryExecutor {
 
     /// Executa uma operação com retry conforme a política.
     ///
-    /// # Argumentos
-    /// * `step_id` - ID do step para logging
-    /// * `operation` - Closure assíncrona que retorna Result<T, E>
+    /// Este é um método genérico que aceita qualquer closure assíncrona
+    /// que retorna Result<T, E>.
     ///
-    /// # Retorno
-    /// * `Ok(Some(result))` - Sucesso
-    /// * `Ok(None)` - Ignorado (strategy = ignore)
-    /// * `Err(error)` - Falha após todas tentativas
+    /// ## Parâmetros:
+    ///
+    /// - `step_id`: ID do step (para logging)
+    /// - `operation`: Closure que retorna Future<Output = Result<T, E>>
+    ///
+    /// ## Retorno:
+    ///
+    /// - `Ok(Some(result))`: Sucesso, retorna o resultado
+    /// - `Ok(None)`: Strategy=ignore e operação falhou
+    /// - `Err(error)`: Falha após todas as tentativas
+    ///
+    /// ## Para todos entenderem sobre closures:
+    ///
+    /// Uma closure é como uma função anônima.
+    /// `FnMut() -> Fut` significa: "algo que pode ser chamado
+    /// múltiplas vezes e retorna um Future".
     pub async fn execute<T, E, F, Fut>(
         &self,
         step_id: &str,
@@ -71,19 +169,24 @@ impl RetryExecutor {
         E: std::fmt::Display,
     {
         match self.strategy {
+            // ================================================================
+            // FAIL_FAST: Executa uma vez, falha se der erro.
+            // ================================================================
             RecoveryStrategy::FailFast => {
-                // Executa uma vez, falha se der erro
                 match operation().await {
                     Ok(result) => Ok(Some(result)),
                     Err(e) => Err(e),
                 }
             }
 
+            // ================================================================
+            // IGNORE: Executa uma vez, ignora erros.
+            // ================================================================
             RecoveryStrategy::Ignore => {
-                // Executa uma vez, ignora erros
                 match operation().await {
                     Ok(result) => Ok(Some(result)),
                     Err(e) => {
+                        // Loga warning mas não falha.
                         warn!(
                             step_id = %step_id,
                             error = %e,
@@ -94,12 +197,17 @@ impl RetryExecutor {
                 }
             }
 
+            // ================================================================
+            // RETRY: Tenta múltiplas vezes com backoff.
+            // ================================================================
             RecoveryStrategy::Retry => {
                 let mut attempt = 1;
                 let mut current_backoff = self.policy.backoff_ms;
 
+                // Loop de tentativas.
                 loop {
                     match operation().await {
+                        // Sucesso!
                         Ok(result) => {
                             if attempt > 1 {
                                 info!(
@@ -110,7 +218,9 @@ impl RetryExecutor {
                             }
                             return Ok(Some(result));
                         }
+                        // Falha.
                         Err(e) => {
+                            // Verifica se esgotou as tentativas.
                             if attempt >= self.policy.max_attempts {
                                 warn!(
                                     step_id = %step_id,
@@ -122,6 +232,7 @@ impl RetryExecutor {
                                 return Err(e);
                             }
 
+                            // Ainda tem tentativas, loga e aguarda.
                             warn!(
                                 step_id = %step_id,
                                 attempt = attempt,
@@ -131,10 +242,11 @@ impl RetryExecutor {
                                 "Tentativa falhou, aguardando retry"
                             );
 
-                            // Aguarda backoff
+                            // Aguarda o backoff.
                             sleep(Duration::from_millis(current_backoff)).await;
 
-                            // Calcula próximo backoff (exponencial)
+                            // Calcula próximo backoff (exponencial).
+                            // Exemplo: 100ms × 2.0 = 200ms.
                             current_backoff =
                                 (current_backoff as f64 * self.policy.backoff_factor) as u64;
                             attempt += 1;
@@ -146,7 +258,9 @@ impl RetryExecutor {
     }
 }
 
-/// Cria um executor de retry com política padrão (fail_fast).
+/// Implementação de Default para RetryExecutor.
+///
+/// O padrão é fail_fast: sem retry, falha imediatamente.
 impl Default for RetryExecutor {
     fn default() -> Self {
         Self::new(RecoveryPolicy {
@@ -157,6 +271,10 @@ impl Default for RetryExecutor {
         })
     }
 }
+
+// ============================================================================
+// TESTES
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
