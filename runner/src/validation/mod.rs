@@ -40,6 +40,7 @@
 //! }
 //! ```
 
+use std::collections::HashMap;
 use crate::protocol::{Plan, Step};
 use thiserror::Error;
 
@@ -192,6 +193,12 @@ pub fn validate_plan(plan: &Plan) -> ValidationResult {
         errors.push(ValidationError::EmptyPlan);
         // Retorna early porque sem steps não há o que validar mais.
         return Err(errors);
+    }
+
+    // Valida o DAG (detecta ciclos complexos como A→B→C→A).
+    // Isso é crucial para evitar loops infinitos na execução paralela.
+    if let Err(cycle_errors) = validate_dag(&plan.steps) {
+        errors.extend(cycle_errors);
     }
 
     // Coleta IDs de todos os steps.
@@ -356,6 +363,111 @@ fn validate_wait_params(step: &Step, errors: &mut Vec<ValidationError>) {
             param: "duration_ms".to_string(),
         });
     }
+}
+
+// ============================================================================
+// VALIDAÇÃO DE DAG (DETECÇÃO DE CICLOS)
+// ============================================================================
+
+/// Valida que o grafo de dependências não contém ciclos.
+///
+/// ## Algoritmo: DFS (Depth-First Search) para detecção de ciclos
+///
+/// Usa um algoritmo de coloração de nós:
+/// - Branco (0): Não visitado
+/// - Cinza (1): Em processamento (visitando descendentes)
+/// - Preto (2): Completamente processado
+///
+/// Se durante a DFS encontramos um nó cinza, temos um ciclo!
+///
+/// ## Para leigos:
+///
+/// Imagine que você está explorando um labirinto e marcando onde já passou.
+/// Se você encontrar uma marca que fez NESTA MESMA exploração (não numa anterior),
+/// significa que andou em círculos - encontrou um ciclo!
+///
+/// ## Exemplo de ciclo:
+/// ```text
+/// A → B → C → A  (ciclo!)
+///
+/// Explorando A: marca A como "explorando"
+/// Explorando B: marca B como "explorando"  
+/// Explorando C: marca C como "explorando"
+/// C depende de A, mas A está "explorando" → CICLO DETECTADO!
+/// ```
+fn validate_dag(steps: &[Step]) -> Result<(), Vec<ValidationError>> {
+    use std::collections::HashMap;
+    
+    // Mapa de step_id → lista de dependências
+    let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
+    
+    // Constrói o grafo de dependências
+    for step in steps {
+        let deps: Vec<&str> = step.depends_on.iter().map(|s| s.as_str()).collect();
+        graph.insert(step.id.as_str(), deps);
+    }
+    
+    // Estado de cada nó: 0=branco, 1=cinza, 2=preto
+    let mut color: HashMap<&str, u8> = HashMap::new();
+    for step in steps {
+        color.insert(step.id.as_str(), 0);
+    }
+    
+    let mut errors = Vec::new();
+    
+    // Executa DFS a partir de cada nó não visitado
+    for step in steps {
+        if color.get(step.id.as_str()) == Some(&0) {
+            detect_cycle_dfs(step.id.as_str(), &graph, &mut color, &mut errors);
+        }
+    }
+    
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// DFS recursivo para detectar ciclos no grafo.
+///
+/// Retorna true se encontrou um ciclo a partir deste nó.
+fn detect_cycle_dfs<'a>(
+    node: &'a str,
+    graph: &HashMap<&'a str, Vec<&'a str>>,
+    color: &mut HashMap<&'a str, u8>,
+    errors: &mut Vec<ValidationError>,
+) -> bool {
+    // Marca como cinza (em processamento)
+    color.insert(node, 1);
+    
+    // Visita todas as dependências
+    if let Some(deps) = graph.get(node) {
+        for dep in deps {
+            match color.get(dep) {
+                Some(1) => {
+                    // Encontrou nó cinza = ciclo!
+                    errors.push(ValidationError::CircularDependency {
+                        step_id: node.to_string(),
+                    });
+                    return true;
+                }
+                Some(0) => {
+                    // Nó branco, continua DFS
+                    if detect_cycle_dfs(dep, graph, color, errors) {
+                        return true;
+                    }
+                }
+                _ => {
+                    // Nó preto (já processado), ignora
+                }
+            }
+        }
+    }
+    
+    // Marca como preto (processamento completo)
+    color.insert(node, 2);
+    false
 }
 
 // ============================================================================
@@ -572,5 +684,192 @@ mod tests {
 
         let result = validate_plan(&plan);
         assert!(result.is_ok());
+    }
+
+    // ========================================================================
+    // TESTES DE CICLOS NO DAG
+    // ========================================================================
+
+    #[test]
+    fn test_circular_dependency_two_nodes() {
+        // A → B → A (ciclo simples entre dois nós)
+        let plan = create_test_plan(vec![
+            Step {
+                id: "A".to_string(),
+                description: None,
+                depends_on: vec!["B".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/a" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+            Step {
+                id: "B".to_string(),
+                description: None,
+                depends_on: vec!["A".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/b" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+        ]);
+
+        let result = validate_plan(&plan);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| matches!(e, ValidationError::CircularDependency { .. })));
+    }
+
+    #[test]
+    fn test_circular_dependency_three_nodes() {
+        // A → B → C → A (ciclo complexo com três nós)
+        let plan = create_test_plan(vec![
+            Step {
+                id: "A".to_string(),
+                description: None,
+                depends_on: vec!["C".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/a" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+            Step {
+                id: "B".to_string(),
+                description: None,
+                depends_on: vec!["A".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/b" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+            Step {
+                id: "C".to_string(),
+                description: None,
+                depends_on: vec!["B".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/c" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+        ]);
+
+        let result = validate_plan(&plan);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| matches!(e, ValidationError::CircularDependency { .. })));
+    }
+
+    #[test]
+    fn test_valid_dag_no_cycles() {
+        // Grafo válido sem ciclos:
+        //     A
+        //    / \
+        //   B   C
+        //    \ /
+        //     D
+        let plan = create_test_plan(vec![
+            Step {
+                id: "A".to_string(),
+                description: None,
+                depends_on: vec![],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/a" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+            Step {
+                id: "B".to_string(),
+                description: None,
+                depends_on: vec!["A".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/b" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+            Step {
+                id: "C".to_string(),
+                description: None,
+                depends_on: vec!["A".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/c" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+            Step {
+                id: "D".to_string(),
+                description: None,
+                depends_on: vec!["B".to_string(), "C".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/d" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+        ]);
+
+        let result = validate_plan(&plan);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_partial_cycle_in_dag() {
+        // Grafo com ciclo parcial:
+        // A → B (ok)
+        // C → D → C (ciclo)
+        let plan = create_test_plan(vec![
+            Step {
+                id: "A".to_string(),
+                description: None,
+                depends_on: vec![],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/a" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+            Step {
+                id: "B".to_string(),
+                description: None,
+                depends_on: vec!["A".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/b" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+            Step {
+                id: "C".to_string(),
+                description: None,
+                depends_on: vec!["D".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/c" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+            Step {
+                id: "D".to_string(),
+                description: None,
+                depends_on: vec!["C".to_string()],
+                action: "http_request".to_string(),
+                params: json!({ "method": "GET", "path": "/d" }),
+                assertions: vec![],
+                extract: vec![],
+                recovery_policy: None,
+            },
+        ]);
+
+        let result = validate_plan(&plan);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| matches!(e, ValidationError::CircularDependency { .. })));
     }
 }

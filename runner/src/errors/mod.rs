@@ -105,6 +105,18 @@ impl ErrorCode {
     /// Causa: Arquivo de teste com sintaxe inválida.
     pub const INVALID_PLAN_FORMAT: Self = Self(1009);
 
+    /// Limite de steps excedido.
+    /// Causa: Plano tem mais steps que o limite configurado.
+    pub const MAX_STEPS_EXCEEDED: Self = Self(1010);
+
+    /// Limite de retries excedido.
+    /// Causa: Soma de max_attempts dos steps excede limite.
+    pub const MAX_RETRIES_EXCEEDED: Self = Self(1011);
+
+    /// Timeout de execução excedido.
+    /// Causa: Execução do plano demorou mais que o limite.
+    pub const EXECUTION_TIMEOUT: Self = Self(1012);
+
     // ========================================================================
     // E2xxx: Execução HTTP
     // ========================================================================
@@ -232,6 +244,7 @@ impl ErrorCode {
     /// Útil para exibir em logs ou mensagens de erro.
     pub fn description(&self) -> &'static str {
         match self.0 {
+            // E1xxx: Validação
             1001 => "Plano vazio",
             1002 => "Versão de spec não suportada",
             1003 => "Action desconhecida",
@@ -241,20 +254,27 @@ impl ErrorCode {
             1007 => "Método HTTP inválido",
             1008 => "ID de step vazio",
             1009 => "Formato de plano inválido",
+            1010 => "Limite de steps excedido",
+            1011 => "Limite de retries excedido",
+            1012 => "Timeout de execução excedido",
+            // E2xxx: HTTP
             2001 => "Timeout HTTP",
             2002 => "Erro de conexão",
             2003 => "Status HTTP de erro",
             2004 => "JSON de resposta inválido",
             2005 => "Erro TLS/SSL",
+            // E3xxx: Assertion
             3001 => "Assertion status_code falhou",
             3002 => "Assertion json_body falhou",
             3003 => "Assertion header falhou",
             3004 => "Assertion latency falhou",
             3005 => "Path JSON não encontrado",
+            // E4xxx: Configuração
             4001 => "Variável de ambiente não definida",
             4002 => "Variável de contexto não encontrada",
             4003 => "Arquivo de plano não encontrado",
             4004 => "Erro de permissão",
+            // E5xxx: Interno
             5001 => "Erro interno",
             5002 => "Executor não encontrado",
             5003 => "Erro de serialização",

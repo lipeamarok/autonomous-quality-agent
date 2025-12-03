@@ -444,8 +444,13 @@ pub enum StepStatus {
 /// Relatório final de execução de um plano.
 ///
 /// Gerado ao final da execução e salvo em arquivo ou impresso no console.
+/// Este formato segue o schema definido em /schemas/runner_report.schema.json.
 #[derive(Debug, Serialize)]
 pub struct ExecutionReport {
+    /// UUID único desta execução.
+    /// Permite rastrear esta execução específica em logs/dashboards.
+    pub execution_id: String,
+
     /// ID do plano executado.
     pub plan_id: String,
 

@@ -53,6 +53,9 @@ mod errors;
 /// Módulo de executores: implementações de ações (HTTP, Wait, etc.).
 mod executors;
 
+/// Módulo de limites: políticas de rate-limiting e proteção.
+mod limits;
+
 /// Módulo de carregamento: lê e parseia arquivos UTDL (JSON).
 mod loader;
 
@@ -79,6 +82,7 @@ mod validation;
 // Imports internos (nossos módulos)
 use context::Context;
 use executors::{http::HttpExecutor, wait::WaitExecutor, StepExecutor};
+use limits::ExecutionLimits;
 use planner::DagPlanner;
 use protocol::{ExecutionReport, Step, StepStatus};
 use telemetry::{init_telemetry, shutdown_telemetry, TelemetryConfig};
@@ -90,7 +94,8 @@ use std::sync::Arc;              // Ponteiro atômico para compartilhar dados en
 use std::fs;                     // Operações de sistema de arquivos
 use chrono::Utc;                 // Data/hora em UTC
 use tokio::sync::RwLock;         // Lock de leitura/escrita assíncrono
-use tracing::{error, info};      // Macros de logging estruturado
+use tracing::{error, info, Level};      // Macros de logging estruturado
+use uuid::Uuid;                  // Geração de UUIDs
 
 // ============================================================================
 // DEFINIÇÃO DA CLI (INTERFACE DE LINHA DE COMANDO)
@@ -161,6 +166,28 @@ enum Commands {
         /// `OTEL_EXPORTER_OTLP_ENDPOINT` ou `http://localhost:4317`.
         #[arg(long)]
         otel_endpoint: Option<String>,
+
+        /// Modo silencioso: apenas erros críticos no stderr.
+        ///
+        /// Ideal para CI/CD onde você só quer saber se passou ou falhou.
+        /// Desativa logs informativos e de progresso.
+        #[arg(long, short = 's', default_value = "false")]
+        silent: bool,
+
+        /// Modo verbose: logs detalhados de debug.
+        ///
+        /// Mostra detalhes de cada step, interpolação de variáveis,
+        /// headers HTTP, bodies de resposta, etc.
+        /// Ideal para desenvolvimento e debugging.
+        #[arg(long, short = 'v', default_value = "false")]
+        verbose: bool,
+
+        /// ID de execução customizado (UUID).
+        ///
+        /// Se não especificado, gera um UUID v4 automaticamente.
+        /// Útil para rastreabilidade em sistemas externos.
+        #[arg(long)]
+        execution_id: Option<String>,
     },
 }
 
@@ -188,9 +215,32 @@ async fn main() {
     // Processa o subcomando escolhido pelo usuário.
     // Em Rust, `match` é como um `switch` em outras linguagens, mas mais poderoso.
     match &cli.command {
-        Commands::Execute { file, output, parallel, otel, otel_endpoint } => {
+        Commands::Execute { 
+            file, 
+            output, 
+            parallel, 
+            otel, 
+            otel_endpoint,
+            silent,
+            verbose,
+            execution_id,
+        } => {
+            // Gera ou usa o execution_id fornecido.
+            let exec_id = execution_id
+                .clone()
+                .unwrap_or_else(|| Uuid::new_v4().to_string());
+
             // Carrega configuração de telemetria das variáveis de ambiente.
             let mut telemetry_config = TelemetryConfig::from_env();
+
+            // Configura nível de log baseado nos flags silent/verbose.
+            telemetry_config.log_level = if *silent {
+                Level::ERROR
+            } else if *verbose {
+                Level::DEBUG
+            } else {
+                Level::INFO
+            };
 
             // Se o usuário passou --otel, configura o endpoint.
             if *otel {
@@ -207,7 +257,9 @@ async fn main() {
             // Inicializa o sistema de telemetria (logging + OTEL).
             // Se falhar, cai para logging simples no console.
             if let Err(e) = init_telemetry(telemetry_config) {
-                eprintln!("Warning: Failed to initialize telemetry: {}", e);
+                if !*silent {
+                    eprintln!("Warning: Failed to initialize telemetry: {}", e);
+                }
                 // Fallback: configura logging básico sem OTEL.
                 let _ = tracing_subscriber::fmt()
                     .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -216,7 +268,7 @@ async fn main() {
 
             // Executa o plano de testes.
             // `*parallel` dereferencia o valor booleano.
-            execute_plan(file, output, *parallel).await;
+            execute_plan(file, output, *parallel, &exec_id, *silent).await;
 
             // Encerra a telemetria, garantindo que todos os traces sejam enviados.
             shutdown_telemetry();
@@ -235,16 +287,27 @@ async fn main() {
 /// ## Etapas:
 /// 1. **Load**: Carrega o arquivo JSON do disco
 /// 2. **Validate**: Verifica se a estrutura é válida
-/// 3. **Initialize**: Configura contexto e executores
-/// 4. **Execute**: Roda os steps (sequencial ou paralelo)
-/// 5. **Report**: Gera e salva o relatório
+/// 3. **Limits**: Verifica limites de steps e retries
+/// 4. **Initialize**: Configura contexto e executores
+/// 5. **Execute**: Roda os steps (sequencial ou paralelo)
+/// 6. **Report**: Gera e salva o relatório
 ///
 /// ## Parâmetros:
 /// - `file_path`: Caminho para o arquivo UTDL
 /// - `output_path`: Onde salvar o relatório (ou None para stdout)
 /// - `parallel`: Se deve usar execução paralela (DAG)
-async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>, parallel: bool) {
-    info!("Runner initializing");
+/// - `execution_id`: UUID único desta execução
+/// - `silent`: Se true, suprime logs informativos
+async fn execute_plan(
+    file_path: &PathBuf, 
+    output_path: &Option<PathBuf>, 
+    parallel: bool,
+    execution_id: &str,
+    silent: bool,
+) {
+    if !silent {
+        info!(execution_id = %execution_id, "Runner initializing");
+    }
     let start_time = Utc::now();
 
     // 1. Carrega o plano do arquivo JSON.
@@ -255,7 +318,9 @@ async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>, parall
             std::process::exit(1);
         }
     };
-    info!(plan_id = %plan.meta.id, plan_name = %plan.meta.name, "Plan loaded");
+    if !silent {
+        info!(plan_id = %plan.meta.id, plan_name = %plan.meta.name, "Plan loaded");
+    }
 
     // 2. Valida a estrutura do plano antes de executar.
     if let Err(errors) = validation::validate_plan(&plan) {
@@ -265,11 +330,28 @@ async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>, parall
         }
         std::process::exit(1);
     }
-    info!("Plan validation passed");
+    if !silent {
+        info!("Plan validation passed");
+    }
+
+    // 2.5. Valida limites de execução.
+    let limits = ExecutionLimits::from_env();
+    let total_retries: u32 = plan.steps.iter()
+        .map(|s| s.recovery_policy.as_ref().map(|p| p.max_attempts).unwrap_or(1))
+        .sum();
+    let limit_result = limits::validate_limits(plan.steps.len(), total_retries, &limits);
+    if !limit_result.passed {
+        error!("Plan exceeds execution limits:");
+        for v in &limit_result.violations {
+            error!("  - {}", v.message);
+        }
+        std::process::exit(1);
+    }
 
     // 3. Inicializa o contexto e os executores.
     let mut context = Context::new();
     context.set("base_url", serde_json::Value::String(plan.config.base_url.clone()));
+    context.set("execution_id", serde_json::Value::String(execution_id.to_string()));
     context.extend(&plan.config.variables);
 
     // Cria os executores para cada tipo de action.
@@ -281,7 +363,9 @@ async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>, parall
     ];
 
     // 4. Executa os steps (paralelo ou sequencial).
-    info!(parallel = parallel, "Starting execution");
+    if !silent {
+        info!(parallel = parallel, "Starting execution");
+    }
 
     let step_results = if parallel {
         // Execução paralela usando DAG.
@@ -298,10 +382,13 @@ async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>, parall
     let all_passed = step_results.iter().all(|r| r.status == StepStatus::Passed);
 
     let end_time = Utc::now();
-    info!("Execution finished");
+    if !silent {
+        info!("Execution finished");
+    }
 
     // 5. Gera o relatório de execução.
     let report = ExecutionReport {
+        execution_id: execution_id.to_string(),
         plan_id: plan.meta.id.clone(),
         status: if all_passed { "passed".to_string() } else { "failed".to_string() },
         start_time: start_time.to_rfc3339(),
@@ -314,13 +401,18 @@ async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>, parall
         let json = serde_json::to_string_pretty(&report).expect("Failed to serialize report");
         if let Err(e) = fs::write(path, json) {
             eprintln!("❌ Failed to write report: {}", e);
-        } else {
+        } else if !silent {
             println!("📄 Report saved to: {:?}", path);
         }
-    } else {
+    } else if !silent {
         // Imprime no stdout se nenhum arquivo foi especificado.
         let json = serde_json::to_string_pretty(&report).expect("Failed to serialize report");
         println!("\n--- Execution Report ---\n{}", json);
+    }
+
+    // Exit code baseado no resultado
+    if !all_passed {
+        std::process::exit(1);
     }
 }
 

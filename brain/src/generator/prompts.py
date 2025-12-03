@@ -8,7 +8,7 @@ Os prompts são cuidadosamente projetados para maximizar a taxa de sucesso.
 
 ## Para todos entenderem:
 
-Quando falamos com uma IA como GPT-4, precisamos dar instruções claras.
+Quando falamos com uma IA como GPT-5, precisamos dar instruções claras.
 Esses "prompts" são como um manual de instruções que diz para a IA:
 - Quem ela é (Engenheiro de QA Sênior)
 - O que ela deve fazer (gerar JSON no formato UTDL)

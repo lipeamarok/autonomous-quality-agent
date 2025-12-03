@@ -30,7 +30,7 @@ Este módulo:
 - Pydantic: Para validação de dados estruturados
 
 ## Exemplo de uso:
-    >>> generator = UTDLGenerator(model="gpt-4")
+    >>> generator = UTDLGenerator(model="gpt-5")
     >>> plan = generator.generate("Testar API de login", "https://api.example.com")
     >>> print(plan.to_json())
 """

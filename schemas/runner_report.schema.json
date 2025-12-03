@@ -1,0 +1,298 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/lipeamarok/autonomous-quality-agent/schemas/runner_report.schema.json",
+  "title": "RunnerReport",
+  "description": "Schema padronizado para o relatório de execução do Runner. Esta é a interface estável entre Runner e Brain.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["execution_id", "plan_id", "status", "start_time", "end_time", "steps", "summary"],
+  "properties": {
+    "execution_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador único desta execução (UUID v4)"
+    },
+    "plan_id": {
+      "type": "string",
+      "description": "ID do plano UTDL executado (referência ao meta.id do plano)"
+    },
+    "plan_name": {
+      "type": "string",
+      "description": "Nome do plano executado (referência ao meta.name)"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed", "error", "timeout"],
+      "description": "Status final da execução. passed=todos steps ok, failed=assertions falharam, error=erro de execução, timeout=tempo limite excedido"
+    },
+    "start_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp ISO 8601 do início da execução"
+    },
+    "end_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp ISO 8601 do fim da execução"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Duração total da execução em milissegundos"
+    },
+    "runner_version": {
+      "type": "string",
+      "description": "Versão do Runner que executou (para rastreabilidade)"
+    },
+    "execution_mode": {
+      "type": "string",
+      "enum": ["sequential", "parallel"],
+      "description": "Modo de execução utilizado"
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total_steps", "passed", "failed", "skipped"],
+      "description": "Resumo estatístico da execução",
+      "properties": {
+        "total_steps": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total de steps no plano"
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Quantidade de steps que passaram"
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Quantidade de steps que falharam"
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Quantidade de steps pulados (dependência falhou)"
+        },
+        "error_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Quantidade de erros de execução (não assertions)"
+        },
+        "total_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total de retries realizados"
+        },
+        "avg_latency_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Latência média das requisições HTTP em ms"
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "description": "Resultado detalhado de cada step executado",
+      "items": {
+        "$ref": "#/definitions/StepResult"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "description": "Lista de erros estruturados ocorridos durante execução",
+      "items": {
+        "$ref": "#/definitions/StructuredError"
+      }
+    },
+    "context_snapshot": {
+      "type": "object",
+      "description": "Snapshot das variáveis de contexto ao final da execução (útil para debug)",
+      "additionalProperties": true
+    },
+    "telemetry": {
+      "type": "object",
+      "description": "Informações de telemetria/observabilidade",
+      "properties": {
+        "trace_id": {
+          "type": "string",
+          "description": "ID do trace OpenTelemetry (se OTEL habilitado)"
+        },
+        "spans_exported": {
+          "type": "integer",
+          "description": "Quantidade de spans exportados"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "StepResult": {
+      "type": "object",
+      "required": ["step_id", "status", "duration_ms"],
+      "description": "Resultado da execução de um step individual",
+      "properties": {
+        "step_id": {
+          "type": "string",
+          "description": "ID único do step"
+        },
+        "step_description": {
+          "type": "string",
+          "description": "Descrição do step (para contexto)"
+        },
+        "action": {
+          "type": "string",
+          "description": "Tipo de ação executada (http_request, wait, etc)"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed", "skipped", "error"],
+          "description": "Status do step"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Duração da execução em milissegundos"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Número da tentativa (1 se não houve retry)"
+        },
+        "error": {
+          "$ref": "#/definitions/StructuredError",
+          "description": "Erro estruturado se o step falhou"
+        },
+        "http_details": {
+          "$ref": "#/definitions/HttpDetails",
+          "description": "Detalhes da requisição HTTP (se action=http_request)"
+        },
+        "assertions_results": {
+          "type": "array",
+          "description": "Resultado de cada assertion",
+          "items": {
+            "$ref": "#/definitions/AssertionResult"
+          }
+        },
+        "extractions": {
+          "type": "object",
+          "description": "Variáveis extraídas deste step",
+          "additionalProperties": true
+        }
+      }
+    },
+    "HttpDetails": {
+      "type": "object",
+      "description": "Detalhes de uma requisição HTTP executada",
+      "properties": {
+        "method": {
+          "type": "string",
+          "description": "Método HTTP utilizado"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL completa da requisição"
+        },
+        "request_headers": {
+          "type": "object",
+          "description": "Headers enviados na requisição",
+          "additionalProperties": {"type": "string"}
+        },
+        "request_body": {
+          "description": "Body enviado (se aplicável)"
+        },
+        "response_status": {
+          "type": "integer",
+          "description": "Status code HTTP da resposta"
+        },
+        "response_headers": {
+          "type": "object",
+          "description": "Headers da resposta",
+          "additionalProperties": {"type": "string"}
+        },
+        "response_body": {
+          "description": "Body da resposta (pode ser truncado)"
+        },
+        "latency_ms": {
+          "type": "integer",
+          "description": "Latência da requisição em ms"
+        }
+      }
+    },
+    "AssertionResult": {
+      "type": "object",
+      "required": ["type", "passed"],
+      "description": "Resultado de uma assertion individual",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["status_code", "json_body", "header", "latency_lt"],
+          "description": "Tipo da assertion"
+        },
+        "passed": {
+          "type": "boolean",
+          "description": "Se a assertion passou"
+        },
+        "expected": {
+          "description": "Valor esperado"
+        },
+        "actual": {
+          "description": "Valor obtido"
+        },
+        "path": {
+          "type": "string",
+          "description": "Path JSON (para json_body) ou nome do header"
+        },
+        "message": {
+          "type": "string",
+          "description": "Mensagem explicativa se falhou"
+        }
+      }
+    },
+    "StructuredError": {
+      "type": "object",
+      "required": ["code", "message"],
+      "description": "Erro estruturado com código único para automação",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^E[1-5][0-9]{3}$",
+          "description": "Código do erro (ex: E1001, E3002)"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["validation", "http", "assertion", "configuration", "internal"],
+          "description": "Categoria do erro"
+        },
+        "message": {
+          "type": "string",
+          "description": "Mensagem descritiva do erro"
+        },
+        "step_id": {
+          "type": "string",
+          "description": "ID do step onde ocorreu (se aplicável)"
+        },
+        "details": {
+          "type": "object",
+          "description": "Detalhes adicionais do erro",
+          "properties": {
+            "expected": {
+              "description": "Valor esperado"
+            },
+            "actual": {
+              "description": "Valor obtido"
+            },
+            "path": {
+              "type": "string",
+              "description": "Path ou campo relacionado"
+            },
+            "suggestion": {
+              "type": "string",
+              "description": "Sugestão de correção"
+            }
+          }
+        }
+      }
+    }
+  }
+}
