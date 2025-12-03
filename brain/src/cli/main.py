@@ -128,12 +128,16 @@ from .commands.init_cmd import init
 from .commands.generate_cmd import generate
 from .commands.validate_cmd import validate
 from .commands.run_cmd import run
+from .commands.explain_cmd import explain
+from .commands.demo_cmd import demo
 
 # Registra os comandos no grupo principal
 cli.add_command(init)
 cli.add_command(generate)
 cli.add_command(validate)
 cli.add_command(run)
+cli.add_command(explain)
+cli.add_command(demo)
 
 
 # =============================================================================

@@ -67,7 +67,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 # Pydantic: Biblioteca de validação de dados
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # =============================================================================
@@ -146,9 +146,12 @@ class Extraction(BaseModel):
     ```
 
     ## Atributos:
-        source: De onde extrair - "body" (JSON) ou "header"
+        source: De onde extrair - "body", "header" ou "status_code"
         path: Caminho para o valor (JSONPath para body, nome para header)
         target: Nome da variável onde guardar o valor
+        all_values: Se True, extrai TODOS os valores que casam (ex: todos IDs de um array)
+        critical: Se True, falha na extração aborta o step (padrão: False = não crítico)
+        regex: Padrão regex opcional para extrair parte do valor
 
     ## Exemplos:
         >>> # Extrair token do body
@@ -157,11 +160,33 @@ class Extraction(BaseModel):
         >>>
         >>> # Extrair ID de header
         >>> extraction = Extraction(source="header", path="X-Request-Id", target="request_id")
+        >>>
+        >>> # Extrair todos os IDs de um array
+        >>> extraction = Extraction(source="body", path="$.data[*].id", target="all_ids", all_values=True)
+        >>>
+        >>> # Extração crítica - falha aborta o step
+        >>> extraction = Extraction(source="body", path="$.token", target="auth", critical=True)
+        >>>
+        >>> # Extrair status code
+        >>> extraction = Extraction(source="status_code", target="last_status")
     """
 
-    source: Literal["body", "header"]
-    path: str
+    source: Literal["body", "header", "status_code"]
+    path: str | None = None  # Opcional para status_code
     target: str
+    all_values: bool = False
+    critical: bool = False
+    regex: str | None = None
+
+    @model_validator(mode="after")
+    def validate_path_for_source(self) -> "Extraction":
+        """
+        Valida que path é obrigatório para source body/header.
+        Para status_code, path é ignorado.
+        """
+        if self.source in ("body", "header") and not self.path:
+            raise ValueError(f"'path' é obrigatório quando source é '{self.source}'")
+        return self
 
 
 class RecoveryPolicy(BaseModel):

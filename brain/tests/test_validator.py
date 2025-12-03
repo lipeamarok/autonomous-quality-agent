@@ -20,7 +20,7 @@ from pydantic import ValidationError
 # Adiciona o diretório brain ao path para imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.validator import Assertion, Config, Meta, Plan, Step
+from src.validator import Assertion, Config, Extraction, Meta, Plan, Step
 
 
 class TestAssertion:
@@ -156,3 +156,71 @@ class TestPlan:
         json_str = plan.to_json()
         assert '"spec_version": "0.1"' in json_str
         assert '"name": "Plano de Teste"' in json_str
+
+
+class TestExtraction:
+    """Testes para o modelo Extraction."""
+
+    def test_valid_body_extraction(self) -> None:
+        """Testa extração de body válida."""
+        extraction = Extraction(source="body", path="$.data.token", target="auth_token")
+        assert extraction.source == "body"
+        assert extraction.path == "$.data.token"
+        assert extraction.target == "auth_token"
+        assert extraction.all_values is False
+        assert extraction.critical is False
+
+    def test_valid_header_extraction(self) -> None:
+        """Testa extração de header válida."""
+        extraction = Extraction(source="header", path="X-Request-Id", target="request_id")
+        assert extraction.source == "header"
+        assert extraction.path == "X-Request-Id"
+
+    def test_valid_status_code_extraction(self) -> None:
+        """Testa extração de status_code (path opcional)."""
+        extraction = Extraction(source="status_code", target="last_status")
+        assert extraction.source == "status_code"
+        assert extraction.path is None
+        assert extraction.target == "last_status"
+
+    def test_body_extraction_requires_path(self) -> None:
+        """Testa que body extraction sem path levanta erro."""
+        with pytest.raises(ValidationError) as exc_info:
+            Extraction(source="body", target="value")
+        assert "path" in str(exc_info.value).lower()
+
+    def test_header_extraction_requires_path(self) -> None:
+        """Testa que header extraction sem path levanta erro."""
+        with pytest.raises(ValidationError) as exc_info:
+            Extraction(source="header", target="value")
+        assert "path" in str(exc_info.value).lower()
+
+    def test_all_values_flag(self) -> None:
+        """Testa flag all_values para múltiplas extrações."""
+        extraction = Extraction(
+            source="body",
+            path="$.data[*].id",
+            target="all_ids",
+            all_values=True,
+        )
+        assert extraction.all_values is True
+
+    def test_critical_flag(self) -> None:
+        """Testa flag critical para extrações obrigatórias."""
+        extraction = Extraction(
+            source="body",
+            path="$.token",
+            target="auth",
+            critical=True,
+        )
+        assert extraction.critical is True
+
+    def test_regex_field(self) -> None:
+        """Testa campo regex para extração parcial."""
+        extraction = Extraction(
+            source="body",
+            path="$.message",
+            target="code",
+            regex=r"code=(\d+)",
+        )
+        assert extraction.regex == r"code=(\d+)"

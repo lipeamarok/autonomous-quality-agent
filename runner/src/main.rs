@@ -452,13 +452,15 @@ async fn execute_sequential(
             Some(exec) => execute_step_with_retry(&step, exec.as_ref(), &mut context).await,
             None => {
                 error!(step_id = %step.id, action = %step.action, "No executor found for action");
+                // Captura contexto para debug
+                let context_snapshot = context.variables.clone();
                 protocol::StepResult {
                     step_id: step.id.clone(),
                     status: StepStatus::Failed,
                     duration_ms: 0,
                     error: Some(format!("Unknown action: {}", step.action)),
-                    context_before: None,
-                    context_after: None,
+                    context_before: Some(context_snapshot.clone()),
+                    context_after: Some(context_snapshot),
                     extractions: None,
                 }
             }
@@ -508,6 +510,9 @@ async fn execute_step_with_retry(
 
     loop {
         attempt += 1;
+        
+        // Snapshot do contexto antes da execução
+        let context_before = context.variables.clone();
 
         match executor.execute(step, context).await {
             Ok(result) => {
@@ -534,6 +539,9 @@ async fn execute_step_with_retry(
             }
             Err(e) => {
                 error!(step_id = %step.id, error = %e, attempt = attempt, "Step execution failed");
+                
+                // Captura contexto após erro para debug
+                let context_after = context.variables.clone();
 
                 if strategy == "ignore" {
                     return protocol::StepResult {
@@ -541,8 +549,8 @@ async fn execute_step_with_retry(
                         status: StepStatus::Passed,
                         duration_ms: 0,
                         error: None,
-                        context_before: None,
-                        context_after: None,
+                        context_before: Some(context_before),
+                        context_after: Some(context_after),
                         extractions: None,
                     };
                 }
@@ -553,8 +561,8 @@ async fn execute_step_with_retry(
                         status: StepStatus::Failed,
                         duration_ms: 0,
                         error: Some(e.to_string()),
-                        context_before: None,
-                        context_after: None,
+                        context_before: Some(context_before),
+                        context_after: Some(context_after),
                         extractions: None,
                     };
                 }

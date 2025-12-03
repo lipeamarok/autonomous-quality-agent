@@ -308,31 +308,42 @@ impl DagPlanner {
 
                     // Verifica se alguma dependência falhou.
                     // Se sim, pula este step.
-                    {
+                    let failed_dep = {
                         let failed_guard = failed_clone.read().await;
                         let nodes_guard = nodes_clone.read().await;
+                        let mut found_failed_dep: Option<String> = None;
                         if let Some(node) = nodes_guard.get(&step_id) {
                             for dep in &node.dependencies {
                                 if failed_guard.contains(dep) {
-                                    // Pula este step porque uma dependência falhou
-                                    info!(step_id = %step_id, failed_dep = %dep, "Skipping step due to failed dependency");
-
-                                    let result = StepResult {
-                                        step_id: step_id.clone(),
-                                        status: StepStatus::Skipped,
-                                        duration_ms: 0,
-                                        error: Some(format!("Dependency '{}' failed", dep)),
-                                        context_before: None,
-                                        context_after: None,
-                                        extractions: None,
-                                    };
-
-                                    results_clone.lock().await.push(result);
-                                    failed_clone.write().await.insert(step_id.clone());
-                                    return;
+                                    found_failed_dep = Some(dep.clone());
+                                    break;
                                 }
                             }
                         }
+                        found_failed_dep
+                    }; // Guards são dropados aqui
+                    
+                    if let Some(dep) = failed_dep {
+                        // Pula este step porque uma dependência falhou
+                        info!(step_id = %step_id, failed_dep = %dep, "Skipping step due to failed dependency");
+
+                        // Captura contexto atual para debug
+                        let ctx = context_clone.read().await;
+                        let context_snapshot = ctx.variables.clone();
+                        drop(ctx); // Libera o lock explicitamente
+                        let result = StepResult {
+                            step_id: step_id.clone(),
+                            status: StepStatus::Skipped,
+                            duration_ms: 0,
+                            error: Some(format!("Dependency '{}' failed", dep)),
+                            context_before: Some(context_snapshot.clone()),
+                            context_after: Some(context_snapshot),
+                            extractions: None,
+                        };
+
+                        results_clone.lock().await.push(result);
+                        failed_clone.write().await.insert(step_id.clone());
+                        return;
                     }
 
                     // Encontra executor
@@ -343,30 +354,37 @@ impl DagPlanner {
                     let result = match executor {
                         Some(exec) => {
                             let mut ctx = context_clone.write().await;
+                            // Snapshot do contexto antes da execução
+                            let context_before = ctx.variables.clone();
                             match exec.execute(&step, &mut ctx).await {
                                 Ok(r) => r,
                                 Err(e) => {
                                     error!(step_id = %step_id, error = %e, "Step execution failed");
+                                    // Captura contexto após erro para debug
+                                    let context_after = ctx.variables.clone();
                                     StepResult {
                                         step_id: step_id.clone(),
                                         status: StepStatus::Failed,
                                         duration_ms: 0,
                                         error: Some(e.to_string()),
-                                        context_before: None,
-                                        context_after: None,
+                                        context_before: Some(context_before),
+                                        context_after: Some(context_after),
                                         extractions: None,
                                     }
                                 }
                             }
                         }
                         None => {
+                            // Sem executor - captura contexto atual para debug
+                            let ctx = context_clone.read().await;
+                            let context_snapshot = ctx.variables.clone();
                             StepResult {
                                 step_id: step_id.clone(),
                                 status: StepStatus::Failed,
                                 duration_ms: 0,
                                 error: Some(format!("No executor for action: {}", step.action)),
-                                context_before: None,
-                                context_after: None,
+                                context_before: Some(context_snapshot.clone()),
+                                context_after: Some(context_snapshot),
                                 extractions: None,
                             }
                         }
@@ -384,25 +402,39 @@ impl DagPlanner {
                         failed_clone.write().await.insert(step_id.clone());
                     }
 
-                    // Libera dependentes se este step passou
-                    if passed {
+                    // Libera dependentes para processamento
+                    // Se passou: dependentes podem executar normalmente
+                    // Se falhou: dependentes serão marcados como skipped
+                    // 
+                    // NOTA: Adquirimos todos os locks necessários de uma vez para evitar deadlock
+                    let dependents_to_add: Vec<String> = {
                         let nodes_guard = nodes_clone.read().await;
+                        let completed_guard = completed_clone.read().await;
+                        let failed_guard = failed_clone.read().await;
+                        
+                        let mut to_add = Vec::new();
                         if let Some(node) = nodes_guard.get(&step_id) {
                             for dependent_id in &node.dependents {
-                                // Verifica se todas as dependências do dependente foram completadas
                                 if let Some(dependent_node) = nodes_guard.get(dependent_id) {
-                                    let completed_guard = completed_clone.read().await;
-                                    let all_deps_met = dependent_node
+                                    // Verifica se todas as deps foram processadas (passou ou falhou)
+                                    let all_deps_processed = dependent_node
                                         .dependencies
                                         .iter()
-                                        .all(|d| completed_guard.contains(d));
+                                        .all(|d| completed_guard.contains(d) || failed_guard.contains(d));
 
-                                    if all_deps_met {
-                                        ready_clone.lock().await.push(dependent_id.clone());
+                                    if all_deps_processed {
+                                        to_add.push(dependent_id.clone());
                                     }
                                 }
                             }
                         }
+                        to_add
+                    };
+                    
+                    // Agora adiciona à fila ready (lock separado)
+                    if !dependents_to_add.is_empty() {
+                        let mut ready_guard = ready_clone.lock().await;
+                        ready_guard.extend(dependents_to_add);
                     }
                 });
             }
@@ -428,6 +460,19 @@ mod tests {
             description: None,
             depends_on: deps.into_iter().map(String::from).collect(),
             action: "http_request".to_string(),
+            params: json!({ "method": "GET", "path": "/test" }),
+            assertions: vec![],
+            extract: vec![],
+            recovery_policy: None,
+        }
+    }
+
+    fn create_step_with_action(id: &str, action: &str) -> Step {
+        Step {
+            id: id.to_string(),
+            description: None,
+            depends_on: vec![],
+            action: action.to_string(),
             params: json!({ "method": "GET", "path": "/test" }),
             assertions: vec![],
             extract: vec![],
@@ -478,5 +523,86 @@ mod tests {
         let node_a = planner.nodes.get("A").unwrap();
         assert!(node_a.dependents.contains("B"));
         assert!(node_a.dependents.contains("C"));
+    }
+
+    #[tokio::test]
+    async fn test_context_snapshots_on_no_executor() {
+        // Testa que context_before/after são preenchidos quando não há executor
+        let steps = vec![create_step_with_action("unknown_step", "unknown_action")];
+        let planner = DagPlanner::new(steps);
+        
+        let mut context = Context::new();
+        context.set("test_var", json!("test_value"));
+        
+        // Sem executores, o step deve falhar com "No executor"
+        let executors: Arc<Vec<Box<dyn StepExecutor + Send + Sync>>> = Arc::new(vec![]);
+        let context = Arc::new(RwLock::new(context));
+        let limits = ExecutionLimits::default();
+        
+        let results = planner.execute(executors, context, limits).await;
+        
+        assert_eq!(results.len(), 1);
+        let result = &results[0];
+        
+        assert_eq!(result.status, StepStatus::Failed);
+        assert!(result.error.as_ref().unwrap().contains("No executor"));
+        
+        // Verifica que context_before e context_after estão preenchidos
+        assert!(result.context_before.is_some(), "context_before should be Some");
+        assert!(result.context_after.is_some(), "context_after should be Some");
+        
+        // Verifica que contêm a variável de teste
+        let ctx_before = result.context_before.as_ref().unwrap();
+        assert_eq!(ctx_before.get("test_var").unwrap(), &json!("test_value"));
+    }
+
+    #[tokio::test]
+    async fn test_context_snapshots_on_skipped_step() {
+        // Testa que context snapshots são preenchidos quando step é pulado
+        // step_a vai falhar (sem executor), step_b depende de step_a e será pulado
+        let step_a = Step {
+            id: "step_a".to_string(),
+            description: None,
+            depends_on: vec![],
+            action: "unknown_action".to_string(),
+            params: json!({}),
+            assertions: vec![],
+            extract: vec![],
+            recovery_policy: None,
+        };
+        let step_b = Step {
+            id: "step_b".to_string(),
+            description: None,
+            depends_on: vec!["step_a".to_string()],
+            action: "http_request".to_string(),
+            params: json!({ "method": "GET", "path": "/test" }),
+            assertions: vec![],
+            extract: vec![],
+            recovery_policy: None,
+        };
+        
+        let planner = DagPlanner::new(vec![step_a, step_b]);
+        
+        let mut context = Context::new();
+        context.set("initial_var", json!(42));
+        
+        let executors: Arc<Vec<Box<dyn StepExecutor + Send + Sync>>> = Arc::new(vec![]);
+        let context = Arc::new(RwLock::new(context));
+        let limits = ExecutionLimits::default();
+        
+        let results = planner.execute(executors, context, limits).await;
+        
+        assert_eq!(results.len(), 2);
+        
+        // Encontra o step pulado
+        let skipped = results.iter().find(|r| r.step_id == "step_b").unwrap();
+        
+        assert_eq!(skipped.status, StepStatus::Skipped);
+        assert!(skipped.context_before.is_some(), "Skipped step should have context_before");
+        assert!(skipped.context_after.is_some(), "Skipped step should have context_after");
+        
+        // Verifica que a variável inicial está presente
+        let ctx = skipped.context_before.as_ref().unwrap();
+        assert_eq!(ctx.get("initial_var").unwrap(), &json!(42));
     }
 }

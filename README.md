@@ -209,6 +209,7 @@ aqa --json run plan.json
 ```
 
 **Opções:**
+
 | Opção | Descrição |
 |-------|-----------|
 | `--swagger` | Gera plano a partir de Swagger antes de executar |
@@ -241,7 +242,7 @@ aqa run .aqa/plans/petstore.json
   run: |
     aqa --json validate plan.json
     aqa --json run plan.json > results.json
-    
+
 - name: Check Results
   run: |
     if [ $(jq '.success' results.json) != "true" ]; then
