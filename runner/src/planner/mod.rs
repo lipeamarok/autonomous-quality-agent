@@ -47,12 +47,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tokio::task::JoinSet;
 use tracing::{info, error, instrument};
 
 use crate::context::Context;
 use crate::executors::StepExecutor;
+use crate::limits::ExecutionLimits;
 use crate::protocol::{Step, StepResult, StepStatus};
 
 // ============================================================================
@@ -194,7 +195,7 @@ impl DagPlanner {
     /// ## Algoritmo:
     ///
     /// 1. Começa com as raízes (steps sem dependências)
-    /// 2. Executa todos que estão prontos em paralelo
+    /// 2. Executa todos que estão prontos em paralelo (até max_parallel)
     /// 3. Quando um step termina com sucesso, libera seus dependentes
     /// 4. Quando um step falha, marca seus dependentes como "skipped"
     /// 5. Repete até todos os steps serem processados
@@ -203,6 +204,7 @@ impl DagPlanner {
     ///
     /// - `executors`: Lista de executores disponíveis
     /// - `context`: Contexto compartilhado (variáveis, etc.)
+    /// - `limits`: Limites de execução (max_parallel, timeouts, etc.)
     ///
     /// ## Retorno:
     ///
@@ -212,12 +214,24 @@ impl DagPlanner {
     ///
     /// Usamos `Arc` (referência contada) e locks (`Mutex`, `RwLock`)
     /// para garantir acesso seguro aos dados compartilhados.
-    #[instrument(skip(self, executors, context))]
+    /// Um `Semaphore` controla o número máximo de steps em paralelo.
+    #[instrument(skip(self, executors, context, limits))]
     pub async fn execute(
         self,
         executors: Arc<Vec<Box<dyn StepExecutor + Send + Sync>>>,
         context: Arc<RwLock<Context>>,
+        limits: ExecutionLimits,
     ) -> Vec<StepResult> {
+        // Semáforo para limitar paralelismo.
+        // Se max_parallel = 0, usamos número de steps (sem limite efetivo).
+        let max_parallel = if limits.max_parallel > 0 {
+            limits.max_parallel as usize
+        } else {
+            self.nodes.len().max(1)
+        };
+        let semaphore = Arc::new(Semaphore::new(max_parallel));
+        info!(max_parallel = max_parallel, "DAG executor initialized with concurrency limit");
+
         // Resultados de cada step (compartilhado entre tasks).
         let results: Arc<Mutex<Vec<StepResult>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -272,9 +286,14 @@ impl DagPlanner {
                 let completed_clone = Arc::clone(&completed);
                 let failed_clone = Arc::clone(&failed);
                 let ready_clone = Arc::clone(&ready);
+                let semaphore_clone = Arc::clone(&semaphore);
 
                 // Spawna uma nova task assíncrona para este step.
                 join_set.spawn(async move {
+                    // Adquire permit do semáforo para controlar paralelismo.
+                    // Isso garante que no máximo max_parallel steps rodem ao mesmo tempo.
+                    let _permit = semaphore_clone.acquire().await.expect("Semaphore closed");
+
                     // Obtém o step do nó.
                     let step = {
                         let nodes_guard = nodes_clone.read().await;

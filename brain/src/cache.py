@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,8 +87,9 @@ class PlanCache:
 
     ## Thread Safety:
 
-    Este cache NÃO é thread-safe. Para uso concorrente,
-    use locks externos ou uma instância por thread.
+    Este cache é thread-safe. Usa locks por hash para permitir
+    operações concorrentes em entradas diferentes enquanto
+    serializa operações na mesma entrada.
 
     ## Exemplo:
 
@@ -115,9 +117,27 @@ class PlanCache:
         self.enabled = enabled
         self._index: dict[str, str] = {}  # hash → filename
 
+        # Lock global para operações no índice
+        self._index_lock = threading.Lock()
+
+        # Locks por hash para operações em entradas individuais
+        self._hash_locks: dict[str, threading.Lock] = {}
+        self._hash_locks_lock = threading.Lock()
+
         if enabled:
             self._ensure_cache_dir()
             self._load_index()
+
+    def _get_hash_lock(self, hash_key: str) -> threading.Lock:
+        """
+        Obtém ou cria um lock para um hash específico.
+
+        Thread-safe: usa lock global para gerenciar o dicionário de locks.
+        """
+        with self._hash_locks_lock:
+            if hash_key not in self._hash_locks:
+                self._hash_locks[hash_key] = threading.Lock()
+            return self._hash_locks[hash_key]
 
     def _ensure_cache_dir(self) -> None:
         """Cria diretório de cache se não existir."""
@@ -125,122 +145,201 @@ class PlanCache:
 
     def _load_index(self) -> None:
         """Carrega índice do disco."""
-        index_path = self.cache_dir / self.INDEX_FILE
-        if index_path.exists():
-            try:
-                with open(index_path, "r", encoding="utf-8") as f:
-                    self._index = json.load(f)
-            except (json.JSONDecodeError, IOError):
-                self._index = {}
+        with self._index_lock:
+            index_path = self.cache_dir / self.INDEX_FILE
+            if index_path.exists():
+                try:
+                    with open(index_path, "r", encoding="utf-8") as f:
+                        self._index = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    self._index = {}
 
     def _save_index(self) -> None:
-        """Salva índice no disco."""
+        """Salva índice no disco. DEVE ser chamada com _index_lock adquirido."""
         index_path = self.cache_dir / self.INDEX_FILE
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(self._index, f, indent=2)
 
-    def _compute_hash(self, requirements: str, base_url: str) -> str:
+    def _compute_hash(
+        self,
+        requirements: str,
+        base_url: str,
+        provider: str | None = None,
+        model: str | None = None
+    ) -> str:
         """
         Calcula hash único do input.
 
         Usa SHA256 para garantir unicidade.
         Normaliza o input antes de hashear.
-        """
-        # Normaliza: lowercase, trim, ordena URLs
-        normalized = f"{requirements.strip().lower()}|{base_url.strip().lower()}"
-        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
-    def get(self, requirements: str, base_url: str) -> dict[str, Any] | None:
-        """
-        Busca plano no cache.
+        ## Por que incluir provider/model?
+
+        Modelos diferentes geram planos de qualidade diferente.
+        Sem isso, um plano gerado por um modelo barato seria
+        retornado quando o usuário espera resultado de um modelo
+        premium.
 
         ## Parâmetros:
 
         - `requirements`: Requisitos em linguagem natural
         - `base_url`: URL base da API
+        - `provider`: Provedor LLM (ex: "openai", "xai")
+        - `model`: Identificador do modelo (ex: "gpt-5.1", "grok-4")
+        """
+        # Normaliza: lowercase, trim
+        parts = [
+            requirements.strip().lower(),
+            base_url.strip().lower(),
+        ]
+
+        # Inclui provider/model se fornecidos (backward compatible)
+        if provider:
+            parts.append(f"provider:{provider.strip().lower()}")
+        if model:
+            parts.append(f"model:{model.strip().lower()}")
+
+        normalized = "|".join(parts)
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+    def get(
+        self,
+        requirements: str,
+        base_url: str,
+        provider: str | None = None,
+        model: str | None = None
+    ) -> dict[str, Any] | None:
+        """
+        Busca plano no cache.
+
+        Thread-safe: usa lock por hash para acesso concorrente.
+
+        ## Parâmetros:
+
+        - `requirements`: Requisitos em linguagem natural
+        - `base_url`: URL base da API
+        - `provider`: Provedor LLM (opcional, mas recomendado)
+        - `model`: Modelo LLM (opcional, mas recomendado)
 
         ## Retorno:
 
         - Dict do plano se encontrado
         - None se não encontrado ou cache desabilitado
+
+        ## Nota:
+
+        Se provider/model não forem fornecidos, busca apenas pelo
+        hash de requirements+base_url (backward compatible).
         """
         if not self.enabled:
             return None
 
-        hash_key = self._compute_hash(requirements, base_url)
+        hash_key = self._compute_hash(requirements, base_url, provider, model)
+        hash_lock = self._get_hash_lock(hash_key)
 
-        if hash_key not in self._index:
-            return None
+        with hash_lock:
+            with self._index_lock:
+                if hash_key not in self._index:
+                    return None
+                filename = self._index[hash_key]
 
-        filename = self._index[hash_key]
-        filepath = self.cache_dir / filename
+            filepath = self.cache_dir / filename
 
-        if not filepath.exists():
-            # Arquivo foi deletado, limpa índice
-            del self._index[hash_key]
-            self._save_index()
-            return None
+            if not filepath.exists():
+                # Arquivo foi deletado, limpa índice
+                with self._index_lock:
+                    if hash_key in self._index:
+                        del self._index[hash_key]
+                        self._save_index()
+                return None
 
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                entry = json.load(f)
-                return entry.get("plan")
-        except (json.JSONDecodeError, IOError):
-            return None
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    entry = json.load(f)
+                    return entry.get("plan")
+            except (json.JSONDecodeError, IOError):
+                return None
 
     def store(
         self,
         requirements: str,
         base_url: str,
-        plan: dict[str, Any]
+        plan: dict[str, Any],
+        provider: str | None = None,
+        model: str | None = None
     ) -> str:
         """
         Armazena plano no cache.
+
+        Thread-safe: usa lock por hash para acesso concorrente.
 
         ## Parâmetros:
 
         - `requirements`: Requisitos em linguagem natural
         - `base_url`: URL base da API
         - `plan`: Plano UTDL a cachear
+        - `provider`: Provedor LLM que gerou o plano
+        - `model`: Modelo LLM que gerou o plano
 
         ## Retorno:
 
         Hash do entry (para referência)
+
+        ## Importante:
+
+        Incluir provider/model garante que planos de modelos
+        diferentes são cacheados separadamente. Um usuário que
+        muda de grok-4-fast para gpt-5.1 receberá um plano novo.
         """
         if not self.enabled:
             return ""
 
-        hash_key = self._compute_hash(requirements, base_url)
+        hash_key = self._compute_hash(requirements, base_url, provider, model)
+        hash_lock = self._get_hash_lock(hash_key)
         filename = f"{hash_key}.json"
         filepath = self.cache_dir / filename
 
-        # Cria entrada
-        entry: dict[str, Any] = {
-            "hash": hash_key,
-            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "input_summary": requirements[:100] + ("..." if len(requirements) > 100 else ""),
-            "base_url": base_url,
-            "plan": plan,
-        }
+        with hash_lock:
+            # Cria entrada
+            entry: dict[str, Any] = {
+                "hash": hash_key,
+                "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "input_summary": requirements[:100] + ("..." if len(requirements) > 100 else ""),
+                "base_url": base_url,
+                "provider": provider,
+                "model": model,
+                "plan": plan,
+            }
 
-        # Salva arquivo
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(entry, f, indent=2, ensure_ascii=False)
+            # Salva arquivo
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(entry, f, indent=2, ensure_ascii=False)
 
-        # Atualiza índice
-        self._index[hash_key] = filename
-        self._save_index()
+            # Atualiza índice
+            with self._index_lock:
+                self._index[hash_key] = filename
+                self._save_index()
 
         return hash_key
 
-    def invalidate(self, requirements: str, base_url: str) -> bool:
+    def invalidate(
+        self,
+        requirements: str,
+        base_url: str,
+        provider: str | None = None,
+        model: str | None = None
+    ) -> bool:
         """
         Remove entrada do cache.
+
+        Thread-safe: usa lock por hash para acesso concorrente.
 
         ## Parâmetros:
 
         - `requirements`: Requisitos em linguagem natural
         - `base_url`: URL base da API
+        - `provider`: Provedor LLM (opcional)
+        - `model`: Modelo LLM (opcional)
 
         ## Retorno:
 
@@ -249,27 +348,32 @@ class PlanCache:
         if not self.enabled:
             return False
 
-        hash_key = self._compute_hash(requirements, base_url)
+        hash_key = self._compute_hash(requirements, base_url, provider, model)
+        hash_lock = self._get_hash_lock(hash_key)
 
-        if hash_key not in self._index:
-            return False
+        with hash_lock:
+            with self._index_lock:
+                if hash_key not in self._index:
+                    return False
 
-        filename = self._index[hash_key]
-        filepath = self.cache_dir / filename
+                filename = self._index[hash_key]
+                filepath = self.cache_dir / filename
 
-        # Remove arquivo
-        if filepath.exists():
-            filepath.unlink()
+                # Remove arquivo
+                if filepath.exists():
+                    filepath.unlink()
 
-        # Remove do índice
-        del self._index[hash_key]
-        self._save_index()
+                # Remove do índice
+                del self._index[hash_key]
+                self._save_index()
 
         return True
 
     def clear(self) -> int:
         """
         Limpa todo o cache.
+
+        Thread-safe: usa lock global para limpeza completa.
 
         ## Retorno:
 
@@ -278,23 +382,30 @@ class PlanCache:
         if not self.enabled:
             return 0
 
-        count = len(self._index)
+        with self._index_lock:
+            count = len(self._index)
 
-        # Remove todos os arquivos
-        for filename in self._index.values():
-            filepath = self.cache_dir / filename
-            if filepath.exists():
-                filepath.unlink()
+            # Remove todos os arquivos
+            for filename in self._index.values():
+                filepath = self.cache_dir / filename
+                if filepath.exists():
+                    filepath.unlink()
 
-        # Limpa índice
-        self._index = {}
-        self._save_index()
+            # Limpa índice
+            self._index = {}
+            self._save_index()
+
+            # Limpa locks de hash (já que não há mais entradas)
+            with self._hash_locks_lock:
+                self._hash_locks.clear()
 
         return count
 
     def stats(self) -> dict[str, Any]:
         """
         Retorna estatísticas do cache.
+
+        Thread-safe: usa lock para leitura consistente.
 
         ## Retorno:
 
@@ -306,8 +417,9 @@ class PlanCache:
         if not self.enabled:
             return {"enabled": False, "entries": 0}
 
-        return {
-            "enabled": True,
-            "entries": len(self._index),
-            "cache_dir": str(self.cache_dir),
-        }
+        with self._index_lock:
+            return {
+                "enabled": True,
+                "entries": len(self._index),
+                "cache_dir": str(self.cache_dir),
+            }

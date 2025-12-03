@@ -16,6 +16,14 @@ Separar essas responsabilidades permite:
 - Reutilizar validação em diferentes contextos
 - Testar validação isoladamente
 
+## Modos de Validação:
+
+| Modo       | Comportamento                              |
+|------------|-------------------------------------------|
+| strict     | Warnings viram erros, planos parciais falham |
+| lenient    | Warnings ignorados, planos parciais passam |
+| default    | Warnings reportados, erros bloqueiam       |
+
 ## Diferenças de validação:
 
 | Quem        | O que valida                           |
@@ -25,8 +33,8 @@ Separar essas responsabilidades permite:
 
 ## Exemplo de uso:
 
-    >>> from brain.src.validator.utdl_validator import UTDLValidator
-    >>> validator = UTDLValidator()
+    >>> from brain.src.validator.utdl_validator import UTDLValidator, ValidationMode
+    >>> validator = UTDLValidator(mode=ValidationMode.LENIENT)
     >>> result = validator.validate(plan_dict)
     >>> if result.is_valid:
     ...     print("Plano válido!")
@@ -38,11 +46,46 @@ Separar essas responsabilidades permite:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 from pydantic import ValidationError
 
 from .models import Plan, Step
+
+
+class ValidationMode(Enum):
+    """
+    Modos de validação para planos UTDL.
+
+    ## Modos disponíveis:
+
+    - `STRICT`: Máxima rigidez. Qualquer warning vira erro.
+      Use para produção, CI/CD, ou quando planos devem ser perfeitos.
+
+    - `DEFAULT`: Modo padrão. Erros bloqueiam, warnings são reportados.
+      Use para desenvolvimento normal.
+
+    - `LENIENT`: Máxima tolerância. Planos parciais são aceitos.
+      Use para prototipagem rápida, debugging, ou quando o LLM
+      ainda está "aprendendo" a gerar planos corretos.
+
+    ## Quando usar cada modo:
+
+    ```python
+    # CI/CD - nada passa se tiver warnings
+    validator = UTDLValidator(mode=ValidationMode.STRICT)
+
+    # Desenvolvimento normal
+    validator = UTDLValidator()  # default
+
+    # Prototipagem - aceita planos imperfeitos
+    validator = UTDLValidator(mode=ValidationMode.LENIENT)
+    ```
+    """
+    STRICT = "strict"
+    DEFAULT = "default"
+    LENIENT = "lenient"
 
 
 @dataclass
@@ -84,24 +127,50 @@ class UTDLValidator:
     4. **IDs únicos**: Cada step tem ID único
     5. **Spec version**: Versão do formato é suportada
 
+    ## Modos de validação:
+
+    - `STRICT`: Warnings viram erros, plano deve ser perfeito
+    - `DEFAULT`: Erros bloqueiam, warnings são reportados
+    - `LENIENT`: Tolera planos parciais, minimiza erros bloqueantes
+
     ## Exemplo:
 
-        >>> validator = UTDLValidator(strict=True)
+        >>> validator = UTDLValidator(mode=ValidationMode.LENIENT)
         >>> result = validator.validate({"spec_version": "0.1", ...})
     """
 
     SUPPORTED_SPEC_VERSIONS = {"0.1"}
     VALID_ACTIONS = {"http_request", "wait", "sleep"}
 
-    def __init__(self, strict: bool = False):
+    def __init__(
+        self,
+        mode: ValidationMode = ValidationMode.DEFAULT,
+        strict: bool | None = None,
+    ):
         """
         Inicializa o validador.
 
         ## Parâmetros:
 
-        - `strict`: Se True, trata warnings como erros
+        - `mode`: Modo de validação (STRICT, DEFAULT, ou LENIENT)
+        - `strict`: DEPRECATED - use mode=ValidationMode.STRICT
+
+        ## Exemplo:
+
+            >>> # Novo estilo (preferido)
+            >>> validator = UTDLValidator(mode=ValidationMode.LENIENT)
+            >>>
+            >>> # Estilo legado (ainda funciona)
+            >>> validator = UTDLValidator(strict=True)
         """
-        self.strict = strict
+        # Suporte ao parâmetro legado 'strict'
+        if strict is not None:
+            self.mode = ValidationMode.STRICT if strict else ValidationMode.DEFAULT
+        else:
+            self.mode = mode
+
+        # Mantém atributo para compatibilidade
+        self.strict = self.mode == ValidationMode.STRICT
 
     def validate(self, data: dict[str, Any]) -> ValidationResult:
         """
@@ -136,6 +205,33 @@ class UTDLValidator:
                 loc = ".".join(str(x) for x in error["loc"])
                 msg = error["msg"]
                 errors.append(f"[{loc}] {msg}")
+
+            # Em modo LENIENT, tolerar erros de dependência
+            if self.mode == ValidationMode.LENIENT:
+                lenient_errors: list[str] = []
+                non_critical_pydantic = [
+                    "step desconhecido",  # Dependência faltando
+                ]
+                for err in errors:
+                    is_critical = True
+                    for pattern in non_critical_pydantic:
+                        if pattern in err:
+                            warnings.append(f"[lenient] {err}")
+                            is_critical = False
+                            break
+                    if is_critical:
+                        lenient_errors.append(err)
+
+                # Se não restou erros críticos, retorna válido com warnings
+                if not lenient_errors:
+                    return ValidationResult(
+                        is_valid=True,
+                        errors=[],
+                        warnings=warnings,
+                        plan=None,  # Plano não disponível em modo lenient com erros
+                    )
+                errors = lenient_errors
+
             return ValidationResult(is_valid=False, errors=errors, warnings=warnings)
 
         # =====================================================================
@@ -193,15 +289,39 @@ class UTDLValidator:
         # =====================================================================
 
         if not plan.steps:
-            errors.append("Plano não tem nenhum step definido")
+            if self.mode == ValidationMode.LENIENT:
+                warnings.append("Plano não tem nenhum step definido")
+            else:
+                errors.append("Plano não tem nenhum step definido")
 
         # =====================================================================
-        # RESULTADO FINAL
+        # APLICAÇÃO DO MODO DE VALIDAÇÃO
         # =====================================================================
 
-        if self.strict and warnings:
-            errors.extend([f"[strict] {w}" for w in warnings])
-            warnings = []
+        if self.mode == ValidationMode.STRICT:
+            # Em modo STRICT, warnings viram erros
+            if warnings:
+                errors.extend([f"[strict] {w}" for w in warnings])
+                warnings = []
+
+        elif self.mode == ValidationMode.LENIENT:
+            # Em modo LENIENT, alguns erros não-críticos viram warnings
+            lenient_errors: list[str] = []
+            non_critical_patterns = [
+                "não existe no plano",      # Dependência faltando (UTDLValidator)
+                "step desconhecido",        # Dependência faltando (Pydantic model)
+                "não é padrão",             # Action desconhecida
+            ]
+            for err in errors:
+                is_critical = True
+                for pattern in non_critical_patterns:
+                    if pattern in err:
+                        warnings.append(f"[lenient] {err}")
+                        is_critical = False
+                        break
+                if is_critical:
+                    lenient_errors.append(err)
+            errors = lenient_errors
 
         is_valid = len(errors) == 0
 

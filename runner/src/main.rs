@@ -373,7 +373,7 @@ async fn execute_plan(
         let executors_arc = Arc::new(executors);
         let context_arc = Arc::new(RwLock::new(context));
 
-        planner.execute(executors_arc, context_arc).await
+        planner.execute(executors_arc, context_arc, limits).await
     } else {
         // Execução sequencial (comportamento padrão).
         execute_sequential(plan.steps, executors, context).await

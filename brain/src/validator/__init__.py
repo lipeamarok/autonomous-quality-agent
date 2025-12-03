@@ -7,6 +7,7 @@ from .models import (
     Extraction,
     RecoveryPolicy,
 )
+from .utdl_validator import UTDLValidator, ValidationMode, ValidationResult
 
 __all__ = [
     "Plan",
@@ -16,4 +17,7 @@ __all__ = [
     "Assertion",
     "Extraction",
     "RecoveryPolicy",
+    "UTDLValidator",
+    "ValidationMode",
+    "ValidationResult",
 ]
