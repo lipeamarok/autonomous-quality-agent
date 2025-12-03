@@ -9,7 +9,10 @@ use thiserror::Error;
 /// Erros de validação de UTDL.
 #[derive(Debug, Error)]
 pub enum ValidationError {
-    #[error("Step '{step_id}': action '{action}' não é conhecida. Ações válidas: http_request, wait")]
+    #[error("Plano com spec_version '{version}' não suportada. Versão esperada: {expected}")]
+    UnsupportedSpecVersion { version: String, expected: String },
+
+    #[error("Step '{step_id}': action '{action}' não é conhecida. Ações válidas: http_request, wait, sleep")]
     UnknownAction { step_id: String, action: String },
 
     #[error("Step '{step_id}': parâmetro obrigatório '{param}' está ausente")]
@@ -31,8 +34,13 @@ pub enum ValidationError {
     InvalidHttpMethod { step_id: String, method: String },
 }
 
+/// Versão UTDL suportada pelo Runner.
+/// Alinhado com TDD e Brain: "0.1" simples.
+pub const SUPPORTED_SPEC_VERSION: &str = "0.1";
+
 /// Ações conhecidas pelo Runner.
-const KNOWN_ACTIONS: &[&str] = &["http_request", "wait"];
+/// Nota: 'sleep' é alias de 'wait' para compatibilidade.
+const KNOWN_ACTIONS: &[&str] = &["http_request", "wait", "sleep"];
 
 /// Métodos HTTP válidos.
 const VALID_HTTP_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
@@ -43,8 +51,22 @@ pub type ValidationResult = Result<(), Vec<ValidationError>>;
 /// Valida um plano UTDL completo.
 ///
 /// Retorna Ok(()) se válido, ou Err com lista de todos os erros encontrados.
+///
+/// Validações realizadas:
+/// - spec_version deve ser "0.1"
+/// - Plano deve ter ao menos um step
+/// - Cada step deve ter action válida
+/// - Dependências devem existir e não formar ciclos
 pub fn validate_plan(plan: &Plan) -> ValidationResult {
     let mut errors = Vec::new();
+
+    // Verifica spec_version
+    if plan.spec_version != SUPPORTED_SPEC_VERSION {
+        errors.push(ValidationError::UnsupportedSpecVersion {
+            version: plan.spec_version.clone(),
+            expected: SUPPORTED_SPEC_VERSION.to_string(),
+        });
+    }
 
     // Verifica se o plano tem steps
     if plan.steps.is_empty() {
@@ -88,7 +110,7 @@ fn validate_step(step: &Step, all_step_ids: &[&str], errors: &mut Vec<Validation
     // Valida parâmetros específicos por action
     match step.action.as_str() {
         "http_request" => validate_http_request_params(step, errors),
-        "wait" => validate_wait_params(step, errors),
+        "wait" | "sleep" => validate_wait_params(step, errors),
         _ => {} // Ações desconhecidas já foram reportadas
     }
 
@@ -158,7 +180,7 @@ mod tests {
 
     fn create_test_plan(steps: Vec<Step>) -> Plan {
         Plan {
-            spec_version: "1.0".to_string(),
+            spec_version: SUPPORTED_SPEC_VERSION.to_string(), // Usa versão suportada
             meta: Meta {
                 id: "test".to_string(),
                 name: "Test Plan".to_string(),
@@ -218,7 +240,7 @@ mod tests {
             extract: vec![],
             recovery_policy: None,
         }]);
-        
+
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
@@ -237,7 +259,7 @@ mod tests {
             extract: vec![],
             recovery_policy: None,
         }]);
-        
+
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
@@ -256,7 +278,7 @@ mod tests {
             extract: vec![],
             recovery_policy: None,
         }]);
-        
+
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
@@ -275,7 +297,7 @@ mod tests {
             extract: vec![],
             recovery_policy: None,
         }]);
-        
+
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
@@ -287,7 +309,7 @@ mod tests {
         let plan = create_test_plan(vec![
             create_http_step("step1", "INVALID", "/api/test"),
         ]);
-        
+
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
@@ -306,10 +328,57 @@ mod tests {
             extract: vec![],
             recovery_policy: None,
         }]);
-        
+
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert!(matches!(&errors[0], ValidationError::MissingParam { param, .. } if param == "duration_ms"));
+    }
+
+    #[test]
+    fn test_unsupported_spec_version() {
+        let plan = Plan {
+            spec_version: "0.2".to_string(), // Versão não suportada
+            meta: Meta {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                description: None,
+                tags: vec![],
+                created_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+            config: Config {
+                base_url: "https://api.example.com".to_string(),
+                timeout_ms: 5000,
+                global_headers: HashMap::new(),
+                variables: HashMap::new(),
+            },
+            steps: vec![create_http_step("step1", "GET", "/test")],
+        };
+
+        let result = validate_plan(&plan);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(matches!(
+            &errors[0],
+            ValidationError::UnsupportedSpecVersion { version, expected }
+            if version == "0.2" && expected == "0.1"
+        ));
+    }
+
+    #[test]
+    fn test_sleep_action_is_valid() {
+        let plan = create_test_plan(vec![Step {
+            id: "sleep1".to_string(),
+            description: None,
+            depends_on: vec![],
+            action: "sleep".to_string(), // Alias de wait
+            params: json!({ "duration_ms": 100 }),
+            assertions: vec![],
+            extract: vec![],
+            recovery_policy: None,
+        }]);
+
+        let result = validate_plan(&plan);
+        assert!(result.is_ok());
     }
 }

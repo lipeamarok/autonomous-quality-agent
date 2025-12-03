@@ -34,7 +34,7 @@ impl RecoveryStrategy {
 }
 
 /// Executor de retry com backoff exponencial.
-/// 
+///
 /// Nota: Esta estrutura é mantida para testes e uso futuro.
 /// A lógica de retry inline em main.rs é usada na execução real.
 #[allow(dead_code)]

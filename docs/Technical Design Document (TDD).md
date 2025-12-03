@@ -562,11 +562,16 @@ _**Schema Geral:**_
 |id|string|✔|Identificador único|
 |description|string|❌|Texto para logs|
 |depends_on|array[string]|❌|Permite DAG|
-|action|enum|✔|Tipo da operação|
+|action|enum|✔|Tipo da operação (http_request, wait, sleep)|
 |params|object|✔|Parâmetros da ação|
 |assertions|array|❌|Regras de validação|
 |extract|array|❌|Regras de extração|
 |recovery_policy|object|❌|Política de resiliência|
+
+> **Actions suportadas:**
+> - `http_request` — chamada HTTP
+> - `wait` — pausa por N milissegundos
+> - `sleep` — alias para `wait`
 
 ---
 
@@ -615,14 +620,27 @@ A UTDL define um conjunto padrão de asserts.
 
 #### Tipos suportados
 
-|type|Descrição|
-|---|---|
-|**status_code**|valida HTTP status|
-|**latency**|valida tempo de resposta|
-|**json_body**|valida campo específico|
-|**header**|valida headers|
+|type|Descrição|Campos|
+|---|---|---|
+|**status_code**|valida HTTP status|`value` (esperado)|
+|**latency**|valida tempo de resposta (ms)|`value` (max ms)|
+|**json_body**|valida campo específico|`path`, `value`|
+|**header**|valida headers|`name`, `value`|
 
-#### **Exemplo:**
+#### Operadores
+
+|operator|Descrição|
+|---|---|
+|**eq**|igual|
+|**ne**|diferente|
+|**lt**|menor que|
+|**gt**|maior que|
+|**lte**|menor ou igual|
+|**gte**|maior ou igual|
+|**contains**|contém substring|
+|**exists**|campo existe|
+
+#### **Exemplos:**
 
 ```json
 "assertions": [
@@ -633,6 +651,17 @@ A UTDL define um conjunto padrão de asserts.
     "path": "data.user.role",
     "operator": "eq",
     "value": "admin"
+  },
+  {
+    "type": "header",
+    "name": "Content-Type",
+    "operator": "contains",
+    "value": "application/json"
+  },
+  {
+    "type": "header",
+    "name": "X-Request-Id",
+    "operator": "exists"
   }
 ]
 ```
@@ -659,13 +688,24 @@ O sistema deve ser capaz de passar dados de um passo para outro (ex: Login -> To
 
 Aparece em qualquer string:
 
-- `${jwt}`
+- `${jwt}` — variável do contexto
 
-- `${random_uuid}`
+- `${random_uuid}` — UUID v4 aleatório
 
-- `${timestamp}`
+- `${timestamp}` — ISO8601 timestamp
 
-- `${ENV_ADMIN_PASS}`
+- `${timestamp_ms}` — epoch em milissegundos
+
+- `${now}` — timestamp ISO8601 (alias)
+
+- `${random_int}` — inteiro aleatório
+
+- `${ENV_ADMIN_PASS}` — variável de ambiente (formato legado)
+
+- `${env:ADMIN_PASS}` — variável de ambiente (formato preferido)
+
+> **Nota:** O Runner suporta ambos os formatos para variáveis de ambiente:
+> `${ENV_VAR_NAME}` e `${env:VAR_NAME}`. O formato `${env:}` é preferido por ser mais explícito.
 
 ### 3.7 Resiliência (Recovery Policy)
 
@@ -1256,7 +1296,15 @@ Executores implementados no MVP:
 
 - **HttpExecutor** → step.action = "http_request"
 
-- **WaitExecutor** → step.action = "wait"
+- **WaitExecutor** → step.action = "wait" ou "sleep" (alias)
+
+> **Nota:** O Runner aceita tanto `wait` quanto `sleep` como action para pausar a execução.
+> Ambos usam o parâmetro `duration_ms` para especificar o tempo em milissegundos.
+>
+> Exemplo:
+> ```json
+> { "id": "pause", "action": "sleep", "params": { "duration_ms": 1000 } }
+> ```
 
 Executores futuros (sem alterar o resto da arquitetura):
 
@@ -1434,6 +1482,27 @@ Se configurado:
 }
 ```
 
+#### Configuração OTEL
+
+O Runner pode exportar traces via OTLP. Configure via variáveis de ambiente:
+
+```bash
+# Habilitar telemetria OTEL
+export OTEL_ENABLED=true
+
+# Endpoint do collector (padrão: http://localhost:4317)
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+
+# Nome do serviço
+export OTEL_SERVICE_NAME=autonomous-quality-runner
+
+# Exemplos de collectors compatíveis:
+# - Jaeger: http://localhost:4317
+# - Grafana Tempo: http://tempo:4317
+# - Datadog Agent: http://datadog-agent:4317
+# - New Relic: https://otlp.nr-data.net:4317
+```
+
 ---
 
 ### 5.8 Políticas de Erro
@@ -1455,6 +1524,31 @@ Erro parcial (continuar exec):
 - step falhou mas é marcado como "ignored" via recovery
 
 - timeout de step → aplica retry
+
+#### Códigos de Erro Estruturados
+
+O Runner utiliza códigos de erro padronizados para facilitar integração com CI/CD e diagnóstico:
+
+|Faixa|Categoria|Exemplos|
+|---|---|---|
+|**E1xxx**|Validação|E1001 (plano vazio), E1002 (spec_version), E1003 (action desconhecida)|
+|**E2xxx**|Execução HTTP|E2001 (timeout), E2002 (conexão), E2003 (status erro)|
+|**E3xxx**|Assertions|E3001 (status_code), E3002 (latency), E3003 (header), E3004 (json_body)|
+|**E4xxx**|I/O e Config|E4001 (interpolação), E4002 (variável não encontrada), E4003 (arquivo não encontrado)|
+|**E5xxx**|Internos|E5001 (panic), E5002 (executor não encontrado), E5003 (serialização)|
+
+**Exemplo de erro estruturado:**
+```json
+{
+  "code": "E3002",
+  "message": "Assertion latency failed",
+  "details": {
+    "step_id": "login_step",
+    "expected": "< 500ms",
+    "actual": "1234ms"
+  }
+}
+```
 
 ---
 

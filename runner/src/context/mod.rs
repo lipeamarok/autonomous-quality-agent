@@ -96,10 +96,16 @@ impl Context {
             _ => {}
         }
 
-        // Variáveis de ambiente
+        // Variáveis de ambiente - formato ${env:VAR_NAME}
+        if let Some(var_name) = token.strip_prefix("env:") {
+            return std::env::var(var_name)
+                .map_err(|_| anyhow!("Variável de ambiente '{}' não definida.", var_name));
+        }
+
+        // Variáveis de ambiente - formato legado ${ENV_VAR_NAME}
         if let Some(rest) = token.strip_prefix("ENV_") {
             return std::env::var(rest)
-                .map_err(|_| anyhow!("Missing environment variable '{}'.", rest));
+                .map_err(|_| anyhow!("Variável de ambiente '{}' não definida.", rest));
         }
 
         // Variáveis do contexto
@@ -110,7 +116,7 @@ impl Context {
             };
         }
 
-        Err(anyhow!("Missing context variable '{}'. Available: {:?}", token, self.variables.keys().collect::<Vec<_>>()))
+        Err(anyhow!("Variável '{}' não encontrada. Disponíveis: {:?}", token, self.variables.keys().collect::<Vec<_>>()))
     }
 }
 
@@ -122,7 +128,7 @@ mod tests {
     fn test_random_uuid_interpolation() {
         let ctx = Context::new();
         let result = ctx.interpolate_str("id: ${random_uuid}").unwrap();
-        
+
         // UUID v4 tem formato xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
         assert!(result.starts_with("id: "));
         let uuid_part = &result[4..];
@@ -134,7 +140,7 @@ mod tests {
     fn test_timestamp_interpolation() {
         let ctx = Context::new();
         let result = ctx.interpolate_str("ts: ${timestamp}").unwrap();
-        
+
         let ts_part = &result[4..];
         let ts: i64 = ts_part.parse().expect("deve ser número");
         assert!(ts > 1700000000); // Após 2023
@@ -144,7 +150,7 @@ mod tests {
     fn test_timestamp_ms_interpolation() {
         let ctx = Context::new();
         let result = ctx.interpolate_str("ts: ${timestamp_ms}").unwrap();
-        
+
         let ts_part = &result[4..];
         let ts: i64 = ts_part.parse().expect("deve ser número");
         assert!(ts > 1700000000000); // Após 2023 em ms
@@ -154,7 +160,7 @@ mod tests {
     fn test_now_interpolation() {
         let ctx = Context::new();
         let result = ctx.interpolate_str("${now}").unwrap();
-        
+
         // Formato RFC3339: 2024-01-15T12:34:56+00:00
         assert!(result.contains("T"));
         assert!(result.len() > 20);
@@ -165,11 +171,11 @@ mod tests {
         let ctx = Context::new();
         let result1 = ctx.interpolate_str("${random_int}").unwrap();
         let result2 = ctx.interpolate_str("${random_int}").unwrap();
-        
+
         // Ambos devem ser números
         let _: u32 = result1.parse().expect("deve ser número");
         let _: u32 = result2.parse().expect("deve ser número");
-        
+
         // Alta probabilidade de serem diferentes
         // (não garantido, mas extremamente improvável serem iguais)
     }
@@ -178,7 +184,7 @@ mod tests {
     fn test_multiple_dynamic_vars() {
         let ctx = Context::new();
         let result = ctx.interpolate_str("uuid=${random_uuid}&ts=${timestamp}").unwrap();
-        
+
         assert!(result.contains("uuid="));
         assert!(result.contains("&ts="));
         assert!(!result.contains("${"));
@@ -188,10 +194,47 @@ mod tests {
     fn test_mixed_static_and_dynamic() {
         let mut ctx = Context::new();
         ctx.set("user", Value::String("john".to_string()));
-        
+
         let result = ctx.interpolate_str("user=${user}&session=${random_uuid}").unwrap();
-        
+
         assert!(result.starts_with("user=john&session="));
         assert!(!result.contains("${"));
+    }
+
+    #[test]
+    fn test_env_colon_syntax() {
+        // Seta uma variável de ambiente para o teste
+        std::env::set_var("TEST_API_KEY", "secret123");
+
+        let ctx = Context::new();
+        let result = ctx.interpolate_str("key=${env:TEST_API_KEY}").unwrap();
+
+        assert_eq!(result, "key=secret123");
+
+        // Limpa a variável
+        std::env::remove_var("TEST_API_KEY");
+    }
+
+    #[test]
+    fn test_env_legacy_syntax() {
+        // Seta uma variável de ambiente para o teste
+        std::env::set_var("MY_TOKEN", "token456");
+
+        let ctx = Context::new();
+        let result = ctx.interpolate_str("auth=${ENV_MY_TOKEN}").unwrap();
+
+        assert_eq!(result, "auth=token456");
+
+        // Limpa a variável
+        std::env::remove_var("MY_TOKEN");
+    }
+
+    #[test]
+    fn test_env_missing_variable() {
+        let ctx = Context::new();
+        let result = ctx.interpolate_str("key=${env:NONEXISTENT_VAR_12345}");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("não definida"));
     }
 }

@@ -11,7 +11,7 @@ use anyhow::Result;
 
 /// Trait that defines the contract for any step executor.
 /// This allows us to easily extend the runner with new capabilities (e.g., Browser, gRPC).
-/// 
+///
 /// O trait requer Send + Sync para suportar execução paralela com tokio::spawn.
 #[async_trait]
 pub trait StepExecutor: Send + Sync {

@@ -1,9 +1,11 @@
-//! Executor para a ação `wait`.
+//! Executor para as ações `wait` e `sleep`.
 //!
 //! Este executor implementa delays/pausas entre steps,
 //! útil para simular tempo de espera ou rate limiting.
+//!
+//! Nota: `sleep` é um alias de `wait` para compatibilidade com diferentes specs.
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde::Deserialize;
 use std::time::{Duration, Instant};
@@ -15,20 +17,22 @@ use crate::protocol::{Step, StepResult, StepStatus};
 
 use super::StepExecutor;
 
-/// Parâmetros para a ação `wait`.
+/// Parâmetros para a ação `wait`/`sleep`.
 #[derive(Debug, Deserialize)]
 struct WaitParams {
     /// Duração do delay em milissegundos.
     duration_ms: u64,
 }
 
-/// Executor para a ação `wait`.
+/// Executor para as ações `wait` e `sleep`.
 ///
 /// Permite pausar a execução por um tempo especificado,
 /// útil para:
 /// - Simular delays entre requests
 /// - Aguardar processamento assíncrono
 /// - Rate limiting manual
+///
+/// `sleep` é tratado como alias de `wait` para compatibilidade.
 pub struct WaitExecutor;
 
 impl WaitExecutor {
@@ -46,7 +50,7 @@ impl Default for WaitExecutor {
 #[async_trait]
 impl StepExecutor for WaitExecutor {
     fn can_handle(&self, action: &str) -> bool {
-        action == "wait"
+        action == "wait" || action == "sleep"
     }
 
     #[instrument(skip(self, _context), fields(step_id = %step.id, duration_ms))]
@@ -54,13 +58,19 @@ impl StepExecutor for WaitExecutor {
         let start = Instant::now();
 
         // Parse dos parâmetros
-        let params: WaitParams = serde_json::from_value(step.params.clone())
-            .map_err(|e| anyhow!("Parâmetros inválidos para wait: {}. Esperado: {{ \"duration_ms\": <número> }}", e))?;
+        let params: WaitParams = serde_json::from_value(step.params.clone()).map_err(|e| {
+            anyhow!(
+                "Parâmetros inválidos para {}: {}. Esperado: {{ \"duration_ms\": <número> }}",
+                step.action,
+                e
+            )
+        })?;
 
         tracing::Span::current().record("duration_ms", params.duration_ms);
 
         info!(
             step_id = %step.id,
+            action = %step.action,
             duration_ms = params.duration_ms,
             "⏳ Aguardando..."
         );
@@ -140,5 +150,33 @@ mod tests {
 
         let result = executor.execute(&step, &mut context).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_wait_executor_handles_sleep_action() {
+        let executor = WaitExecutor::new();
+        // Verifica que 'sleep' é reconhecido como alias
+        assert!(executor.can_handle("sleep"));
+    }
+
+    #[tokio::test]
+    async fn test_sleep_action_executes() {
+        let executor = WaitExecutor::new();
+        let step = Step {
+            id: "sleep_step".to_string(),
+            description: None,
+            depends_on: vec![],
+            action: "sleep".to_string(), // Usando sleep ao invés de wait
+            params: json!({ "duration_ms": 50 }),
+            assertions: vec![],
+            extract: vec![],
+            recovery_policy: None,
+        };
+        let mut context = Context::new();
+
+        let result = executor.execute(&step, &mut context).await.unwrap();
+
+        assert_eq!(result.status, StepStatus::Passed);
+        assert!(result.duration_ms >= 50);
     }
 }

@@ -308,11 +308,11 @@ impl StepExecutor for HttpExecutor {
                 let headers = resp.headers().clone();
                 let raw_body = resp.text().await.unwrap_or_default();
                 let body_json: Value = serde_json::from_str(&raw_body).unwrap_or(Value::Null);
-                
+
                 // Record OTEL attributes for response
                 span.record("http.status_code", status as i64);
                 span.record("http.duration_ms", duration as i64);
-                
+
                 tracing::info!(method = %method_str, %url, status, duration_ms = duration, "HTTP step finished");
 
                 let response_ctx = ResponseContext {

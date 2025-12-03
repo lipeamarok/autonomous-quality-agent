@@ -1,17 +1,18 @@
-mod protocol;
-mod loader;
-mod executors;
 mod context;
-mod telemetry;
-mod retry;
-mod validation;
+mod errors;
+mod executors;
+mod loader;
 mod planner;
+mod protocol;
+mod retry;
+mod telemetry;
+mod validation;
 
-use protocol::{ExecutionReport, StepStatus, Step};
-use executors::{StepExecutor, http::HttpExecutor, wait::WaitExecutor};
 use context::Context;
+use executors::{http::HttpExecutor, wait::WaitExecutor, StepExecutor};
 use planner::DagPlanner;
-use telemetry::{TelemetryConfig, init_telemetry, shutdown_telemetry};
+use protocol::{ExecutionReport, Step, StepStatus};
+use telemetry::{init_telemetry, shutdown_telemetry, TelemetryConfig};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -62,7 +63,7 @@ async fn main() {
         Commands::Execute { file, output, parallel, otel, otel_endpoint } => {
             // Configura telemetria
             let mut telemetry_config = TelemetryConfig::from_env();
-            
+
             if *otel {
                 // Se --otel foi passado, usa endpoint do argumento ou default
                 if let Some(endpoint) = otel_endpoint {
@@ -83,7 +84,7 @@ async fn main() {
             }
 
             execute_plan(file, output, *parallel).await;
-            
+
             // Shutdown telemetria para garantir flush de traces
             shutdown_telemetry();
         }
@@ -128,13 +129,13 @@ async fn execute_plan(file_path: &PathBuf, output_path: &Option<PathBuf>, parall
 
     // 4. Execute Steps
     info!(parallel = parallel, "Starting execution");
-    
+
     let step_results = if parallel {
         // Execução paralela usando DAG
         let planner = DagPlanner::new(plan.steps);
         let executors_arc = Arc::new(executors);
         let context_arc = Arc::new(RwLock::new(context));
-        
+
         planner.execute(executors_arc, context_arc).await
     } else {
         // Execução sequencial (comportamento original)
@@ -221,14 +222,14 @@ async fn execute_step_with_retry(
 
     loop {
         attempt += 1;
-        
+
         match executor.execute(step, context).await {
             Ok(result) => {
                 if result.status == StepStatus::Passed {
                     return result;
                 }
                 // Assertion falhou
-                
+
                 if strategy == "ignore" {
                     return protocol::StepResult {
                         step_id: step.id.clone(),
@@ -237,14 +238,14 @@ async fn execute_step_with_retry(
                         error: None,
                     };
                 }
-                
+
                 if strategy != "retry" || attempt >= max_attempts {
                     return result;
                 }
             }
             Err(e) => {
                 error!(step_id = %step.id, error = %e, attempt = attempt, "Step execution failed");
-                
+
                 if strategy == "ignore" {
                     return protocol::StepResult {
                         step_id: step.id.clone(),
@@ -253,7 +254,7 @@ async fn execute_step_with_retry(
                         error: None,
                     };
                 }
-                
+
                 if strategy != "retry" || attempt >= max_attempts {
                     return protocol::StepResult {
                         step_id: step.id.clone(),

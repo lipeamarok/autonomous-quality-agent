@@ -39,7 +39,7 @@ impl DagPlanner {
         // Primeira passagem: criar nós
         for step in steps {
             let deps: HashSet<String> = step.depends_on.iter().cloned().collect();
-            
+
             // Registra este step como dependente de cada uma de suas dependências
             for dep in &deps {
                 dependents_map
@@ -103,11 +103,11 @@ impl DagPlanner {
                 // Verifica se ainda há steps pendentes
                 let completed_guard = completed.read().await;
                 let nodes_guard = nodes.read().await;
-                
+
                 if completed_guard.len() + failed.read().await.len() >= nodes_guard.len() {
                     break; // Todos os steps foram processados
                 }
-                
+
                 // Espera um pouco e tenta novamente (pode haver steps em execução)
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 continue;
@@ -146,14 +146,14 @@ impl DagPlanner {
                                 if failed_guard.contains(dep) {
                                     // Pula este step porque uma dependência falhou
                                     info!(step_id = %step_id, failed_dep = %dep, "Skipping step due to failed dependency");
-                                    
+
                                     let result = StepResult {
                                         step_id: step_id.clone(),
                                         status: StepStatus::Skipped,
                                         duration_ms: 0,
                                         error: Some(format!("Dependency '{}' failed", dep)),
                                     };
-                                    
+
                                     results_clone.lock().await.push(result);
                                     failed_clone.write().await.insert(step_id.clone());
                                     return;
