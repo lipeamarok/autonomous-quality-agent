@@ -33,7 +33,7 @@ from rich.panel import Panel
 
 # Plano de demonstração usando httpbin.org (API pública de teste)
 DEMO_PLAN: dict[str, Any] = {
-    "utdl_version": "1.0",
+    "spec_version": "0.1",
     "meta": {
         "id": "demo-plan-001",
         "name": "AQA Demo - HTTPBin Test",
