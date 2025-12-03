@@ -1225,11 +1225,11 @@ O validador foi separado do Generator para permitir reutilização em diferentes
 class UTDLValidator:
     SUPPORTED_SPEC_VERSIONS = {"0.1"}
     VALID_ACTIONS = {"http_request", "wait", "sleep"}
-    
+
     def validate(self, data: dict) -> ValidationResult:
         """Valida um plano UTDL."""
         ...
-    
+
     def validate_json(self, json_str: str) -> ValidationResult:
         """Valida a partir de string JSON."""
         ...

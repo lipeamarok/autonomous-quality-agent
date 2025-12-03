@@ -4,7 +4,7 @@ INTEGRAÇÃO COM LLM PARA GERAÇÃO DE UTDL
 ================================================================================
 
 Este módulo é o "cérebro" do Brain - ele se comunica com modelos de linguagem
-(como GPT-4, Claude, etc.) para gerar planos de teste automaticamente.
+(como GPT-5.1, Grok, etc.) para gerar planos de teste automaticamente.
 
 ## Para todos entenderem:
 
@@ -19,18 +19,22 @@ Este módulo:
 4. Valida se o JSON está correto
 5. Se não estiver, pede para a IA corrigir (até 3 tentativas)
 
+## Provedores suportados:
+
+| Provedor | Modelo              | Uso                    |
+|----------|---------------------|------------------------|
+| OpenAI   | gpt-5.1             | Padrão (SOTA)          |
+| xAI      | grok-4-1-fast       | Fallback               |
+
 ## Funcionalidades principais:
 - Geração de planos UTDL a partir de requisitos em linguagem natural
 - Validação automática via Pydantic (biblioteca de validação Python)
 - Loop de autocorreção quando a validação falha
 - Extração robusta de JSON de respostas de LLM
-
-## Tecnologias usadas:
-- LiteLLM: Biblioteca que abstrai diferentes provedores (OpenAI, Anthropic, etc.)
-- Pydantic: Para validação de dados estruturados
+- **Fallback automático** entre provedores quando um falha
 
 ## Exemplo de uso:
-    >>> generator = UTDLGenerator(model="gpt-5")
+    >>> generator = UTDLGenerator()  # Usa GPT-5.1 por padrão
     >>> plan = generator.generate("Testar API de login", "https://api.example.com")
     >>> print(plan.to_json())
 """
@@ -49,14 +53,13 @@ import json
 import re
 
 # typing: Anotações de tipo para melhor documentação e checagem
-from typing import Any
+# (removido Any pois não é mais usado)
 
 # ValidationError: Exceção lançada quando dados não passam na validação
 from pydantic import ValidationError
 
-# completion: Função do LiteLLM que faz chamadas a qualquer LLM
-# type: ignore porque o LiteLLM não tem tipos definidos
-from litellm import completion  # type: ignore[import-untyped]
+# Providers: Sistema de provedores LLM com fallback
+from .providers import LLMProvider, ProviderName
 
 # Plan: Nosso modelo Pydantic que define a estrutura do plano UTDL
 from ..validator import Plan
@@ -87,48 +90,63 @@ class UTDLGenerator:
     - A classe valida se o JSON está correto
     - Se não estiver, a classe pede correção automaticamente
 
-    ## Atributos:
-        model: Identificador do modelo LLM (ex: "gpt-4", "claude-3-opus")
-        max_correction_attempts: Máximo de tentativas de correção
-        temperature: Temperatura para sampling (0.0 = determinístico)
+    ## Provedores com Fallback:
 
-    ## Sobre temperature:
-    - 0.0: Respostas sempre iguais (determinístico)
-    - 0.2: Pouca variação (recomendado para código)
-    - 1.0: Muita criatividade (pode gerar erros)
+    O gerador tenta primeiro o provedor primário (OpenAI GPT-5.1).
+    Se falhar (rate limit, timeout, etc.), usa automaticamente o fallback (Grok).
+
+    ## Atributos:
+        provider: Provedor LLM com suporte a fallback
+        max_correction_attempts: Máximo de tentativas de correção
+        verbose: Se True, loga detalhes das chamadas
 
     ## Exemplo:
-        >>> generator = UTDLGenerator(model="gpt-4")
+        >>> generator = UTDLGenerator()  # Usa GPT-5.1 por padrão
         >>> plan = generator.generate("Testar API de login", "https://api.example.com")
         >>> print(plan.to_json())
     """
 
     def __init__(
         self,
-        model: str = "gpt-4",
+        provider: ProviderName | str | None = None,
         max_correction_attempts: int = 3,
         temperature: float = 0.2,
+        verbose: bool = False,
     ) -> None:
         """
         Inicializa o gerador UTDL.
 
         ## Para todos entenderem:
         Este é o "construtor" da classe. É chamado quando você cria
-        um novo gerador: `generator = UTDLGenerator(model="gpt-4")`
+        um novo gerador: `generator = UTDLGenerator()`
 
         ## Parâmetros:
-            model: Modelo LLM a usar. Exemplos:
-                - "gpt-4": OpenAI GPT-4 (melhor qualidade)
-                - "gpt-3.5-turbo": OpenAI GPT-3.5 (mais barato)
-                - "claude-3-opus-20240229": Anthropic Claude
+            provider: Provedor LLM a usar. Opções:
+                - None: Usa OpenAI GPT-5.1 (padrão)
+                - "openai": OpenAI GPT-5.1
+                - "xai": xAI Grok
             max_correction_attempts: Quantas vezes tentar corrigir erros
-            temperature: Quão "criativa" a IA deve ser (0.0-1.0)
+            temperature: Quão "criativa" a IA deve ser (0.0-2.0)
+            verbose: Se True, mostra logs detalhados
         """
-        # Armazena configurações como atributos do objeto
-        # "self" é a referência ao próprio objeto em Python
-        self.model = model
+        # Converte string para ProviderName se necessário
+        if provider is None:
+            primary = ProviderName.OPENAI
+        elif isinstance(provider, ProviderName):
+            primary = provider
+        else:
+            primary = ProviderName(provider.lower())
+
+        # Cria o provedor com fallback
+        self._provider = LLMProvider(
+            primary=primary,
+            temperature=temperature,
+            verbose=verbose,
+        )
+
         self.max_correction_attempts = max_correction_attempts
-        self.temperature = temperature
+        self.verbose = verbose
+        self._last_provider_used: ProviderName | None = None
 
     def generate(
         self,
@@ -219,10 +237,9 @@ class UTDLGenerator:
         O underscore no início (_call_llm) indica que é uma função
         "privada" - só deve ser usada internamente pela classe.
 
-        ## Como funciona:
-        1. Monta uma lista de mensagens (sistema + usuário)
-        2. Chama a API do LLM via LiteLLM
-        3. Extrai o JSON da resposta
+        ## Fallback automático:
+        Se o provedor primário falhar, automaticamente tenta o fallback.
+        Isso garante maior disponibilidade do sistema.
 
         ## Parâmetros:
             system_prompt: Instruções gerais para a IA (quem ela é,
@@ -232,22 +249,14 @@ class UTDLGenerator:
         ## Retorna:
             String JSON extraída da resposta do LLM
         """
-        # Chama a API do LLM
-        # "completion" é a função do LiteLLM que faz a mágica
-        response: Any = completion(
-            model=self.model,
-            messages=[
-                # Mensagem de sistema: define o "papel" da IA
-                {"role": "system", "content": system_prompt},
-                # Mensagem do usuário: o pedido específico
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=self.temperature,
+        # Chama o provedor com fallback automático
+        content, provider_used = self._provider.complete(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
         )
 
-        # Extrai o texto da resposta
-        # A estrutura é: response.choices[0].message.content
-        content: str = str(response.choices[0].message.content or "")
+        # Guarda qual provedor foi usado (útil para logs/debug)
+        self._last_provider_used = provider_used
 
         # Extrai e retorna apenas o JSON (remove markdown, texto extra, etc.)
         return self._extract_json(content)
@@ -354,7 +363,8 @@ class UTDLGenerator:
 def generate_utdl(
     requirement: str,
     base_url: str = "https://api.example.com",
-    model: str = "gpt-4",
+    provider: str | None = None,
+    verbose: bool = False,
 ) -> Plan:
     """
     Função de conveniência para gerar um plano UTDL.
@@ -362,10 +372,16 @@ def generate_utdl(
     Esta é uma interface simplificada para o UTDLGenerator, útil para
     casos de uso simples onde não é necessário configurar o gerador.
 
+    ## Provedores:
+
+    - None ou "openai": Usa GPT-5.1 (padrão)
+    - "xai": Usa Grok como primário
+
     Args:
         requirement: Descrição em linguagem natural do que testar
         base_url: URL base da API sob teste
-        model: Modelo LLM a usar (padrão: gpt-4)
+        provider: Provedor LLM a usar (padrão: OpenAI GPT-5.1)
+        verbose: Se True, mostra logs detalhados
 
     Returns:
         Objeto Plan validado e pronto para execução
@@ -376,5 +392,5 @@ def generate_utdl(
         ...     base_url="https://api.meuapp.com"
         ... )
     """
-    generator = UTDLGenerator(model=model)
+    generator = UTDLGenerator(provider=provider, verbose=verbose)
     return generator.generate(requirement, base_url)

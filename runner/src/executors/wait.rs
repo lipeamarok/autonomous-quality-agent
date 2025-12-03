@@ -59,7 +59,7 @@ struct WaitParams {
     /// Exemplo: 1000 = 1 segundo, 500 = meio segundo
     #[serde(default)]
     duration_ms: Option<u64>,
-    
+
     /// Duração do delay em milissegundos (alias curto).
     ///
     /// Alternativa mais concisa para `duration_ms`.
@@ -165,7 +165,7 @@ impl StepExecutor for WaitExecutor {
                 e
             )
         })?;
-        
+
         // Obtém a duração, priorizando duration_ms sobre ms.
         let duration_ms = params.get_duration().ok_or_else(|| {
             anyhow!(
@@ -361,7 +361,7 @@ mod tests {
         let mut context = Context::new();
 
         let result = executor.execute(&step, &mut context).await;
-        
+
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("duration_ms") || err_msg.contains("ms"));

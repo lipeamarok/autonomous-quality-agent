@@ -80,7 +80,17 @@ class BrainConfig(BaseModel):
 
     model: str = Field(
         default="gpt-5.1",
-        description="Identificador do modelo LLM a usar. Ex: gpt-4, claude-3-opus"
+        description="Identificador do modelo LLM a usar. Ex: gpt-5.1, grok-4-1-fast-reasoning"
+    )
+
+    llm_provider: str = Field(
+        default="openai",
+        description="Provedor LLM primário. Opções: openai, xai"
+    )
+
+    llm_fallback_enabled: bool = Field(
+        default=True,
+        description="Se True, usa provedor de fallback quando primário falha"
     )
 
     max_llm_retries: int = Field(
@@ -150,7 +160,9 @@ class BrainConfig(BaseModel):
 
         ## Variáveis suportadas:
 
-        - `BRAIN_MODEL`: Modelo LLM (default: "gpt-4")
+        - `BRAIN_MODEL`: Modelo LLM (default: "gpt-5.1")
+        - `BRAIN_LLM_PROVIDER`: Provedor primário (default: "openai")
+        - `BRAIN_LLM_FALLBACK`: Habilita fallback (default: "true")
         - `BRAIN_MAX_RETRIES`: Máximo de retries (default: 3)
         - `BRAIN_TEMPERATURE`: Temperatura do LLM (default: 0.2)
         - `BRAIN_FORCE_SCHEMA`: Força validação (default: "true")
@@ -188,7 +200,9 @@ class BrainConfig(BaseModel):
                 return default
 
         return cls(
-            model=os.environ.get("BRAIN_MODEL", "gpt-4"),
+            model=os.environ.get("BRAIN_MODEL", "gpt-5.1"),
+            llm_provider=os.environ.get("BRAIN_LLM_PROVIDER", "openai"),
+            llm_fallback_enabled=get_bool("BRAIN_LLM_FALLBACK", True),
             max_llm_retries=get_int("BRAIN_MAX_RETRIES", 3),
             temperature=get_float("BRAIN_TEMPERATURE", 0.2),
             force_schema=get_bool("BRAIN_FORCE_SCHEMA", True),
@@ -209,7 +223,8 @@ class BrainConfig(BaseModel):
         - Retries reduzidos (testes mais rápidos)
         """
         return cls(
-            model="gpt-4",
+            model="gpt-5.1",
+            llm_provider="openai",
             max_llm_retries=1,
             cache_enabled=False,
             verbose=True,
@@ -223,9 +238,12 @@ class BrainConfig(BaseModel):
         - Cache habilitado (reduz custos)
         - Silent (menos logs)
         - Validação estrita (mais seguro)
+        - Fallback habilitado (maior disponibilidade)
         """
         return cls(
-            model="gpt-4",
+            model="gpt-5.1",
+            llm_provider="openai",
+            llm_fallback_enabled=True,
             max_llm_retries=3,
             cache_enabled=True,
             verbose=False,
