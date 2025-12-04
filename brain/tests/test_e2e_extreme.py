@@ -9,24 +9,28 @@ These tests validate the system under stress conditions:
 - Memory/resource limits
 """
 
-import json
+from __future__ import annotations
+
 import pytest
-import tempfile
-import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock
-import asyncio
+from typing import Any
 
 from src.validator.utdl_validator import UTDLValidator
 
 
-def validate_plan(plan: dict):
+# Type aliases for UTDL structures
+UTDLStep = dict[str, Any]
+UTDLPlan = dict[str, Any]
+UTDLAssertion = dict[str, Any]
+UTDLExtraction = dict[str, Any]
+
+
+def validate_plan(plan: UTDLPlan) -> Any:
     """Helper to validate a plan using UTDLValidator."""
     validator = UTDLValidator()
     return validator.validate(plan)
 
 
-def create_base_plan(plan_id: str, name: str, steps: list) -> dict:
+def create_base_plan(plan_id: str, name: str, steps: list[UTDLStep]) -> UTDLPlan:
     """Create a valid UTDL plan with correct structure."""
     return {
         "spec_version": "0.1",
@@ -49,12 +53,12 @@ def create_http_step(
     step_id: str,
     method: str = "GET",
     url: str = "{{base_url}}/test",
-    depends_on: list = None,
-    assertions: list = None,
-    extractions: list = None
-) -> dict:
+    depends_on: list[str] | None = None,
+    assertions: list[UTDLAssertion] | None = None,
+    extractions: list[UTDLExtraction] | None = None
+) -> UTDLStep:
     """Create a valid http_request step."""
-    step = {
+    step: UTDLStep = {
         "id": step_id,
         "action": "http_request",
         "description": f"Step {step_id}",
@@ -72,7 +76,11 @@ def create_http_step(
     return step
 
 
-def create_extraction(target: str, source: str = "body", path: str = "$.data") -> dict:
+def create_extraction(
+    target: str,
+    source: str = "body",
+    path: str = "$.data"
+) -> UTDLExtraction:
     """Create a valid extraction definition."""
     return {
         "target": target,
@@ -84,9 +92,9 @@ def create_extraction(target: str, source: str = "body", path: str = "$.data") -
 def create_assertion(
     assertion_type: str = "status_code",
     operator: str = "eq",
-    value: any = 200,
+    value: Any = 200,
     path: str | None = None
-) -> dict:
+) -> UTDLAssertion:
     """Create a valid assertion matching the UTDL schema.
     
     Args:
@@ -95,7 +103,7 @@ def create_assertion(
         value: Expected value
         path: JSONPath or header name (required for json_body/header)
     """
-    assertion = {
+    assertion: UTDLAssertion = {
         "type": assertion_type,
         "operator": operator,
         "value": value
@@ -108,15 +116,16 @@ def create_assertion(
 class TestLargePlans:
     """Tests for plans with many steps."""
 
-    def test_validate_plan_with_100_steps(self):
+    def test_validate_plan_with_100_steps(self) -> None:
         """Validate a plan with 100 steps completes in reasonable time."""
-        steps = []
+        steps: list[UTDLStep] = []
         for i in range(100):
+            deps: list[str] | None = [f"step_{i-1}"] if i > 0 else None
             step = create_http_step(
                 step_id=f"step_{i}",
                 method="GET",
                 url=f"{{{{base_url}}}}/resource/{i}",
-                depends_on=[f"step_{i-1}"] if i > 0 else None,
+                depends_on=deps,
                 assertions=[create_assertion("status_code", "eq", 200)]
             )
             steps.append(step)
@@ -125,12 +134,12 @@ class TestLargePlans:
         result = validate_plan(plan)
         assert result.is_valid, f"Validation failed: {result.errors}"
 
-    def test_validate_plan_with_500_steps(self):
+    def test_validate_plan_with_500_steps(self) -> None:
         """Validate a plan with 500 steps."""
-        steps = []
+        steps: list[UTDLStep] = []
         for i in range(500):
             # Create a tree structure, not a chain (better for parallel execution)
-            depends = []
+            depends: list[str] | None = None
             if i % 10 != 0 and i >= 10:
                 depends = [f"step_{i//10 * 10}"]
             
@@ -138,7 +147,7 @@ class TestLargePlans:
                 step_id=f"step_{i}",
                 method="GET",
                 url=f"{{{{base_url}}}}/resource/{i}",
-                depends_on=depends if depends else None,
+                depends_on=depends,
                 assertions=[create_assertion("status_code", "eq", 200)]
             )
             steps.append(step)
@@ -147,16 +156,19 @@ class TestLargePlans:
         result = validate_plan(plan)
         assert result.is_valid, f"Validation failed: {result.errors}"
 
-    def test_plan_with_deep_dependency_chain(self):
+    def test_plan_with_deep_dependency_chain(self) -> None:
         """Test plan with 50-step deep dependency chain."""
-        steps = []
+        steps: list[UTDLStep] = []
         for i in range(50):
-            extractions = [create_extraction(f"result_{i}", "body", "$.result")]
+            extractions: list[UTDLExtraction] = [
+                create_extraction(f"result_{i}", "body", "$.result")
+            ]
+            deps: list[str] | None = [f"chain_step_{i-1}"] if i > 0 else None
             step = create_http_step(
                 step_id=f"chain_step_{i}",
                 method="POST",
                 url="{{base_url}}/chain",
-                depends_on=[f"chain_step_{i-1}"] if i > 0 else None,
+                depends_on=deps,
                 extractions=extractions
             )
             steps.append(step)
@@ -169,9 +181,9 @@ class TestLargePlans:
 class TestParallelExecution:
     """Tests for parallel step execution."""
 
-    def test_plan_with_parallel_branches(self):
+    def test_plan_with_parallel_branches(self) -> None:
         """Test plan with multiple parallel branches."""
-        steps = [
+        steps: list[UTDLStep] = [
             # Root step
             create_http_step(
                 step_id="init",
@@ -183,19 +195,22 @@ class TestParallelExecution:
 
         # Create 10 parallel branches, each with 5 steps
         for branch in range(10):
-            for step in range(5):
-                step_id = f"branch_{branch}_step_{step}"
-                depends_on = ["init"] if step == 0 else [f"branch_{branch}_step_{step-1}"]
+            for step_num in range(5):
+                step_id = f"branch_{branch}_step_{step_num}"
+                deps: list[str] = (
+                    ["init"] if step_num == 0 
+                    else [f"branch_{branch}_step_{step_num-1}"]
+                )
                 
                 steps.append(create_http_step(
                     step_id=step_id,
                     method="GET",
-                    url=f"{{{{base_url}}}}/branch/{branch}/step/{step}",
-                    depends_on=depends_on
+                    url=f"{{{{base_url}}}}/branch/{branch}/step/{step_num}",
+                    depends_on=deps
                 ))
 
         # Final aggregation step
-        final_deps = [f"branch_{b}_step_4" for b in range(10)]
+        final_deps: list[str] = [f"branch_{b}_step_4" for b in range(10)]
         steps.append(create_http_step(
             step_id="aggregate",
             method="POST",
@@ -208,9 +223,9 @@ class TestParallelExecution:
         assert result.is_valid, f"Validation failed: {result.errors}"
         assert len(plan["steps"]) == 52  # 1 init + 50 branch steps + 1 aggregate
 
-    def test_dag_with_diamond_dependencies(self):
+    def test_dag_with_diamond_dependencies(self) -> None:
         """Test DAG with diamond dependency pattern."""
-        steps = [
+        steps: list[UTDLStep] = [
             create_http_step("start", "GET", "{{base_url}}/start"),
             create_http_step("left", "GET", "{{base_url}}/left", depends_on=["start"]),
             create_http_step("right", "GET", "{{base_url}}/right", depends_on=["start"]),
@@ -225,9 +240,9 @@ class TestParallelExecution:
 class TestAuthenticationFlows:
     """Tests for complex authentication scenarios."""
 
-    def test_oauth2_token_refresh_flow(self):
+    def test_oauth2_token_refresh_flow(self) -> None:
         """Test OAuth2 flow with token refresh."""
-        steps = [
+        steps: list[UTDLStep] = [
             {
                 "id": "get_initial_token",
                 "action": "http_request",
@@ -292,9 +307,9 @@ class TestAuthenticationFlows:
         result = validate_plan(plan)
         assert result.is_valid, f"Validation failed: {result.errors}"
 
-    def test_multi_step_login_with_mfa(self):
+    def test_multi_step_login_with_mfa(self) -> None:
         """Test multi-factor authentication flow."""
-        steps = [
+        steps: list[UTDLStep] = [
             {
                 "id": "initiate_login",
                 "action": "http_request",
@@ -363,9 +378,9 @@ class TestAuthenticationFlows:
 class TestRetryAndRecovery:
     """Tests for retry and recovery policies."""
 
-    def test_plan_with_retry_policies(self):
+    def test_plan_with_retry_policies(self) -> None:
         """Test plan with various retry configurations."""
-        steps = [
+        steps: list[UTDLStep] = [
             {
                 "id": "flaky_endpoint",
                 "action": "http_request",
@@ -403,9 +418,9 @@ class TestRetryAndRecovery:
         result = validate_plan(plan)
         assert result.is_valid, f"Validation failed: {result.errors}"
 
-    def test_plan_with_recovery_steps(self):
+    def test_plan_with_recovery_steps(self) -> None:
         """Test plan with recovery/fallback steps."""
-        steps = [
+        steps: list[UTDLStep] = [
             {
                 "id": "primary_endpoint",
                 "action": "http_request",
@@ -447,17 +462,18 @@ class TestRetryAndRecovery:
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
-    def test_empty_plan(self):
+    def test_empty_plan(self) -> None:
         """Test that empty plan is handled."""
         plan = create_base_plan("empty", "Empty Plan", [])
         result = validate_plan(plan)
         # Empty plan should be valid structurally (validator allows it)
         # but may have warnings
-        assert result.is_valid or "empty" in str(result.errors).lower() or "step" in str(result.errors).lower()
+        errors_str = str(result.errors).lower()
+        assert result.is_valid or "empty" in errors_str or "step" in errors_str
 
-    def test_circular_dependency_detection(self):
+    def test_circular_dependency_detection(self) -> None:
         """Test that circular dependencies are detected."""
-        steps = [
+        steps: list[UTDLStep] = [
             create_http_step("a", depends_on=["c"]),
             create_http_step("b", depends_on=["a"]),
             create_http_step("c", depends_on=["b"])
@@ -467,27 +483,27 @@ class TestEdgeCases:
         # Should detect circular dependency
         assert not result.is_valid, "Should detect circular dependency"
 
-    def test_self_dependency_detection(self):
+    def test_self_dependency_detection(self) -> None:
         """Test that self-dependencies are detected."""
-        steps = [
+        steps: list[UTDLStep] = [
             create_http_step("step_a", depends_on=["step_a"])  # Self-reference!
         ]
         plan = create_base_plan("self_dep", "Self Dependency", steps)
         result = validate_plan(plan)
         assert not result.is_valid, "Should detect self-dependency"
 
-    def test_missing_dependency_detection(self):
+    def test_missing_dependency_detection(self) -> None:
         """Test that missing dependencies are detected."""
-        steps = [
+        steps: list[UTDLStep] = [
             create_http_step("step_a", depends_on=["nonexistent_step"])
         ]
         plan = create_base_plan("missing_dep", "Missing Dependency", steps)
         result = validate_plan(plan)
         assert not result.is_valid, "Should detect missing dependency"
 
-    def test_duplicate_step_ids(self):
+    def test_duplicate_step_ids(self) -> None:
         """Test that duplicate step IDs are detected."""
-        steps = [
+        steps: list[UTDLStep] = [
             create_http_step("step_a", url="{{base_url}}/a"),
             create_http_step("step_a", url="{{base_url}}/b")  # Duplicate!
         ]
@@ -495,18 +511,18 @@ class TestEdgeCases:
         result = validate_plan(plan)
         assert not result.is_valid, "Should detect duplicate step IDs"
 
-    def test_very_long_step_id(self):
+    def test_very_long_step_id(self) -> None:
         """Test handling of very long step IDs."""
         long_id = "a" * 500  # 500 character ID (reduced from 1000)
-        steps = [create_http_step(long_id)]
+        steps: list[UTDLStep] = [create_http_step(long_id)]
         plan = create_base_plan("long_id", "Long ID Test", steps)
         result = validate_plan(plan)
         # Should either accept or reject with a clear error
         assert result.is_valid or len(result.errors) > 0
 
-    def test_special_characters_in_variables(self):
+    def test_special_characters_in_variables(self) -> None:
         """Test handling of special characters in variable values."""
-        plan = {
+        plan: UTDLPlan = {
             "spec_version": "0.1",
             "meta": {
                 "id": "special_chars",
@@ -533,9 +549,9 @@ class TestEdgeCases:
 class TestResourceLimits:
     """Tests for resource limit handling."""
 
-    def test_plan_with_explicit_limits(self):
+    def test_plan_with_explicit_limits(self) -> None:
         """Test plan with explicit resource limits in config."""
-        plan = {
+        plan: UTDLPlan = {
             "spec_version": "0.1",
             "meta": {
                 "id": "limited",
@@ -554,15 +570,17 @@ class TestResourceLimits:
         result = validate_plan(plan)
         assert result.is_valid, f"Validation failed: {result.errors}"
 
-    def test_plan_exceeding_step_limit(self):
+    def test_plan_exceeding_step_limit(self) -> None:
         """Test that plan with many steps is at least validated."""
         # Create plan with 200 steps (reasonable stress test)
-        steps = []
+        steps: list[UTDLStep] = []
         for i in range(200):
-            steps.append(create_http_step(f"step_{i}", url=f"{{{{base_url}}}}/step/{i}"))
+            steps.append(
+                create_http_step(f"step_{i}", url=f"{{{{base_url}}}}/step/{i}")
+            )
 
         plan = create_base_plan("many_steps", "Many Steps", steps)
-        result = validate_plan(plan)
+        _ = validate_plan(plan)  # Ensure validation completes
         # Validation should complete regardless of outcome
         assert len(steps) == 200
 
@@ -570,16 +588,18 @@ class TestResourceLimits:
 class TestComplexExtractions:
     """Tests for complex extraction patterns."""
 
-    def test_nested_json_extraction(self):
+    def test_nested_json_extraction(self) -> None:
         """Test deeply nested JSON path extractions."""
-        steps = [
+        steps: list[UTDLStep] = [
             {
                 "id": "get_nested",
                 "action": "http_request",
                 "description": "Get nested data",
                 "params": {"method": "GET", "url": "{{base_url}}/nested"},
                 "extract": [
-                    create_extraction("deep_value", "body", "$.data.items[0].nested.deep.value"),
+                    create_extraction(
+                        "deep_value", "body", "$.data.items[0].nested.deep.value"
+                    ),
                     create_extraction("header_token", "header", "X-Custom-Token"),
                     create_extraction("status", "status_code", "")
                 ]
@@ -589,9 +609,9 @@ class TestComplexExtractions:
         result = validate_plan(plan)
         assert result.is_valid, f"Validation failed: {result.errors}"
 
-    def test_regex_extraction(self):
+    def test_regex_extraction(self) -> None:
         """Test regex-based extractions."""
-        steps = [
+        steps: list[UTDLStep] = [
             {
                 "id": "get_with_regex",
                 "action": "http_request",
@@ -608,7 +628,10 @@ class TestComplexExtractions:
                         "target": "uuid",
                         "source": "body",
                         "path": "$.id",
-                        "regex": r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+                        "regex": (
+                            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                            r"[0-9a-f]{4}-[0-9a-f]{12}"
+                        )
                     }
                 ]
             }
@@ -621,9 +644,9 @@ class TestComplexExtractions:
 class TestWaitAndPolling:
     """Tests for wait and polling scenarios."""
 
-    def test_polling_until_condition(self):
+    def test_polling_until_condition(self) -> None:
         """Test polling pattern until condition is met."""
-        steps = [
+        steps: list[UTDLStep] = [
             {
                 "id": "start_job",
                 "action": "http_request",
@@ -671,11 +694,11 @@ class TestWaitAndPolling:
 class TestGraphQLPlans:
     """Tests for GraphQL-specific plans (for the new executor)."""
 
-    def test_graphql_query_plan(self):
+    def test_graphql_query_plan(self) -> None:
         """Test a GraphQL query plan structure."""
         # Note: The validator may not support graphql action yet,
         # so this tests if it at least doesn't crash
-        steps = [
+        steps: list[UTDLStep] = [
             {
                 "id": "graphql_query",
                 "action": "http_request",  # GraphQL via HTTP
