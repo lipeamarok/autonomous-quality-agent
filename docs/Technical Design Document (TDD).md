@@ -1,82 +1,105 @@
 # Projeto: Autonomous Quality Agent (MVP v1.0)
 
-## INDICE
+## ÍNDICE
 
- 1. Introdução e Escopo
+### 1. Introdução e Escopo
+- **1.1 Visão Geral:** O que estamos construindo em 1 parágrafo.
+- **1.2 Objetivos do MVP:** O que deve funcionar na v1.0 (API Testing, Ingestão de Requisitos).
+- **1.3 Fronteiras (Out of Scope):** O que **não** faremos agora (Vídeo, UI complexa).
+- **1.4 Glossário:** Definição de termos (Brain, Runner, UTDL, Test Plan).
 
-- **Visão Geral:** O que estamos construindo em 1 parágrafo.
-
-- **Objetivos do MVP:** O que deve funcionar na v1.0 (API Testing, Ingestão de Requisitos).
-
-- **Fronteiras (Out of Scope):** O que **não** faremos agora (Vídeo, UI complexa) para blindar a engenharia.
-
-- **Glossário:** Definição de termos (Brain, Runner, UTDL, Test Plan).
-
- 2. Arquitetura de Alto Nível (C4 Model - Level 1 & 2)
-
-- **Diagrama de Contexto:** Como o sistema se conecta com o mundo (Jira, GitHub, Datadog).
-
-- **Diagrama de Containers:** A visão macro dos 3 grandes blocos.
-
+### 2. Arquitetura de Alto Nível (C4 Model - Level 1 & 2)
+- **2.1 Diagrama de Contexto:** Como o sistema se conecta com o mundo.
+- **2.2 Diagrama de Containers:** A visão macro dos 3 grandes blocos.
+- **2.3 Descrição dos Componentes:**
   - 🐍 **Brain (Python):** Orquestração e IA.
-
   - 🦀 **Runner (Rust):** Execução de alta performance.
-
-  - 📊 **Intelligence (Julia/Python):** Análise de dados (marcado como stub no MVP).
-
+  - 📊 **Intelligence (Julia/Python):** Análise de dados (stub no MVP).
   - 📜 **Contract (UTDL):** O protocolo de comunicação.
 
- 3. Especificação do Contrato: UTDL (The Core)
+### 3. Especificação do Contrato: UTDL (The Core)
+- **3.1 Objetivo da Linguagem**
+- **3.2 Estrutura Raiz:** Campos (`meta`, `config`, `steps`).
+- **3.3 Definição de Passo (Step Object)**
+- **3.4 Ação: `http_request`**
+- **3.5 Assertions (Sistema de Validação)**
+- **3.6 Extract & Interpolation**
+- **3.7 Resiliência (Recovery Policy)**
+- **3.8 Invariantes da UTDL**
+- **3.9 Exemplo Completo**
 
-- _Este é o capítulo mais importante. Se isso estiver errado, nada funciona._
+### 4. Detalhamento de Componentes: The Brain (Python)
+- **4.1 Responsabilidades Principais**
+- **4.2 Stack Tecnológica**
+- **4.3 Pipeline Interno**
+- **4.4 Estratégia de Prompt**
+- **4.5 Componente de Validação**
+- **4.6 Integração com o Runner**
+- **4.7 Invariantes do Brain**
+- **4.8 Gerenciamento de Erros da LLM**
+- **4.9 Caching e Versionamento**
+- **4.10 Segurança**
+- **4.11 Interface Formal do Brain**
+- **4.12 Configuração Centralizada (BrainConfig)**
+- **4.13 Cache de Hash (PlanCache)**
+- **4.14 Validador UTDL Independente**
+- **4.15 Fluxo Dinâmico Completo**
+- **4.16 LLM Provider Strategy (Mock/Real Toggle)** ⭐ _Novo_
+- **4.17 Detecção Automática de Segurança** ⭐ _Novo_
+- **4.18 Geração de Casos Negativos** ⭐ _Novo_
+- **4.19 Interface de Linha de Comando (CLI)** ⭐ _Novo_
 
-- **Estrutura do JSON:** Definição dos campos raiz (`meta`, `config`, `steps`).
+### 5. Detalhamento de Componentes: The Runner (Rust)
+- **5.1 Stack Tecnológica**
+- **5.2 Modelo de Concorrência**
+- **5.3 Arquitetura Interna**
+- **5.4 O Padrão StepExecutor**
+- **5.5 Gerenciamento de Estado (Context)**
+- **5.6 Limites de Execução (Rate Limiting)**
+- **5.7 Pipeline de Execução**
+- **5.8 Telemetria e Logs**
+- **5.9 Políticas de Erro**
+- **5.10 Invariantes do Runner**
+- **5.11 Justificativa da Escolha de Rust**
+- **5.12 Futuro: Executor UI**
 
-- **Step Definitions:** Schema para cada tipo de ação (`http_request`, `wait`, `assert`).
+### 6. Fluxos de Dados (Sequence Diagrams)
+- **6.1 Fluxo 1: Geração do Plano**
+- **6.2 Fluxo 2: Execução e Telemetria**
+- **6.3 Fluxo 3: Retry & Self-Healing**
+- **6.4 Fluxo 4: Erro Fatal**
+- **6.5 Invariantes dos Fluxos**
+- **6.6 Pontos de Integração**
+- **6.7 Impacto para Engenharia**
 
-- **State Management:** Como passar variáveis de um passo para outro (Output Extraction).
+### 7. Estrutura do Repositório (Monorepo)
+- **7.1 Árvore de Diretórios** _(atualizada)_
+- **7.2 Stack Tecnológica**
+- **7.3 Workflow de Desenvolvimento**
+- **7.4 Políticas de Versionamento**
+- **7.5 Políticas de Build & Release**
+- **7.6 Regras de Integração**
+- **7.7 Reprodutibilidade**
 
-- **Exemplo Completo:** Um JSON real de um teste de login.
+### 8. Segurança e Modelo de Ameaças
+- **8.1 Threat Model (STRIDE)**
+- **8.2 Superfície de Ataque**
+- **8.3 Tabela de Ameaças**
+- **8.4 Políticas de Segurança**
+- **8.5 Segurança de Segredos**
+- **8.6 Segurança de Telemetria**
+- **8.7 Fluxograma de Decisão**
+- **8.8 Invariantes de Segurança**
+- **8.9 Roadmap de Segurança**
 
- 4. Detalhamento de Componentes: The Brain (Python)
+### 9. Roadmap de Implementação
+- **Fase 0:** Preparação
+- **Fase 1:** The Engine First
+- **Fase 2:** The Brain & Integration
+- **Fase 3:** MVP Full
+- **Fase 4:** Pós-MVP
 
-- **Ingestion Pipeline:** Como transformamos texto/Swagger em prompt.
-
-- **LLM Integration:** Estratégia de prompts (System Prompts) e escolha de modelo.
-
-- **Validation Layer:** Como o Python garante que o JSON gerado pela IA é válido antes de enviar para o Rust.
-
-5. Detalhamento de Componentes: The Runner (Rust)
-
-- **Concurrency Model:** Como usar `Tokio` para rodar testes em paralelo.
-
-- **Execution Traits:** A interface interna (`Executor` trait) que permite plugar HTTP hoje e Browser amanhã.
-
-- **Telemetry Engine:** Como injetar OpenTelemetry em cada request.
-
- 6. Fluxos de Dados (Sequence Diagrams)
-
-- **Fluxo 1: Criação:** Requisito (Input) -> Brain -> UTDL (Output).
-
-- **Fluxo 2: Execução:** UTDL -> Runner -> HTTP Calls -> Result Aggregation.
-
-- **Fluxo 3: Self-Healing (MVP):** Falha -> Retry Policy -> Report.
-
- 7. Estrutura do Repositório (Monorepo)
-
-- Organização de pastas (`/brain`, `/runner`, `/shared-schemas`).
-
-- Stack Tecnológica detalhada (versões do Python, Rust, bibliotecas principais).
-
- 8. Roadmap Técnico
-
-- Fases de implementação:
-
-  - Fase 1: O "Hello World" (Python gera JSON estático, Rust executa).
-
-  - Fase 2: Conexão com LLM real.
-
-  - Fase 3: Integração CLI/Interface.
+---
 
 ## 1. Introdução e Escopo
 
@@ -1180,12 +1203,13 @@ class BrainConfig(BaseModel):
     cache_enabled: bool = True       # Usa cache de hash
     cache_dir: str = ".brain_cache"  # Diretório do cache
     strict_validation: bool = False  # Warnings viram erros
+    llm_mode: str = "real"           # Modo do provider: "mock" ou "real"
 ```
 
 **Fontes de configuração (em ordem de prioridade):**
 
 1. Parâmetros passados diretamente
-2. Variáveis de ambiente (`BRAIN_MODEL`, `BRAIN_VERBOSE`, etc.)
+2. Variáveis de ambiente (`BRAIN_MODEL`, `BRAIN_VERBOSE`, `AQA_LLM_MODE`, etc.)
 3. Valores padrão
 
 ---
@@ -1279,6 +1303,397 @@ Validation Guard (Pydantic)
 2. **Self-Correction:** O loop de re-prompting (item 4.3) resolve 80% dos erros comuns de geração de JSON das IAs.
 
 3. **Modularidade:** Se amanhã quisermos trocar o GPT-5 pelo Llama-3 rodando local, mudamos apenas a classe `LLMInterface`, o resto do pipeline de validação se mantém.
+
+---
+
+### **4.16 LLM Provider Strategy (Padrão de Abstração)**
+
+O Brain implementa o padrão **Strategy** para provedores de LLM, permitindo alternar entre IA real e mock de forma transparente.
+
+**Arquivos:**
+- `brain/src/llm/base.py` — Interface abstrata
+- `brain/src/llm/provider_mock.py` — Provider mock determinístico
+- `brain/src/llm/provider_real.py` — Provider com LLMs reais
+- `brain/src/llm/providers.py` — Factory function
+
+#### Diagrama de Classes
+
+```mermaid
+classDiagram
+    class BaseLLMProvider {
+        <<abstract>>
+        +name: str
+        +generate(prompt: str) LLMResponse
+        +is_available() bool
+    }
+    
+    class MockLLMProvider {
+        +name = "mock"
+        +latency_ms: int
+        +generate(prompt: str) LLMResponse
+    }
+    
+    class RealLLMProvider {
+        +name = "real"
+        +fallback_chain: list
+        +generate(prompt: str) LLMResponse
+    }
+    
+    class LLMResponse {
+        +content: str
+        +model: str
+        +tokens_used: int
+        +latency_ms: float
+        +is_mock: bool
+    }
+    
+    BaseLLMProvider <|-- MockLLMProvider
+    BaseLLMProvider <|-- RealLLMProvider
+    BaseLLMProvider ..> LLMResponse
+```
+
+#### Modos de Operação
+
+| Modo   | Uso                          | Custo | Velocidade | Determinístico |
+|--------|------------------------------|-------|------------|----------------|
+| `real` | Produção, testes manuais     | $$$   | Lento      | ❌              |
+| `mock` | CI/CD, testes automatizados  | $0    | Instantâneo| ✅              |
+
+#### MockLLMProvider — Templates Determinísticos
+
+O mock provider retorna planos UTDL válidos baseados em palavras-chave:
+
+| Palavra-chave | Template Retornado |
+|---------------|--------------------|
+| `login`, `auth` | Plano de autenticação com extração de token |
+| `crud`, `create`, `update` | Plano CRUD com 4 steps encadeados |
+| `health`, `status` | Plano simples de health check |
+| _(outros)_ | Template genérico |
+
+**Exemplo de uso:**
+
+```python
+from brain.src.llm import get_llm_provider, MockLLMProvider
+
+# Via factory (respeita AQA_LLM_MODE)
+provider = get_llm_provider(mode="mock")
+
+# Geração determinística
+response = provider.generate("teste de login na API")
+plan = json.loads(response.content)
+
+# Sempre retorna o mesmo resultado para o mesmo prompt
+assert response.is_mock == True
+assert response.tokens_used == 0
+```
+
+#### RealLLMProvider — Fallback Chain
+
+O provider real implementa uma cadeia de fallback:
+
+```
+OpenAI (gpt-4) → xAI (grok-beta) → Anthropic (claude-3)
+```
+
+Se um provider falhar (rate limit, API down), o próximo é tentado automaticamente.
+
+#### Mecanismos de Ativação
+
+**1. Variável de ambiente:**
+```bash
+AQA_LLM_MODE=mock aqa plan --input "login"
+```
+
+**2. Flag no CLI:**
+```bash
+aqa plan --input "login" --llm-mode mock
+aqa generate --input "crud" --llm-mode real
+```
+
+**3. Arquivo de configuração (aqa.yaml):**
+```yaml
+llm:
+  mode: mock
+```
+
+**4. Programaticamente:**
+```python
+provider = get_llm_provider(mode="mock")
+# ou
+config = {"llm": {"mode": "mock"}}
+provider = get_llm_provider(config=config)
+```
+
+#### Invariantes do Provider
+
+1. **Contrato estável**: Todos os providers retornam `LLMResponse`
+2. **UTDL válido**: Mock sempre retorna JSON válido pelo schema
+3. **Isolamento**: Falha em um provider não afeta outros
+4. **Transparência**: `response.is_mock` indica se veio do mock
+5. **Custo zero em CI**: Mock não faz chamadas HTTP
+
+---
+
+### **4.17 Detecção Automática de Segurança (Security Detection)**
+
+O Brain analisa especificações OpenAPI e detecta esquemas de segurança automaticamente, gerando steps de autenticação quando necessário.
+
+**Arquivo:** `brain/src/ingestion/security.py`
+
+#### Tipos de Segurança Suportados
+
+| Tipo | Descrição | Geração Automática |
+|------|-----------|-------------------|
+| `apiKey` | Chave fixa no header/query | Injeta header com `${ENV_API_KEY}` |
+| `http_bearer` | Token JWT no Authorization | Gera step de login + extração |
+| `http_basic` | Username/password em base64 | Gera header com `${base64:user:pass}` |
+| `oauth2_client_credentials` | Client ID + Secret | Gera step de token endpoint |
+| `oauth2_password` | Username + Password flow | Gera step de login |
+| `openIdConnect` | OIDC Discovery | Busca token_endpoint e gera step |
+
+#### Fluxo de Detecção
+
+```mermaid
+flowchart TD
+    A[OpenAPI Spec] --> B{Tem securitySchemes?}
+    B -- Não --> C[Sem autenticação]
+    B -- Sim --> D[Detectar tipo]
+    D --> E{Qual tipo?}
+    E -- apiKey --> F[Gerar header fixo]
+    E -- bearer --> G[Gerar step login]
+    E -- oauth2 --> H[Gerar step token]
+    F --> I[Injetar em todos os steps]
+    G --> I
+    H --> I
+```
+
+#### Exemplo de Detecção
+
+**Input (OpenAPI):**
+```yaml
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+security:
+  - bearerAuth: []
+```
+
+**Output (UTDL gerado):**
+```json
+{
+  "steps": [
+    {
+      "id": "auth_login",
+      "action": "http_request",
+      "params": {
+        "method": "POST",
+        "path": "/auth/login",
+        "body": {
+          "username": "${env:API_USERNAME}",
+          "password": "${env:API_PASSWORD}"
+        }
+      },
+      "extract": [
+        { "source": "body", "path": "token", "target": "auth_token" }
+      ]
+    },
+    {
+      "id": "get_users",
+      "depends_on": ["auth_login"],
+      "params": {
+        "headers": {
+          "Authorization": "Bearer ${auth_token}"
+        }
+      }
+    }
+  ]
+}
+```
+
+---
+
+### **4.18 Geração Automática de Casos Negativos**
+
+O Brain gera casos de teste negativos automaticamente para validar comportamentos de erro da API.
+
+**Arquivo:** `brain/src/ingestion/negative_cases.py`
+
+#### Tipos de Casos Negativos
+
+| Tipo | Descrição | Status Esperado |
+|------|-----------|-----------------|
+| `missing_required` | Remove campo obrigatório | 400, 422 |
+| `invalid_type` | Envia tipo errado (string → number) | 400, 422 |
+| `string_too_long` | Ultrapassa maxLength | 400, 422 |
+| `string_too_short` | Abaixo de minLength | 400, 422 |
+| `number_too_large` | Ultrapassa maximum | 400, 422 |
+| `number_too_small` | Abaixo de minimum | 400, 422 |
+| `invalid_format` | Email inválido, UUID malformado | 400, 422 |
+| `invalid_enum` | Valor fora do enum | 400, 422 |
+| `empty_value` | String vazia, array vazio | 400, 422 |
+
+#### Exemplo de Geração
+
+**Input (OpenAPI schema):**
+```yaml
+requestBody:
+  content:
+    application/json:
+      schema:
+        type: object
+        required: [email, age]
+        properties:
+          email:
+            type: string
+            format: email
+          age:
+            type: integer
+            minimum: 18
+            maximum: 120
+```
+
+**Output (steps negativos gerados):**
+```json
+[
+  {
+    "id": "neg_missing_email",
+    "description": "Campo obrigatório 'email' ausente",
+    "params": { "body": { "age": 25 } },
+    "assertions": [{ "type": "status_code", "operator": "eq", "value": 422 }]
+  },
+  {
+    "id": "neg_invalid_email_format",
+    "description": "Email com formato inválido",
+    "params": { "body": { "email": "not-an-email", "age": 25 } },
+    "assertions": [{ "type": "status_code", "operator": "eq", "value": 422 }]
+  },
+  {
+    "id": "neg_age_below_minimum",
+    "description": "Idade abaixo do mínimo (18)",
+    "params": { "body": { "email": "test@test.com", "age": 10 } },
+    "assertions": [{ "type": "status_code", "operator": "eq", "value": 422 }]
+  }
+]
+```
+
+---
+
+### **4.19 Interface de Linha de Comando (CLI)**
+
+O Brain expõe uma CLI unificada via comando `aqa` com subcomandos especializados.
+
+**Arquivo:** `brain/src/cli/main.py`
+
+#### Arquitetura de Comandos
+
+```
+aqa (grupo principal)
+├── init      → Inicializa workspace .aqa/
+├── generate  → Gera plano UTDL usando LLM
+├── plan      → Alias para generate (compatibilidade)
+├── validate  → Valida sintaxe de um plano UTDL
+├── run       → Executa plano via Runner
+├── explain   → Explica um plano em linguagem natural
+└── demo      → Demonstração interativa
+```
+
+#### Flags Globais
+
+| Flag | Descrição |
+|------|-----------|
+| `--verbose / -v` | Modo verbose (logs detalhados) |
+| `--quiet / -q` | Modo silencioso (só erros) |
+| `--json` | Saída estruturada JSON (para CI/CD) |
+| `--llm-mode` | Força modo do provider (`mock` ou `real`) |
+
+#### Comandos Detalhados
+
+**`aqa init`** — Inicializa workspace
+```bash
+aqa init
+# Cria estrutura:
+# .aqa/
+# ├── config.yaml    # Configurações
+# ├── plans/         # Planos gerados
+# └── reports/       # Relatórios de execução
+```
+
+**`aqa generate`** — Gera plano UTDL
+```bash
+# Via texto natural
+aqa generate --input "Testar login com usuário admin"
+
+# Via Swagger/OpenAPI
+aqa generate --swagger ./openapi.yaml
+
+# Com modo mock (CI/CD)
+aqa generate --input "health check" --llm-mode mock
+
+# Salvar em arquivo específico
+aqa generate --input "crud users" --output plan.json
+```
+
+**`aqa validate`** — Valida plano UTDL
+```bash
+aqa validate plan.json
+
+# Output esperado:
+# ✓ Plano válido
+# - Versão: 0.1
+# - Steps: 5
+# - Dependências: OK
+# - Ciclos: Nenhum
+```
+
+**`aqa run`** — Executa plano
+```bash
+# Executar plano existente
+aqa run plan.json
+
+# Gerar + executar em um comando
+aqa run --input "testar API de usuários"
+
+# Com limites customizados
+aqa run plan.json --max-steps 50 --timeout 120
+```
+
+**`aqa explain`** — Explica plano
+```bash
+aqa explain plan.json
+
+# Output:
+# 📋 Plano: "Teste de Autenticação"
+# 
+# Este plano executa 3 passos:
+# 1. [login] POST /auth/login → Obtém token JWT
+# 2. [get_profile] GET /users/me → Busca perfil (usa token)
+# 3. [logout] POST /auth/logout → Encerra sessão
+```
+
+**`aqa demo`** — Demonstração
+```bash
+aqa demo
+# Executa demonstração interativa com exemplos prontos
+```
+
+#### Saída JSON para CI/CD
+
+Quando `--json` é usado, toda saída é estruturada:
+
+```json
+{
+  "success": true,
+  "command": "validate",
+  "result": {
+    "is_valid": true,
+    "spec_version": "0.1",
+    "steps_count": 5,
+    "warnings": []
+  }
+}
+```
 
 ---
 
@@ -2027,78 +2442,93 @@ nenhuma mudança no Brain ou Runner pode quebrar o contrato sem ser detectada.
 
 ---
 
-### 7.1 Árvore de Diretórios (Versão Final e Profissional)
+### 7.1 Árvore de Diretórios (Versão Atual)
 
 ```plaintext
 autonomous-quality-agent/
 │
 ├── .github/                     # CI/CD Workflows
-│   ├── ci_brain.yml            # Lint + Test (Python)
-│   ├── ci_runner.yml           # Build + Test (Rust)
-│   ├── validate_schema.yml     # Validação automática do UTDL
-│   └── release.yml             # Build de releases binários (Runner)
+│   └── workflows/
+│       └── ci.yml               # Pipeline unificado (Python + Rust + Lint)
 │
 ├── docs/                        # Documentação formal
-│   ├── TDD.md                   # Technical Design Document (este)
-│   ├── UTDL_SPEC.md             # Especificação completa do protocolo
-│   ├── CONTRIBUTING.md          # Regras de contribuição
-│   ├── CHANGELOG.md             # Versionamento semântico
-│   └── architecture/
-│       ├── c4_level1.md
-│       ├── c4_level2.md
-│       └── diagrams/            # PNG/SVG/Mermaid export
+│   ├── Technical Design Document (TDD).md  # Este documento
+│   ├── environment_variables.md # Variáveis de ambiente
+│   └── error_codes.md           # Códigos de erro do Runner
 │
 ├── schemas/                     # Fonte da verdade do protocolo
-│   ├── utdl_v0.1.json           # Schema principal
-│   ├── runner_report.schema.json # Schema do relatório de execução
-│   ├── utdl_v0.1.pydantic.py    # Models (gerado automaticamente)
-│   ├── examples/                # Casos reais para teste
-│   │   ├── login_flow.utdl.json
-│   │   └── regression_suite.utdl.json
-│   └── migrations/              # Mudanças entre versões do UTDL
+│   ├── utdl_v0.1.json           # Schema JSON principal
+│   └── examples/                # Casos reais para teste
+│       ├── login_flow.utdl.json
+│       └── regression_suite.utdl.json
 │
 ├── brain/                       # The Architect (Python)
-│   ├── pyproject.toml
+│   ├── pyproject.toml           # Configuração do projeto Python
 │   ├── src/
-│   │   ├── cache.py             # Cache de hash dos insumos
-│   │   ├── config.py            # Configuração centralizada (BrainConfig)
+│   │   ├── __init__.py
+│   │   ├── main.py              # Entry point
+│   │   ├── cache.py             # Cache de hash (PlanCache)
+│   │   ├── config.py            # BrainConfig centralizado
+│   │   ├── cli/                 # Interface de linha de comando
+│   │   │   ├── main.py          # Grupo principal `aqa`
+│   │   │   ├── utils.py         # Utilitários CLI
+│   │   │   └── commands/        # Subcomandos
+│   │   │       ├── init_cmd.py      # aqa init
+│   │   │       ├── generate_cmd.py  # aqa generate
+│   │   │       ├── plan_cmd.py      # aqa plan (alias)
+│   │   │       ├── validate_cmd.py  # aqa validate
+│   │   │       ├── run_cmd.py       # aqa run
+│   │   │       ├── explain_cmd.py   # aqa explain
+│   │   │       └── demo_cmd.py      # aqa demo
 │   │   ├── ingestion/           # Parsers e Normalizadores
-│   │   ├── context/             # RAG / Memory
-│   │   ├── llm/                 # Interfaces OpenAI/Claude/Llama
+│   │   │   ├── swagger.py       # Parser OpenAPI/Swagger
+│   │   │   ├── security.py      # Detecção de autenticação
+│   │   │   └── negative_cases.py # Geração de casos negativos
+│   │   ├── llm/                 # Providers de IA (Strategy Pattern)
+│   │   │   ├── base.py          # BaseLLMProvider abstrato
+│   │   │   ├── providers.py     # Factory get_llm_provider()
+│   │   │   ├── provider_mock.py # MockLLMProvider (determinístico)
+│   │   │   └── provider_real.py # RealLLMProvider (OpenAI/xAI/Anthropic)
 │   │   ├── generator/           # Construção do UTDL
-│   │   └── validator/           # Pydantic Models + UTDLValidator independente
-│   └── tests/
-│       ├── unit/
-│       └── integration/
+│   │   │   ├── llm.py           # Integração LLM para geração
+│   │   │   ├── prompts.py       # Templates de prompts
+│   │   │   └── providers.py     # Provedores de geração
+│   │   ├── validator/           # Validação UTDL
+│   │   │   ├── models.py        # Modelos Pydantic (Step, Plan, etc.)
+│   │   │   └── utdl_validator.py # UTDLValidator independente
+│   │   └── runner/              # Integração com Runner Rust
+│   └── tests/                   # Testes Python
+│       ├── test_cache.py
+│       ├── test_config.py
+│       ├── test_swagger.py
+│       ├── test_security.py
+│       ├── test_negative_cases.py
+│       ├── test_llm_providers.py
+│       ├── test_validator.py
+│       └── test_integration_brain_runner.py
 │
 ├── runner/                      # The Worker (Rust)
 │   ├── Cargo.toml
 │   ├── src/
-│   │   ├── main.rs              # CLI
-│   │   ├── protocol/            # Structs Serde
+│   │   ├── main.rs              # CLI entry point
+│   │   ├── protocol/            # Structs UTDL (Serde)
 │   │   ├── loader/              # Parser e carregador de planos
 │   │   ├── planner/             # DAG Builder
-│   │   ├── dispatcher/          # Scheduler de Steps
-│   │   ├── executors/           # HttpExecutor, WaitExecutor…
-│   │   ├── context/             # Variáveis, interpolação e funções mágicas
-│   │   ├── errors/              # Códigos de erro estruturados (E1xxx-E5xxx)
-│   │   ├── limits/              # Limites de execução (rate limiting)
-│   │   ├── validation/          # Validação de UTDL
+│   │   ├── executors/           # Implementações de ações
+│   │   │   ├── mod.rs
+│   │   │   ├── http.rs          # HttpExecutor
+│   │   │   └── wait.rs          # WaitExecutor
+│   │   ├── context/             # Variáveis e interpolação
+│   │   ├── errors/              # Códigos de erro (E1xxx-E5xxx)
+│   │   ├── limits/              # Rate limiting
+│   │   ├── validation/          # Validação estrutural
+│   │   ├── extractors/          # Extração de valores
 │   │   ├── retry/               # Políticas de retry
 │   │   └── telemetry/           # Tracing + OTEL
 │   └── tests/
-│       ├── unit/
-│       └── integration/
 │
-├── intelligence/                # Futuro (Julia/Python)
-│   └── README.md
-│
-├── sandbox/                     # Experimentação isolada
-│   ├── scratchpad.ipynb
-│   └── prototypes/
-│
-├── Makefile                     # Automação
-└── README.md                    # Documentação Dev
+├── Makefile                     # Automação de build/test
+└── README.md                    # Documentação principal
 ```
 
 ---
@@ -2107,31 +2537,25 @@ autonomous-quality-agent/
 
 #### **A. Brain (Python)**
 
-- Python 3.11
-
+- Python 3.11+
 - uv (preferido) ou Poetry
-
-- pydantic v2
-
-- litellm
-
-- prance / openapi-spec-validator
-
+- pydantic v2 (validação e modelos)
+- litellm (abstração multi-LLM)
+- openai (provider direto)
+- anthropic (fallback)
+- rich (CLI com formatação)
+- click (framework CLI)
+- prance / openapi-spec-validator (parser OpenAPI)
 - pytest + coverage
-
 - mypy strict
-
-- ruff
+- ruff (linter + formatter)
 
 #### **B. Runner (Rust)**
 
-- Rust stable
-
-- tokio
-
-- reqwest
-
-- serde / serde_json
+- Rust stable (edition 2021)
+- tokio (async runtime)
+- reqwest (HTTP client)
+- serde / serde_json (serialização)
 
 - tracing
 
@@ -2993,7 +3417,7 @@ Runner aceita e executa sem erro
 
 ---
 
-## **3.4 — Documentação e Demo Final (dia 6)**
+### **3.4 — Documentação e Demo Final (dia 6)**
 
 Tarefas obrigatórias
 
