@@ -1,9 +1,10 @@
-# Autonomous Quality Agent (MVP v1.0)
+# Autonomous Quality Agent
 
 [![CI](https://github.com/lipeamarok/autonomous-quality-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/lipeamarok/autonomous-quality-agent/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-0.3.0-green.svg)](https://github.com/lipeamarok/autonomous-quality-agent/releases)
 
 > **Transformando requisitos em testes executáveis com IA e Alta Performance.**
 
@@ -401,12 +402,15 @@ cd runner && cargo test
 
 ### Cobertura de Testes
 
-- **Python (Brain):** 58 testes
-- **Rust (Runner):** 93 testes
-- **Total:** 151 testes
+- **Python (Brain):** 186 testes
+- **Rust (Runner):** 95 testes
+- **Total:** 281 testes
 
 ---
 
 ## 📄 Licença
 
-Este projeto está licenciado sob a licença MIT - veja o arquivo [LICENSE](LICENSE) para detalhes.
+- **Versões < 1.0.0** (incluindo esta): [MIT License](LICENSE)
+- **Versões >= 1.0.0**: [Elastic License 2.0 (ELv2)](https://www.elastic.co/licensing/elastic-license)
+
+Veja o [CHANGELOG](CHANGELOG.md) para detalhes sobre cada versão.
