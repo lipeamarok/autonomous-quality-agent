@@ -3,12 +3,14 @@
 ## ÍNDICE
 
 ### 1. Introdução e Escopo
+
 - **1.1 Visão Geral:** O que estamos construindo em 1 parágrafo.
 - **1.2 Objetivos do MVP:** O que deve funcionar na v1.0 (API Testing, Ingestão de Requisitos).
 - **1.3 Fronteiras (Out of Scope):** O que **não** faremos agora (Vídeo, UI complexa).
 - **1.4 Glossário:** Definição de termos (Brain, Runner, UTDL, Test Plan).
 
 ### 2. Arquitetura de Alto Nível (C4 Model - Level 1 & 2)
+
 - **2.1 Diagrama de Contexto:** Como o sistema se conecta com o mundo.
 - **2.2 Diagrama de Containers:** A visão macro dos 3 grandes blocos.
 - **2.3 Descrição dos Componentes:**
@@ -18,6 +20,7 @@
   - 📜 **Contract (UTDL):** O protocolo de comunicação.
 
 ### 3. Especificação do Contrato: UTDL (The Core)
+
 - **3.1 Objetivo da Linguagem**
 - **3.2 Estrutura Raiz:** Campos (`meta`, `config`, `steps`).
 - **3.3 Definição de Passo (Step Object)**
@@ -29,6 +32,7 @@
 - **3.9 Exemplo Completo**
 
 ### 4. Detalhamento de Componentes: The Brain (Python)
+
 - **4.1 Responsabilidades Principais**
 - **4.2 Stack Tecnológica**
 - **4.3 Pipeline Interno**
@@ -50,6 +54,7 @@
 - **4.19 Interface de Linha de Comando (CLI)** ⭐ _Novo_
 
 ### 5. Detalhamento de Componentes: The Runner (Rust)
+
 - **5.1 Stack Tecnológica**
 - **5.2 Modelo de Concorrência**
 - **5.3 Arquitetura Interna**
@@ -64,6 +69,7 @@
 - **5.12 Futuro: Executor UI**
 
 ### 6. Fluxos de Dados (Sequence Diagrams)
+
 - **6.1 Fluxo 1: Geração do Plano**
 - **6.2 Fluxo 2: Execução e Telemetria**
 - **6.3 Fluxo 3: Retry & Self-Healing**
@@ -73,6 +79,7 @@
 - **6.7 Impacto para Engenharia**
 
 ### 7. Estrutura do Repositório (Monorepo)
+
 - **7.1 Árvore de Diretórios** _(atualizada)_
 - **7.2 Stack Tecnológica**
 - **7.3 Workflow de Desenvolvimento**
@@ -82,6 +89,7 @@
 - **7.7 Reprodutibilidade**
 
 ### 8. Segurança e Modelo de Ameaças
+
 - **8.1 Threat Model (STRIDE)**
 - **8.2 Superfície de Ataque**
 - **8.3 Tabela de Ameaças**
@@ -93,6 +101,7 @@
 - **8.9 Roadmap de Segurança**
 
 ### 9. Roadmap de Implementação
+
 - **Fase 0:** Preparação
 - **Fase 1:** The Engine First
 - **Fase 2:** The Brain & Integration
@@ -1326,19 +1335,19 @@ classDiagram
         +generate(prompt: str) LLMResponse
         +is_available() bool
     }
-    
+
     class MockLLMProvider {
         +name = "mock"
         +latency_ms: int
         +generate(prompt: str) LLMResponse
     }
-    
+
     class RealLLMProvider {
         +name = "real"
         +fallback_chain: list
         +generate(prompt: str) LLMResponse
     }
-    
+
     class LLMResponse {
         +content: str
         +model: str
@@ -1346,7 +1355,7 @@ classDiagram
         +latency_ms: float
         +is_mock: bool
     }
-    
+
     BaseLLMProvider <|-- MockLLMProvider
     BaseLLMProvider <|-- RealLLMProvider
     BaseLLMProvider ..> LLMResponse
@@ -1665,7 +1674,7 @@ aqa explain plan.json
 
 # Output:
 # 📋 Plano: "Teste de Autenticação"
-# 
+#
 # Este plano executa 3 passos:
 # 1. [login] POST /auth/login → Obtém token JWT
 # 2. [get_profile] GET /users/me → Busca perfil (usa token)

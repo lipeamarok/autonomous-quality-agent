@@ -199,8 +199,8 @@ def demo(ctx: click.Context, url: str | None, dry_run: bool, save: str | None) -
     # Se URL customizada foi fornecida, mostra aviso
     if url:
         if not quiet and not json_output:
-            console.print(f"[yellow]⚠️  URL customizada não implementada ainda.[/yellow]")
-            console.print(f"[yellow]   Usando plano demo padrão (httpbin.org)[/yellow]")
+            console.print("[yellow]⚠️  URL customizada não implementada ainda.[/yellow]")
+            console.print("[yellow]   Usando plano demo padrão (httpbin.org)[/yellow]")
             console.print()
 
     # Mostra o plano

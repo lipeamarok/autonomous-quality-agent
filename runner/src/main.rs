@@ -87,7 +87,7 @@ use context::Context;
 use executors::{http::HttpExecutor, wait::WaitExecutor, StepExecutor};
 use limits::ExecutionLimits;
 use planner::DagPlanner;
-use protocol::{ExecutionReport, Step, StepStatus};
+use protocol::{ExecutionReport, ExecutionSummary, Step, StepStatus};
 use telemetry::{init_telemetry, shutdown_telemetry, TelemetryConfig};
 
 // Imports externos (bibliotecas de terceiros)
@@ -396,11 +396,15 @@ async fn execute_plan(
     let all_passed = step_results.iter().all(|r| r.status == StepStatus::Passed);
 
     let end_time = Utc::now();
+    let duration_ms = (end_time - start_time).num_milliseconds() as u64;
+
     if !silent {
         info!("Execution finished");
     }
 
     // 5. Gera o relatório de execução.
+    let summary = ExecutionSummary::from_results(&step_results, duration_ms);
+
     let report = ExecutionReport {
         execution_id: execution_id.to_string(),
         plan_id: plan.meta.id.clone(),
@@ -411,6 +415,7 @@ async fn execute_plan(
         },
         start_time: start_time.to_rfc3339(),
         end_time: end_time.to_rfc3339(),
+        summary,
         steps: step_results,
     };
 

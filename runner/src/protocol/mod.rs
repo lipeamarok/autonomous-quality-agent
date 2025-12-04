@@ -495,6 +495,63 @@ pub struct ExecutionReport {
     /// Data/hora de fim em formato ISO8601.
     pub end_time: String,
 
+    /// Resumo estatístico da execução.
+    pub summary: ExecutionSummary,
+
     /// Resultados de cada step.
     pub steps: Vec<StepResult>,
+}
+
+/// Resumo estatístico da execução.
+///
+/// Contém contagens e métricas úteis para dashboards e CI/CD.
+#[derive(Debug, Serialize)]
+pub struct ExecutionSummary {
+    /// Total de steps no plano.
+    pub total_steps: usize,
+
+    /// Número de steps que passaram.
+    pub passed: usize,
+
+    /// Número de steps que falharam.
+    pub failed: usize,
+
+    /// Número de steps pulados (dependência falhou).
+    pub skipped: usize,
+
+    /// Número total de retries realizados.
+    pub total_retries: u32,
+
+    /// Duração total da execução em milissegundos.
+    pub duration_ms: u64,
+}
+
+impl ExecutionSummary {
+    /// Cria um summary a partir dos resultados dos steps.
+    pub fn from_results(results: &[StepResult], duration_ms: u64) -> Self {
+        let passed = results
+            .iter()
+            .filter(|r| r.status == StepStatus::Passed)
+            .count();
+        let failed = results
+            .iter()
+            .filter(|r| r.status == StepStatus::Failed)
+            .count();
+        let skipped = results
+            .iter()
+            .filter(|r| r.status == StepStatus::Skipped)
+            .count();
+
+        // TODO: Contar retries quando StepResult tiver esse campo
+        let total_retries = 0;
+
+        Self {
+            total_steps: results.len(),
+            passed,
+            failed,
+            skipped,
+            total_retries,
+            duration_ms,
+        }
+    }
 }

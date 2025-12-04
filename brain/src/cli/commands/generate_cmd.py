@@ -80,6 +80,16 @@ from ..utils import load_config, get_default_model
     default=None,
     help="Modo do LLM: 'real' (usa API) ou 'mock' (respostas de teste).",
 )
+@click.option(
+    "--include-negative", "-n",
+    is_flag=True,
+    help="Incluir casos de teste negativos (campos inválidos, tipos errados, etc.)"
+)
+@click.option(
+    "--include-auth", "-a",
+    is_flag=True,
+    help="Detectar e incluir step de autenticação automaticamente"
+)
 @click.pass_context
 def generate(
     ctx: click.Context,
@@ -90,6 +100,8 @@ def generate(
     output: str | None,
     interactive: bool,
     llm_mode: str | None,
+    include_negative: bool,
+    include_auth: bool,
 ) -> None:
     """
     Gera um plano de teste UTDL usando IA.
@@ -128,16 +140,23 @@ def generate(
     if swagger:
         console.print(f"📖 Parseando spec OpenAPI: [cyan]{swagger}[/cyan]")
         spec = parse_openapi(swagger)
+        original_spec = spec  # Guarda spec original para security detection
         requirement_text = spec_to_requirement_text(spec)
         # Usa base_url da spec se disponível
         if "base_url" in spec and spec["base_url"]:
             final_base_url = spec["base_url"]
     else:
+        spec = None
+        original_spec = None
         requirement_text = requirement  # type: ignore
 
     if verbose:
         console.print(f"[dim]Base URL: {final_base_url}[/dim]")
         console.print(f"[dim]Model: {final_model}[/dim]")
+        if include_negative:
+            console.print("[dim]Incluindo casos negativos[/dim]")
+        if include_auth:
+            console.print("[dim]Detectando autenticação[/dim]")
 
     # Gera plano com progress spinner
     with Progress(
@@ -166,6 +185,34 @@ def generate(
             if verbose:
                 console.print_exception()
             raise SystemExit(1)
+
+    # Aplica casos negativos se solicitado
+    if include_negative and spec:
+        from ...ingestion.negative_cases import generate_negative_cases, negative_cases_to_utdl_steps
+        console.print("[cyan]🔍 Gerando casos negativos...[/cyan]")
+        neg_result = generate_negative_cases(spec, max_cases_per_field=2)
+        negative_steps = negative_cases_to_utdl_steps(neg_result.cases)
+        # Adiciona ao plano existente
+        for i, neg_step in enumerate(negative_steps):
+            neg_step["id"] = f"neg-{i + 1:03d}"
+        # Converter para Step objects e adicionar
+        from ...validator.models import Step
+        for neg_step in negative_steps:
+            plan.steps.append(Step(**neg_step))
+        console.print(f"[green]  ✓ {len(negative_steps)} casos negativos adicionados[/green]")
+
+    # Aplica autenticação se solicitado
+    if include_auth and original_spec:
+        from ...ingestion.security import detect_security
+        console.print("[cyan]🔐 Detectando esquemas de segurança...[/cyan]")
+        security_analysis = detect_security(original_spec)
+        if security_analysis.has_security:
+            console.print(f"[green]  ✓ Segurança detectada: {security_analysis.primary_scheme.security_type.value if security_analysis.primary_scheme else 'unknown'}[/green]")
+            # Nota: create_authenticated_plan_steps espera dicts, não objetos
+            # Por simplicidade, apenas logamos; integração completa requer refatoração
+            console.print("[yellow]  ⚠ Autenticação detectada. Use 'aqa plan' para integração completa.[/yellow]")
+        else:
+            console.print("[dim]  Nenhum esquema de segurança detectado[/dim]")
 
     # Output do plano
     json_output = plan.to_json()

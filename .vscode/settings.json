@@ -5,6 +5,7 @@
 
     // Markdownlint - regras desabilitadas (preferência pessoal)
     "markdownlint.config": {
+        "MD022":false,
         "MD024": false,
         "MD029": false,
         "MD031": false,

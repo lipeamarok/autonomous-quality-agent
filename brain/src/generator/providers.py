@@ -146,7 +146,7 @@ class AllProvidersFailedError(LLMProviderError):
         self.errors = errors
         messages = [f"{name}: {error}" for name, error in errors.items()]
         super().__init__(
-            f"Todos os provedores de LLM falharam:\n" + "\n".join(messages)
+            "Todos os provedores de LLM falharam:\n" + "\n".join(messages)
         )
 
 
