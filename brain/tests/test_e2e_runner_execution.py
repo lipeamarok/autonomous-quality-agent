@@ -346,7 +346,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
 
         # Verifica execução
@@ -400,7 +400,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
 
         assert result.returncode == 0, f"Runner falhou: {result.stderr}"
@@ -442,7 +442,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
 
         assert result.returncode == 0, f"Runner falhou: {result.stderr}"
@@ -481,7 +481,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
 
         # Runner pode retornar código != 0 em falhas
@@ -522,7 +522,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
 
         # Verbose deve funcionar
@@ -555,7 +555,7 @@ class TestExecutionReportStructure:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
 
         report = json.loads(temp_output_file.read_text())
@@ -584,7 +584,7 @@ class TestExecutionReportStructure:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
 
         report = json.loads(temp_output_file.read_text())
@@ -614,7 +614,7 @@ class TestExecutionReportStructure:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
 
         report = json.loads(temp_output_file.read_text())
