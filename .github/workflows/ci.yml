@@ -132,7 +132,21 @@ jobs:
       - name: Test validate command
         working-directory: brain
         run: |
-          echo '{"meta":{"name":"test","version":"1.0"},"config":{"base_url":"http://example.com"},"steps":[]}' > test-plan.json
+          cat > test-plan.json << 'EOF'
+          {
+            "meta": {"name": "test", "version": "1.0"},
+            "config": {"base_url": "http://example.com"},
+            "steps": [
+              {
+                "id": "health_check",
+                "action": "http",
+                "method": "GET",
+                "path": "/health",
+                "expect": {"status": 200}
+              }
+            ]
+          }
+          EOF
           aqa validate test-plan.json
 
   # =============================================================================
