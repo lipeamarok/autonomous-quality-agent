@@ -40,8 +40,8 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
 use crate::protocol::{Plan, Step};
+use std::collections::HashMap;
 use thiserror::Error;
 
 // ============================================================================
@@ -357,7 +357,12 @@ fn validate_http_request_params(step: &Step, errors: &mut Vec<ValidationError>) 
 fn validate_wait_params(step: &Step, errors: &mut Vec<ValidationError>) {
     // Verifica se duration_ms existe e é um número.
     // `.as_u64()` tenta converter para número inteiro sem sinal.
-    if step.params.get("duration_ms").and_then(|v| v.as_u64()).is_none() {
+    if step
+        .params
+        .get("duration_ms")
+        .and_then(|v| v.as_u64())
+        .is_none()
+    {
         errors.push(ValidationError::MissingParam {
             step_id: step.id.clone(),
             param: "duration_ms".to_string(),
@@ -477,7 +482,7 @@ fn detect_cycle_dfs<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Meta, Config, Step};
+    use crate::protocol::{Config, Meta, Step};
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -517,9 +522,7 @@ mod tests {
 
     #[test]
     fn test_valid_plan() {
-        let plan = create_test_plan(vec![
-            create_http_step("step1", "GET", "/api/test"),
-        ]);
+        let plan = create_test_plan(vec![create_http_step("step1", "GET", "/api/test")]);
         assert!(validate_plan(&plan).is_ok());
     }
 
@@ -548,7 +551,9 @@ mod tests {
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(matches!(&errors[0], ValidationError::UnknownAction { action, .. } if action == "browser_click"));
+        assert!(
+            matches!(&errors[0], ValidationError::UnknownAction { action, .. } if action == "browser_click")
+        );
     }
 
     #[test]
@@ -586,7 +591,9 @@ mod tests {
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(matches!(&errors[0], ValidationError::UnknownDependency { dep, .. } if dep == "nonexistent"));
+        assert!(
+            matches!(&errors[0], ValidationError::UnknownDependency { dep, .. } if dep == "nonexistent")
+        );
     }
 
     #[test]
@@ -605,19 +612,22 @@ mod tests {
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(matches!(&errors[0], ValidationError::CircularDependency { .. }));
+        assert!(matches!(
+            &errors[0],
+            ValidationError::CircularDependency { .. }
+        ));
     }
 
     #[test]
     fn test_invalid_http_method() {
-        let plan = create_test_plan(vec![
-            create_http_step("step1", "INVALID", "/api/test"),
-        ]);
+        let plan = create_test_plan(vec![create_http_step("step1", "INVALID", "/api/test")]);
 
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(matches!(&errors[0], ValidationError::InvalidHttpMethod { method, .. } if method == "INVALID"));
+        assert!(
+            matches!(&errors[0], ValidationError::InvalidHttpMethod { method, .. } if method == "INVALID")
+        );
     }
 
     #[test]
@@ -636,7 +646,9 @@ mod tests {
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(matches!(&errors[0], ValidationError::MissingParam { param, .. } if param == "duration_ms"));
+        assert!(
+            matches!(&errors[0], ValidationError::MissingParam { param, .. } if param == "duration_ms")
+        );
     }
 
     #[test]
@@ -719,7 +731,9 @@ mod tests {
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::CircularDependency { .. })));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, ValidationError::CircularDependency { .. })));
     }
 
     #[test]
@@ -761,7 +775,9 @@ mod tests {
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::CircularDependency { .. })));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, ValidationError::CircularDependency { .. })));
     }
 
     #[test]
@@ -870,6 +886,8 @@ mod tests {
         let result = validate_plan(&plan);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::CircularDependency { .. })));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, ValidationError::CircularDependency { .. })));
     }
 }

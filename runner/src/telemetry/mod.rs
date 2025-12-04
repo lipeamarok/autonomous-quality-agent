@@ -123,8 +123,8 @@ impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
             service_name: "autonomous-quality-agent-runner".to_string(),
-            otlp_endpoint: None,       // Sem OTLP por padrão
-            sampling_ratio: 1.0,       // 100% por padrão
+            otlp_endpoint: None, // Sem OTLP por padrão
+            sampling_ratio: 1.0, // 100% por padrão
             enable_console_logging: true,
             log_level: Level::INFO,
         }
@@ -275,9 +275,9 @@ fn init_otlp_tracer(
 ) -> anyhow::Result<Tracer> {
     // Configura o sampler baseado na taxa.
     let sampler = if sampling_ratio >= 1.0 {
-        Sampler::AlwaysOn      // 100%: sempre coleta
+        Sampler::AlwaysOn // 100%: sempre coleta
     } else if sampling_ratio <= 0.0 {
-        Sampler::AlwaysOff     // 0%: nunca coleta
+        Sampler::AlwaysOff // 0%: nunca coleta
     } else {
         // Entre 0 e 1: coleta baseado no trace ID.
         // Isso garante que traces relacionados são coletados juntos.
@@ -289,10 +289,10 @@ fn init_otlp_tracer(
     let tracer_provider = TracerProvider::builder()
         .with_batch_exporter(
             opentelemetry_otlp::new_exporter()
-                .tonic()                          // Usa gRPC (protocolo binário)
-                .with_endpoint(endpoint)          // URL do coletor
-                .build_span_exporter()?,          // Cria o exporter
-            Tokio,                                // Usa runtime Tokio
+                .tonic() // Usa gRPC (protocolo binário)
+                .with_endpoint(endpoint) // URL do coletor
+                .build_span_exporter()?, // Cria o exporter
+            Tokio, // Usa runtime Tokio
         )
         .with_config(
             sdktrace::Config::default()
@@ -457,7 +457,9 @@ mod tests {
 
         let attrs = ctx.attributes();
 
-        assert!(attrs.iter().any(|(k, v)| *k == "http.method" && v == "POST"));
+        assert!(attrs
+            .iter()
+            .any(|(k, v)| *k == "http.method" && v == "POST"));
         assert!(attrs
             .iter()
             .any(|(k, v)| *k == "http.target" && v == "/api/orders"));

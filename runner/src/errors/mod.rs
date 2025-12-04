@@ -62,6 +62,7 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ErrorCode(u16);
 
+#[allow(dead_code)]
 impl ErrorCode {
     // ========================================================================
     // E1xxx: Validação/Parsing
@@ -329,6 +330,9 @@ impl fmt::Display for ErrorCode {
 /// Categoria de erro baseada no primeiro dígito do código.
 ///
 /// Útil para agrupar erros em relatórios ou dashboards.
+///
+/// NOTA: Enum preparado para uso futuro em relatórios estruturados.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCategory {
     /// Erros de validação/parsing (E1xxx).
@@ -371,6 +375,8 @@ impl fmt::Display for ErrorCategory {
 }
 
 /// Erro estruturado com código, mensagem e contexto.
+/// API pública para reporting avançado.
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct StructuredError {
     /// Código do erro.
@@ -382,6 +388,8 @@ pub struct StructuredError {
 }
 
 /// Contexto adicional do erro.
+/// API pública para contexto de erros.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ErrorContext {
     /// ID do step onde ocorreu o erro.
@@ -394,6 +402,7 @@ pub struct ErrorContext {
     pub actual: Option<String>,
 }
 
+#[allow(dead_code)]
 impl StructuredError {
     /// Cria um novo erro estruturado.
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
@@ -463,10 +472,22 @@ mod tests {
     #[test]
     fn test_error_code_category() {
         assert_eq!(ErrorCode::EMPTY_PLAN.category(), ErrorCategory::Validation);
-        assert_eq!(ErrorCode::HTTP_TIMEOUT.category(), ErrorCategory::HttpExecution);
-        assert_eq!(ErrorCode::ASSERTION_LATENCY.category(), ErrorCategory::Assertion);
-        assert_eq!(ErrorCode::ENV_VAR_NOT_FOUND.category(), ErrorCategory::Configuration);
-        assert_eq!(ErrorCode::INTERNAL_ERROR.category(), ErrorCategory::Internal);
+        assert_eq!(
+            ErrorCode::HTTP_TIMEOUT.category(),
+            ErrorCategory::HttpExecution
+        );
+        assert_eq!(
+            ErrorCode::ASSERTION_LATENCY.category(),
+            ErrorCategory::Assertion
+        );
+        assert_eq!(
+            ErrorCode::ENV_VAR_NOT_FOUND.category(),
+            ErrorCategory::Configuration
+        );
+        assert_eq!(
+            ErrorCode::INTERNAL_ERROR.category(),
+            ErrorCategory::Internal
+        );
     }
 
     #[test]

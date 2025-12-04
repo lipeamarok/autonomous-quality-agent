@@ -1,5 +1,10 @@
 # Autonomous Quality Agent (MVP v1.0)
 
+[![CI](https://github.com/lipeamarok/autonomous-quality-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/lipeamarok/autonomous-quality-agent/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 > **Transformando requisitos em testes executáveis com IA e Alta Performance.**
 
 O **Autonomous Quality Agent** é uma plataforma de engenharia de qualidade que atua como um agente inteligente. Ele ingere documentação técnica (Swagger, Texto), planeja cenários de teste usando LLMs (The Brain) e os executa com performance nativa e concorrência extrema (The Runner).

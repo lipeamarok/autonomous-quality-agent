@@ -46,8 +46,8 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::extractors::ExtractionResult;
 
@@ -113,14 +113,14 @@ pub struct Meta {
     /// Descrição opcional do plano.
     ///
     /// Pode conter detalhes sobre o que o teste valida.
-    #[serde(default)]  // Se não existir no JSON, usa None
+    #[serde(default)] // Se não existir no JSON, usa None
     pub description: Option<String>,
 
     /// Tags para categorização.
     ///
     /// Ex: ["api", "auth", "critical", "regression"]
     /// Útil para filtrar quais testes executar.
-    #[serde(default)]  // Se não existir, usa vetor vazio
+    #[serde(default)] // Se não existir, usa vetor vazio
     pub tags: Vec<String>,
 
     /// Data/hora de criação em formato ISO8601.
@@ -282,7 +282,7 @@ pub struct Assertion {
     /// Tipo de assertion.
     ///
     /// Valores: "status_code", "json_body", "header", "latency"
-    #[serde(rename = "type")]  // No JSON é "type", mas em Rust "type" é palavra reservada
+    #[serde(rename = "type")] // No JSON é "type", mas em Rust "type" é palavra reservada
     pub assertion_type: String,
 
     /// Operador de comparação.
@@ -457,7 +457,7 @@ pub struct StepResult {
 
 /// Status possíveis de um step após execução.
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
-#[serde(rename_all = "lowercase")]  // Serializa como "passed", "failed", "skipped"
+#[serde(rename_all = "lowercase")] // Serializa como "passed", "failed", "skipped"
 pub enum StepStatus {
     /// Step executou com sucesso e todas as assertions passaram.
     Passed,

@@ -45,10 +45,10 @@ pub mod http;
 pub mod wait;
 
 // Imports necessários para o trait.
-use async_trait::async_trait;
-use crate::protocol::{Step, StepResult};
 use crate::context::Context;
+use crate::protocol::{Step, StepResult};
 use anyhow::Result;
+use async_trait::async_trait;
 
 // ============================================================================
 // TRAIT STEP EXECUTOR

@@ -1,0 +1,197 @@
+{
+  "meta": {
+    "name": "Login Flow - Complete Authentication Test",
+    "description": "Demonstrates a complete login flow with token extraction and authenticated requests",
+    "version": "1.0.0",
+    "tags": ["auth", "login", "jwt", "example"]
+  },
+  "config": {
+    "base_url": "https://httpbin.org",
+    "timeout_ms": 30000,
+    "default_headers": {
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "retry": {
+      "max_attempts": 3,
+      "backoff_ms": 1000,
+      "exponential": true
+    }
+  },
+  "steps": [
+    {
+      "id": "login",
+      "name": "User Login - Obtain JWT Token",
+      "description": "Simulates a login request and extracts the JWT token from response",
+      "action": {
+        "type": "http",
+        "method": "POST",
+        "endpoint": "/post",
+        "headers": {
+          "X-Request-Type": "login"
+        },
+        "body": {
+          "username": "testuser@example.com",
+          "password": "SecureP@ss123!",
+          "remember_me": true
+        }
+      },
+      "expected": {
+        "status_code": 200
+      },
+      "extract": [
+        {
+          "name": "request_data",
+          "from": "body",
+          "path": "$.json",
+          "description": "Full request payload echoed back"
+        },
+        {
+          "name": "login_timestamp",
+          "from": "body",
+          "path": "$.headers.Date",
+          "description": "Server timestamp of login"
+        }
+      ],
+      "on_failure": {
+        "action": "abort",
+        "message": "Login failed - cannot continue without authentication"
+      }
+    },
+    {
+      "id": "simulate-token",
+      "name": "Generate Simulated JWT Token",
+      "description": "Uses magic function to create a simulated token for demo purposes",
+      "action": {
+        "type": "http",
+        "method": "POST",
+        "endpoint": "/post",
+        "body": {
+          "action": "generate_token",
+          "user": "testuser@example.com",
+          "issued_at": "${timestamp}",
+          "token_id": "${uuid}"
+        }
+      },
+      "expected": {
+        "status_code": 200
+      },
+      "extract": [
+        {
+          "name": "auth_token",
+          "from": "body",
+          "path": "$.json.token_id",
+          "description": "Simulated auth token for subsequent requests"
+        }
+      ],
+      "depends_on": ["login"]
+    },
+    {
+      "id": "get-user-profile",
+      "name": "Get User Profile (Authenticated)",
+      "description": "Fetches user profile using the extracted token",
+      "action": {
+        "type": "http",
+        "method": "GET",
+        "endpoint": "/get",
+        "headers": {
+          "Authorization": "Bearer ${auth_token}",
+          "X-User-Agent": "AQA-Test-Runner"
+        },
+        "query": {
+          "include": "preferences,settings",
+          "format": "full"
+        }
+      },
+      "expected": {
+        "status_code": 200,
+        "assertions": [
+          {
+            "type": "json_body",
+            "path": "$.args.include",
+            "operator": "equals",
+            "value": "preferences,settings"
+          }
+        ]
+      },
+      "extract": [
+        {
+          "name": "profile_url",
+          "from": "body",
+          "path": "$.url",
+          "description": "Full URL of the profile request"
+        }
+      ],
+      "depends_on": ["simulate-token"]
+    },
+    {
+      "id": "update-preferences",
+      "name": "Update User Preferences (Authenticated)",
+      "description": "Updates user preferences with authentication",
+      "action": {
+        "type": "http",
+        "method": "PUT",
+        "endpoint": "/put",
+        "headers": {
+          "Authorization": "Bearer ${auth_token}"
+        },
+        "body": {
+          "preferences": {
+            "theme": "dark",
+            "language": "pt-BR",
+            "notifications": {
+              "email": true,
+              "push": false,
+              "sms": false
+            }
+          },
+          "updated_at": "${timestamp}"
+        }
+      },
+      "expected": {
+        "status_code": 200
+      },
+      "depends_on": ["get-user-profile"]
+    },
+    {
+      "id": "logout",
+      "name": "User Logout",
+      "description": "Invalidates the session token",
+      "action": {
+        "type": "http",
+        "method": "POST",
+        "endpoint": "/post",
+        "headers": {
+          "Authorization": "Bearer ${auth_token}"
+        },
+        "body": {
+          "action": "logout",
+          "token": "${auth_token}",
+          "logout_at": "${timestamp}"
+        }
+      },
+      "expected": {
+        "status_code": 200
+      },
+      "depends_on": ["update-preferences"]
+    },
+    {
+      "id": "verify-logged-out",
+      "name": "Verify Token is Invalid (Negative Test)",
+      "description": "Attempts to access protected resource after logout - should fail",
+      "action": {
+        "type": "http",
+        "method": "GET",
+        "endpoint": "/get",
+        "headers": {
+          "Authorization": "Bearer ${auth_token}"
+        }
+      },
+      "expected": {
+        "status_code": 200
+      },
+      "depends_on": ["logout"],
+      "tags": ["negative-test"]
+    }
+  ]
+}

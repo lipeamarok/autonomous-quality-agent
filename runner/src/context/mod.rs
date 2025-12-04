@@ -34,14 +34,14 @@
 //! | `${base64:text}` | Codifica texto em Base64           | `dGV4dA==`                 |
 //! | `${sha256:text}` | Hash SHA-256 do texto (hex)        | `9f86d081884c7d659a2f...`  |
 
-use std::collections::HashMap;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
-use sha2::{Sha256, Digest};
 use anyhow::{anyhow, Result};
-use chrono::{Utc, Local};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use chrono::{Local, Utc};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 // ============================================================================
@@ -67,9 +67,8 @@ use uuid::Uuid;
 /// - `${token}` → captura "token"
 /// - `${env:API_KEY}` → captura "env:API_KEY"
 /// - `${user.name}` → captura "user.name"
-static INTERPOLATION_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\$\{([A-Za-z0-9_.:-]+)\}").expect("valid interpolation regex")
-});
+static INTERPOLATION_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\$\{([A-Za-z0-9_.:-]+)\}").expect("valid interpolation regex"));
 
 // ============================================================================
 // ESTRUTURA CONTEXT
@@ -219,13 +218,13 @@ impl Context {
 
         // Itera sobre todos os matches da regex.
         for capture in INTERPOLATION_RE.captures_iter(input) {
-            let matched = capture.get(0).unwrap();  // O match completo (ex: "${token}")
+            let matched = capture.get(0).unwrap(); // O match completo (ex: "${token}")
 
             // Adiciona o texto antes do match.
             result.push_str(&input[last_index..matched.start()]);
 
             // Extrai o nome do token (grupo 1 da regex).
-            let token = capture.get(1).unwrap().as_str();  // Ex: "token"
+            let token = capture.get(1).unwrap().as_str(); // Ex: "token"
 
             // Resolve o token para seu valor.
             let resolved = self.resolve_token(token)?;
@@ -357,7 +356,9 @@ impl Context {
         // Útil para headers de autenticação Basic, payloads binários, etc.
         if let Some(text) = token.strip_prefix("base64:") {
             // Primeiro interpola o texto interno caso contenha variáveis
-            let interpolated = self.interpolate_str(text).unwrap_or_else(|_| text.to_string());
+            let interpolated = self
+                .interpolate_str(text)
+                .unwrap_or_else(|_| text.to_string());
             return Ok(BASE64_STANDARD.encode(interpolated.as_bytes()));
         }
 
@@ -369,7 +370,9 @@ impl Context {
         // Útil para checksums, validação de integridade, tokens de cache.
         if let Some(text) = token.strip_prefix("sha256:") {
             // Primeiro interpola o texto interno caso contenha variáveis
-            let interpolated = self.interpolate_str(text).unwrap_or_else(|_| text.to_string());
+            let interpolated = self
+                .interpolate_str(text)
+                .unwrap_or_else(|_| text.to_string());
             let mut hasher = Sha256::new();
             hasher.update(interpolated.as_bytes());
             let result = hasher.finalize();
@@ -477,7 +480,9 @@ mod tests {
     #[test]
     fn test_multiple_dynamic_vars() {
         let ctx = Context::new();
-        let result = ctx.interpolate_str("uuid=${random_uuid}&ts=${timestamp}").unwrap();
+        let result = ctx
+            .interpolate_str("uuid=${random_uuid}&ts=${timestamp}")
+            .unwrap();
 
         assert!(result.contains("uuid="));
         assert!(result.contains("&ts="));
@@ -489,7 +494,9 @@ mod tests {
         let mut ctx = Context::new();
         ctx.set("user", Value::String("john".to_string()));
 
-        let result = ctx.interpolate_str("user=${user}&session=${random_uuid}").unwrap();
+        let result = ctx
+            .interpolate_str("user=${user}&session=${random_uuid}")
+            .unwrap();
 
         assert!(result.starts_with("user=john&session="));
         assert!(!result.contains("${"));
@@ -551,11 +558,17 @@ mod tests {
 
         // Testa hash SHA-256 (verificado com ferramentas externas)
         let result = ctx.interpolate_str("${sha256:hello}").unwrap();
-        assert_eq!(result, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        assert_eq!(
+            result,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
 
         // Testa hash vazio
         let result = ctx.interpolate_str("${sha256:}").unwrap();
-        assert_eq!(result, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(
+            result,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     #[test]
@@ -563,7 +576,9 @@ mod tests {
         let ctx = Context::new();
 
         // Simula header de autenticação Basic
-        let result = ctx.interpolate_str("Basic ${base64:admin:secret123}").unwrap();
+        let result = ctx
+            .interpolate_str("Basic ${base64:admin:secret123}")
+            .unwrap();
         assert_eq!(result, "Basic YWRtaW46c2VjcmV0MTIz");
     }
 

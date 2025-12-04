@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/lipeamarok/autonomous-quality-agent/schemas/context.schema.json",
+  "title": "UTDL Execution Context Schema",
+  "description": "Schema for context variables captured during UTDL plan execution. Each step captures context_before and context_after snapshots.",
+  "type": "object",
+  "properties": {
+    "variables": {
+      "type": "object",
+      "description": "Map of variable names to their values. Variables are created via extract rules or magic functions.",
+      "additionalProperties": {
+        "$ref": "#/definitions/ContextValue"
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Execution metadata",
+      "properties": {
+        "execution_id": {
+          "type": "string",
+          "description": "Unique identifier for this execution"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when execution started"
+        },
+        "step_id": {
+          "type": "string",
+          "description": "ID of the step that created this snapshot"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "ContextValue": {
+      "description": "A value stored in the execution context. Can be any JSON type.",
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "String value (most common for extracted tokens, IDs, etc.)"
+        },
+        {
+          "type": "number",
+          "description": "Numeric value (integers or floats)"
+        },
+        {
+          "type": "boolean",
+          "description": "Boolean value"
+        },
+        {
+          "type": "null",
+          "description": "Null value (extraction returned nothing)"
+        },
+        {
+          "type": "array",
+          "description": "Array value (when all_values=true in extraction)",
+          "items": {}
+        },
+        {
+          "type": "object",
+          "description": "Object value (nested JSON extracted from response)",
+          "additionalProperties": {}
+        }
+      ]
+    },
+    "ContextSnapshot": {
+      "type": "object",
+      "description": "A snapshot of the context at a specific point in execution",
+      "properties": {
+        "context_before": {
+          "type": "object",
+          "description": "Context state before step execution",
+          "additionalProperties": {
+            "$ref": "#/definitions/ContextValue"
+          }
+        },
+        "context_after": {
+          "type": "object",
+          "description": "Context state after step execution (includes new extractions)",
+          "additionalProperties": {
+            "$ref": "#/definitions/ContextValue"
+          }
+        }
+      }
+    },
+    "MagicVariables": {
+      "type": "object",
+      "description": "Built-in magic variables available in interpolation",
+      "properties": {
+        "${timestamp}": {
+          "type": "string",
+          "description": "Current Unix timestamp in seconds"
+        },
+        "${timestamp_ms}": {
+          "type": "string",
+          "description": "Current Unix timestamp in milliseconds"
+        },
+        "${uuid}": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Random UUID v4"
+        },
+        "${env:VAR_NAME}": {
+          "type": "string",
+          "description": "Environment variable value"
+        },
+        "${sha256:value}": {
+          "type": "string",
+          "description": "SHA-256 hash of the value"
+        },
+        "${base64:value}": {
+          "type": "string",
+          "description": "Base64 encoded value"
+        },
+        "${random:min:max}": {
+          "type": "integer",
+          "description": "Random integer between min and max"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "variables": {
+        "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+        "user_id": "12345",
+        "created_at": "2024-01-15T10:30:00Z",
+        "items_count": 42,
+        "is_admin": true
+      },
+      "metadata": {
+        "execution_id": "exec-abc123",
+        "started_at": "2024-01-15T10:30:00Z",
+        "step_id": "login-step"
+      }
+    }
+  ]
+}

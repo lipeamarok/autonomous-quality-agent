@@ -140,7 +140,14 @@ impl ExtractionResult {
     }
 
     /// Cria um resultado de sucesso com flag de crítico.
-    pub fn success_critical(target: String, source: String, path: String, value: Value, critical: bool) -> Self {
+    #[allow(dead_code)]
+    pub fn success_critical(
+        target: String,
+        source: String,
+        path: String,
+        value: Value,
+        critical: bool,
+    ) -> Self {
         let value_type = Some(ValueType::from_value(&value));
         Self {
             target,
@@ -171,7 +178,14 @@ impl ExtractionResult {
     }
 
     /// Cria um resultado de falha com flag de crítico.
-    pub fn failure_critical(target: String, source: String, path: String, error: String, critical: bool) -> Self {
+    #[allow(dead_code)]
+    pub fn failure_critical(
+        target: String,
+        source: String,
+        path: String,
+        error: String,
+        critical: bool,
+    ) -> Self {
         Self {
             target,
             source,
@@ -186,6 +200,7 @@ impl ExtractionResult {
     }
 
     /// Cria um resultado de falha com código de erro estruturado.
+    #[allow(dead_code)]
     pub fn failure_with_code(
         target: String,
         source: String,
@@ -207,6 +222,7 @@ impl ExtractionResult {
     }
 
     /// Cria um resultado de falha com código de erro e flag de crítico.
+    #[allow(dead_code)]
     pub fn failure_with_code_critical(
         target: String,
         source: String,
@@ -229,6 +245,7 @@ impl ExtractionResult {
     }
 
     /// Verifica se a falha deve abortar a execução.
+    #[allow(dead_code)]
     pub fn should_abort(&self) -> bool {
         !self.success && self.is_critical
     }
@@ -276,7 +293,8 @@ impl Extractor {
         let mut extracted_values = HashMap::new();
 
         for extraction in extractions {
-            let result = Self::extract_single(extraction, response_body, response_headers, status_code);
+            let result =
+                Self::extract_single(extraction, response_body, response_headers, status_code);
 
             // Se sucesso, adiciona ao HashMap de valores
             if result.success {
@@ -292,6 +310,7 @@ impl Extractor {
     }
 
     /// Verifica se alguma extração crítica falhou.
+    #[allow(dead_code)]
     pub fn has_critical_failure(results: &[ExtractionResult]) -> bool {
         results.iter().any(|r| r.should_abort())
     }
@@ -319,7 +338,10 @@ impl Extractor {
                 target,
                 source.clone(),
                 path,
-                format!("Fonte de extração desconhecida '{}'. Use 'body', 'header' ou 'status_code'.", source),
+                format!(
+                    "Fonte de extração desconhecida '{}'. Use 'body', 'header' ou 'status_code'.",
+                    source
+                ),
                 ErrorCode::EXTRACTION_INVALID_SOURCE,
             ),
         };
@@ -389,7 +411,12 @@ impl Extractor {
     /// - `$.items[*].name` → Todos os items (retorna array)
     ///
     /// Se `all_values` for true, retorna todos os matches como array.
-    fn extract_with_jsonpath(target: &str, path: &str, body: &Value, all_values: bool) -> ExtractionResult {
+    fn extract_with_jsonpath(
+        target: &str,
+        path: &str,
+        body: &Value,
+        all_values: bool,
+    ) -> ExtractionResult {
         // Normaliza o path para JSONPath
         let jsonpath = if path.starts_with('$') {
             path.to_string()
@@ -433,7 +460,12 @@ impl Extractor {
     /// O primeiro grupo de captura `()` é usado como valor.
     /// Se não houver grupo, o match completo é usado.
     /// Se `all_values` for true, retorna todos os matches como array.
-    fn extract_with_regex(target: &str, pattern: &str, body: &Value, all_values: bool) -> ExtractionResult {
+    fn extract_with_regex(
+        target: &str,
+        pattern: &str,
+        body: &Value,
+        all_values: bool,
+    ) -> ExtractionResult {
         // Converte body para string para aplicar regex
         let body_str = match body {
             Value::String(s) => s.clone(),
@@ -444,7 +476,8 @@ impl Extractor {
             Ok(re) => {
                 if all_values {
                     // Retorna todos os matches como array
-                    let matches: Vec<Value> = re.captures_iter(&body_str)
+                    let matches: Vec<Value> = re
+                        .captures_iter(&body_str)
                         .filter_map(|caps| {
                             caps.get(1)
                                 .or_else(|| caps.get(0))
@@ -547,6 +580,7 @@ impl Extractor {
 /// - `$.parent.child` → Acesso aninhado
 /// - `$.array[0]` → Acesso a índice de array
 /// - `$.array[*]` → Todos os elementos (retorna array)
+#[allow(dead_code)]
 fn navigate_json(value: &Value, path: &str) -> Result<Value> {
     navigate_json_multi(value, path, false)
 }
@@ -635,11 +669,18 @@ fn navigate_segment(value: &Value, segment: &str, _all_values: bool) -> Result<V
             .map_err(|_| anyhow!("Índice de array inválido: '{}'", index_str))?;
 
         return match value {
-            Value::Array(arr) => arr
-                .get(index)
-                .cloned()
-                .ok_or_else(|| anyhow!("Índice {} fora dos limites (array tem {} elementos)", index, arr.len())),
-            _ => Err(anyhow!("Esperado array para [{}], encontrado: {}", index, value)),
+            Value::Array(arr) => arr.get(index).cloned().ok_or_else(|| {
+                anyhow!(
+                    "Índice {} fora dos limites (array tem {} elementos)",
+                    index,
+                    arr.len()
+                )
+            }),
+            _ => Err(anyhow!(
+                "Esperado array para [{}], encontrado: {}",
+                index,
+                value
+            )),
         };
     }
 
@@ -649,7 +690,11 @@ fn navigate_segment(value: &Value, segment: &str, _all_values: bool) -> Result<V
             .get(segment)
             .cloned()
             .ok_or_else(|| anyhow!("Campo '{}' não encontrado no objeto", segment)),
-        _ => Err(anyhow!("Esperado objeto para acessar '{}', encontrado: {}", segment, value)),
+        _ => Err(anyhow!(
+            "Esperado objeto para acessar '{}', encontrado: {}",
+            segment,
+            value
+        )),
     }
 }
 
@@ -817,7 +862,7 @@ mod tests {
 
         let extraction = Extraction {
             source: "header".to_string(),
-            path: "Content-Type".to_string(),  // Diferente case
+            path: "Content-Type".to_string(), // Diferente case
             target: "content_type".to_string(),
             all_values: false,
             critical: false,
@@ -843,7 +888,11 @@ mod tests {
         let (results, _) = Extractor::process(&[extraction], None, &headers);
 
         assert!(!results[0].success);
-        assert!(results[0].error.as_ref().unwrap().contains("não encontrado"));
+        assert!(results[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("não encontrado"));
     }
 
     // ------------------------------------------------------------------------
@@ -884,7 +933,11 @@ mod tests {
         let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
 
         assert!(!results[0].success);
-        assert!(results[0].error.as_ref().unwrap().contains("não encontrou match"));
+        assert!(results[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("não encontrou match"));
     }
 
     #[test]
@@ -901,7 +954,11 @@ mod tests {
         let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
 
         assert!(!results[0].success);
-        assert!(results[0].error.as_ref().unwrap().contains("Regex inválida"));
+        assert!(results[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("Regex inválida"));
     }
 
     // ------------------------------------------------------------------------
@@ -1151,10 +1208,14 @@ mod tests {
         ];
 
         // Processa extrações do Step 1
-        let (results, values) = Extractor::process(&step1_extractions, Some(&login_response), &login_headers);
+        let (results, values) =
+            Extractor::process(&step1_extractions, Some(&login_response), &login_headers);
 
         // Verifica que todas extrações foram bem sucedidas
-        assert!(results.iter().all(|r| r.success), "Todas extrações devem passar");
+        assert!(
+            results.iter().all(|r| r.success),
+            "Todas extrações devem passar"
+        );
         assert_eq!(values.len(), 3);
 
         // Simula inserção no Context
@@ -1191,12 +1252,8 @@ mod tests {
             critical: false,
         };
 
-        let (results, values) = Extractor::process_with_status(
-            &[extraction],
-            None,
-            &HashMap::new(),
-            Some(200),
-        );
+        let (results, values) =
+            Extractor::process_with_status(&[extraction], None, &HashMap::new(), Some(200));
 
         assert_eq!(results.len(), 1);
         assert!(results[0].success);
@@ -1214,15 +1271,15 @@ mod tests {
             critical: false,
         };
 
-        let (results, _) = Extractor::process_with_status(
-            &[extraction],
-            None,
-            &HashMap::new(),
-            None,
-        );
+        let (results, _) =
+            Extractor::process_with_status(&[extraction], None, &HashMap::new(), None);
 
         assert!(!results[0].success);
-        assert!(results[0].error.as_ref().unwrap().contains("não disponível"));
+        assert!(results[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("não disponível"));
     }
 
     // ------------------------------------------------------------------------
@@ -1354,7 +1411,7 @@ mod tests {
             path: "$.data.missing_token".to_string(),
             target: "token".to_string(),
             all_values: false,
-            critical: true,  // Esta é crítica!
+            critical: true, // Esta é crítica!
         };
 
         let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -1373,7 +1430,7 @@ mod tests {
             path: "$.data.optional_field".to_string(),
             target: "optional".to_string(),
             all_values: false,
-            critical: false,  // Não é crítica
+            critical: false, // Não é crítica
         };
 
         let (results, _) = Extractor::process(&[extraction], Some(&body), &HashMap::new());
@@ -1393,14 +1450,14 @@ mod tests {
                 path: "$.token".to_string(),
                 target: "token".to_string(),
                 all_values: false,
-                critical: true,  // Crítica, mas vai passar
+                critical: true, // Crítica, mas vai passar
             },
             Extraction {
                 source: "body".to_string(),
                 path: "$.missing".to_string(),
                 target: "missing".to_string(),
                 all_values: false,
-                critical: false,  // Não crítica, vai falhar
+                critical: false, // Não crítica, vai falhar
             },
         ];
 

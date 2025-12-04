@@ -30,8 +30,8 @@
 //! | max_execution_secs | 300    | Timeout total de execução (5 min)   |
 //! | max_step_timeout   | 30     | Timeout por step (segundos)         |
 
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 // ============================================================================
 // LIMITES PADRÃO (CONSTANTES)
@@ -158,6 +158,7 @@ impl ExecutionLimits {
     }
 
     /// Limites restritivos para testes.
+    #[allow(dead_code)]
     pub fn strict() -> Self {
         Self {
             max_steps: 10,
@@ -169,6 +170,7 @@ impl ExecutionLimits {
     }
 
     /// Limites permissivos para desenvolvimento.
+    #[allow(dead_code)]
     pub fn relaxed() -> Self {
         Self {
             max_steps: 500,
@@ -192,6 +194,7 @@ pub struct LimitValidationResult {
 }
 
 /// Violação de limite detectada.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct LimitViolation {
     /// Nome do limite violado.
@@ -260,12 +263,14 @@ pub fn validate_limits(
 ///
 /// Usado durante a execução para rastrear quantos retries
 /// já foram feitos e abortar se exceder o limite.
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct RetryCounter {
     count: std::sync::atomic::AtomicU32,
     limit: u32,
 }
 
+#[allow(dead_code)]
 impl RetryCounter {
     /// Cria um novo contador com o limite especificado.
     pub fn new(limit: u32) -> Self {
@@ -289,6 +294,7 @@ impl RetryCounter {
     }
 
     /// Retorna o limite configurado.
+    #[allow(dead_code)]
     pub fn limit(&self) -> u32 {
         self.limit
     }

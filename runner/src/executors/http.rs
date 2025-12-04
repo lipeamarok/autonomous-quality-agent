@@ -33,16 +33,16 @@
 //! └──────────────────────────────────────────────────────────────┘
 //! ```
 
-use async_trait::async_trait;
-use crate::protocol::{Step, StepResult, StepStatus, Assertion, Extraction};
-use crate::context::Context;
-use crate::extractors::{Extractor, ExtractionResult};
 use super::StepExecutor;
-use anyhow::{Result, anyhow};
-use std::time::Instant;
-use std::collections::HashMap;
-use reqwest::{Client, Method, header::HeaderMap};
+use crate::context::Context;
+use crate::extractors::{ExtractionResult, Extractor};
+use crate::protocol::{Assertion, Extraction, Step, StepResult, StepStatus};
+use anyhow::{anyhow, Result};
+use async_trait::async_trait;
+use reqwest::{header::HeaderMap, Client, Method};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::time::Instant;
 
 // ============================================================================
 // FUNÇÕES AUXILIARES
@@ -144,7 +144,11 @@ impl HttpExecutor {
     /// ## Retorno:
     /// - `None` se todas as assertions passaram
     /// - `Some(String)` com a mensagem de erro da primeira que falhou
-    fn validate_assertions(&self, assertions: &[Assertion], ctx: &ResponseContext) -> Option<String> {
+    fn validate_assertions(
+        &self,
+        assertions: &[Assertion],
+        ctx: &ResponseContext,
+    ) -> Option<String> {
         for assertion in assertions {
             match assertion.assertion_type.as_str() {
                 // ============================================================
@@ -191,15 +195,26 @@ impl HttpExecutor {
                             let passed = match assertion.operator.as_str() {
                                 "eq" => actual == &assertion.value,
                                 "neq" => actual != &assertion.value,
-                                "contains" => actual.as_str().map(|s| {
-                                    assertion.value.as_str().map(|needle| s.contains(needle)).unwrap_or(false)
-                                }).unwrap_or(false),
-                                "exists" => true, // Se chegou aqui, existe
+                                "contains" => actual
+                                    .as_str()
+                                    .map(|s| {
+                                        assertion
+                                            .value
+                                            .as_str()
+                                            .map(|needle| s.contains(needle))
+                                            .unwrap_or(false)
+                                    })
+                                    .unwrap_or(false),
+                                "exists" => true,      // Se chegou aqui, existe
                                 "not_exists" => false, // Se chegou aqui, existe → falha
                                 "gt" => compare_values(actual, &assertion.value, |a, b| a > b),
                                 "lt" => compare_values(actual, &assertion.value, |a, b| a < b),
-                                "gte" | "ge" => compare_values(actual, &assertion.value, |a, b| a >= b),
-                                "lte" | "le" => compare_values(actual, &assertion.value, |a, b| a <= b),
+                                "gte" | "ge" => {
+                                    compare_values(actual, &assertion.value, |a, b| a >= b)
+                                }
+                                "lte" | "le" => {
+                                    compare_values(actual, &assertion.value, |a, b| a <= b)
+                                }
                                 _ => false,
                             };
 
@@ -236,8 +251,8 @@ impl HttpExecutor {
                 "header" => {
                     if let Some(header_name) = &assertion.path {
                         // Tenta obter o valor do header.
-                        let header_value = ctx.headers.get(header_name)
-                            .and_then(|v| v.to_str().ok());
+                        let header_value =
+                            ctx.headers.get(header_name).and_then(|v| v.to_str().ok());
 
                         match assertion.operator.as_str() {
                             "exists" => {
@@ -261,7 +276,9 @@ impl HttpExecutor {
                                 if header_value != Some(expected) {
                                     return Some(format!(
                                         "Assertion failed: header '{}' {} '{}' (got '{}')",
-                                        header_name, assertion.operator, expected,
+                                        header_name,
+                                        assertion.operator,
+                                        expected,
                                         header_value.unwrap_or("<missing>")
                                     ));
                                 }
@@ -277,7 +294,8 @@ impl HttpExecutor {
                             }
                             "contains" => {
                                 let needle = assertion.value.as_str().unwrap_or("");
-                                let contains = header_value.map(|v| v.contains(needle)).unwrap_or(false);
+                                let contains =
+                                    header_value.map(|v| v.contains(needle)).unwrap_or(false);
                                 if !contains {
                                     return Some(format!(
                                         "Assertion failed: header '{}' should contain '{}' (got '{}')",
@@ -351,16 +369,14 @@ impl HttpExecutor {
         let headers_map: HashMap<String, String> = headers
             .iter()
             .filter_map(|(k, v)| {
-                v.to_str().ok().map(|v_str| (k.as_str().to_string(), v_str.to_string()))
+                v.to_str()
+                    .ok()
+                    .map(|v_str| (k.as_str().to_string(), v_str.to_string()))
             })
             .collect();
 
         // Usa o módulo Extractor para processar
-        let (results, extracted_values) = Extractor::process(
-            extracts,
-            Some(body),
-            &headers_map,
-        );
+        let (results, extracted_values) = Extractor::process(extracts, Some(body), &headers_map);
 
         // Popula o contexto com os valores extraídos
         for (key, value) in extracted_values {
@@ -434,12 +450,14 @@ impl StepExecutor for HttpExecutor {
         let params = &step.params;
 
         // Extrai o método HTTP (GET, POST, PUT, DELETE, etc.)
-        let method_str = params.get("method")
+        let method_str = params
+            .get("method")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'method' in params"))?;
 
         // Extrai o path da requisição.
-        let path_str = params.get("path")
+        let path_str = params
+            .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'path' in params"))?;
 
@@ -455,7 +473,8 @@ impl StepExecutor for HttpExecutor {
         let url = if interpolated_path.starts_with("http") {
             interpolated_path
         } else {
-            let base = context.get("base_url")
+            let base = context
+                .get("base_url")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             format!("{}{}", base.trim_end_matches('/'), interpolated_path)
@@ -544,7 +563,8 @@ impl StepExecutor for HttpExecutor {
                 }
 
                 // Aplica as extrações.
-                let extraction_results = self.apply_extractions(&step.extract, &body_json, &headers, context);
+                let extraction_results =
+                    self.apply_extractions(&step.extract, &body_json, &headers, context);
 
                 // Captura contexto após extrações
                 let context_after = context.variables.clone();
@@ -557,9 +577,13 @@ impl StepExecutor for HttpExecutor {
                     error: None,
                     context_before: Some(context_before),
                     context_after: Some(context_after),
-                    extractions: if extraction_results.is_empty() { None } else { Some(extraction_results) },
+                    extractions: if extraction_results.is_empty() {
+                        None
+                    } else {
+                        Some(extraction_results)
+                    },
                 })
-            },
+            }
             Err(e) => {
                 // Erro na requisição (rede, DNS, timeout, etc.)
                 tracing::error!(error = %e, "HTTP request failed");

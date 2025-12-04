@@ -49,7 +49,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tokio::task::JoinSet;
-use tracing::{info, error, instrument};
+use tracing::{error, info, instrument};
 
 use crate::context::Context;
 use crate::executors::StepExecutor;
@@ -148,8 +148,8 @@ impl DagPlanner {
             // depende dela (para depois preencher `dependents`).
             for dep in &deps {
                 dependents_map
-                    .entry(dep.clone())       // Pega ou cria entrada
-                    .or_default()             // Se não existe, cria HashSet vazio
+                    .entry(dep.clone()) // Pega ou cria entrada
+                    .or_default() // Se não existe, cria HashSet vazio
                     .insert(step.id.clone()); // Adiciona este step como dependente
             }
 
@@ -179,7 +179,11 @@ impl DagPlanner {
             .map(|(id, _)| id.clone())
             .collect();
 
-        info!(root_count = roots.len(), total_steps = nodes.len(), "DAG construído");
+        info!(
+            root_count = roots.len(),
+            total_steps = nodes.len(),
+            "DAG construído"
+        );
 
         Self { nodes, roots }
     }
@@ -225,12 +229,15 @@ impl DagPlanner {
         // Semáforo para limitar paralelismo.
         // Se max_parallel = 0, usamos número de steps (sem limite efetivo).
         let max_parallel = if limits.max_parallel > 0 {
-            limits.max_parallel as usize
+            limits.max_parallel
         } else {
             self.nodes.len().max(1)
         };
         let semaphore = Arc::new(Semaphore::new(max_parallel));
-        info!(max_parallel = max_parallel, "DAG executor initialized with concurrency limit");
+        info!(
+            max_parallel = max_parallel,
+            "DAG executor initialized with concurrency limit"
+        );
 
         // Resultados de cada step (compartilhado entre tasks).
         let results: Arc<Mutex<Vec<StepResult>>> = Arc::new(Mutex::new(Vec::new()));
@@ -548,8 +555,14 @@ mod tests {
         assert!(result.error.as_ref().unwrap().contains("No executor"));
 
         // Verifica que context_before e context_after estão preenchidos
-        assert!(result.context_before.is_some(), "context_before should be Some");
-        assert!(result.context_after.is_some(), "context_after should be Some");
+        assert!(
+            result.context_before.is_some(),
+            "context_before should be Some"
+        );
+        assert!(
+            result.context_after.is_some(),
+            "context_after should be Some"
+        );
 
         // Verifica que contêm a variável de teste
         let ctx_before = result.context_before.as_ref().unwrap();
@@ -598,8 +611,14 @@ mod tests {
         let skipped = results.iter().find(|r| r.step_id == "step_b").unwrap();
 
         assert_eq!(skipped.status, StepStatus::Skipped);
-        assert!(skipped.context_before.is_some(), "Skipped step should have context_before");
-        assert!(skipped.context_after.is_some(), "Skipped step should have context_after");
+        assert!(
+            skipped.context_before.is_some(),
+            "Skipped step should have context_before"
+        );
+        assert!(
+            skipped.context_after.is_some(),
+            "Skipped step should have context_after"
+        );
 
         // Verifica que a variável inicial está presente
         let ctx = skipped.context_before.as_ref().unwrap();

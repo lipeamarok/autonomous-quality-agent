@@ -172,12 +172,10 @@ impl RetryExecutor {
             // ================================================================
             // FAIL_FAST: Executa uma vez, falha se der erro.
             // ================================================================
-            RecoveryStrategy::FailFast => {
-                match operation().await {
-                    Ok(result) => Ok(Some(result)),
-                    Err(e) => Err(e),
-                }
-            }
+            RecoveryStrategy::FailFast => match operation().await {
+                Ok(result) => Ok(Some(result)),
+                Err(e) => Err(e),
+            },
 
             // ================================================================
             // IGNORE: Executa uma vez, ignora erros.

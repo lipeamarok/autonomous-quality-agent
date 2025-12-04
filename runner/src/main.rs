@@ -91,14 +91,14 @@ use protocol::{ExecutionReport, Step, StepStatus};
 use telemetry::{init_telemetry, shutdown_telemetry, TelemetryConfig};
 
 // Imports externos (bibliotecas de terceiros)
-use clap::{Parser, Subcommand};  // Parser de argumentos CLI
-use std::path::PathBuf;          // Tipo para caminhos de arquivo
-use std::sync::Arc;              // Ponteiro atômico para compartilhar dados entre threads
-use std::fs;                     // Operações de sistema de arquivos
-use chrono::Utc;                 // Data/hora em UTC
-use tokio::sync::RwLock;         // Lock de leitura/escrita assíncrono
-use tracing::{error, info, Level};      // Macros de logging estruturado
-use uuid::Uuid;                  // Geração de UUIDs
+use chrono::Utc; // Data/hora em UTC
+use clap::{Parser, Subcommand}; // Parser de argumentos CLI
+use std::fs; // Operações de sistema de arquivos
+use std::path::PathBuf; // Tipo para caminhos de arquivo
+use std::sync::Arc; // Ponteiro atômico para compartilhar dados entre threads
+use tokio::sync::RwLock; // Lock de leitura/escrita assíncrono
+use tracing::{error, info, Level}; // Macros de logging estruturado
+use uuid::Uuid; // Geração de UUIDs
 
 // ============================================================================
 // DEFINIÇÃO DA CLI (INTERFACE DE LINHA DE COMANDO)
@@ -339,8 +339,15 @@ async fn execute_plan(
 
     // 2.5. Valida limites de execução.
     let limits = ExecutionLimits::from_env();
-    let total_retries: u32 = plan.steps.iter()
-        .map(|s| s.recovery_policy.as_ref().map(|p| p.max_attempts).unwrap_or(1))
+    let total_retries: u32 = plan
+        .steps
+        .iter()
+        .map(|s| {
+            s.recovery_policy
+                .as_ref()
+                .map(|p| p.max_attempts)
+                .unwrap_or(1)
+        })
         .sum();
     let limit_result = limits::validate_limits(plan.steps.len(), total_retries, &limits);
     if !limit_result.passed {
@@ -353,17 +360,21 @@ async fn execute_plan(
 
     // 3. Inicializa o contexto e os executores.
     let mut context = Context::new();
-    context.set("base_url", serde_json::Value::String(plan.config.base_url.clone()));
-    context.set("execution_id", serde_json::Value::String(execution_id.to_string()));
+    context.set(
+        "base_url",
+        serde_json::Value::String(plan.config.base_url.clone()),
+    );
+    context.set(
+        "execution_id",
+        serde_json::Value::String(execution_id.to_string()),
+    );
     context.extend(&plan.config.variables);
 
     // Cria os executores para cada tipo de action.
     let http_executor = HttpExecutor::new();
     let wait_executor = WaitExecutor::new();
-    let executors: Vec<Box<dyn StepExecutor + Send + Sync>> = vec![
-        Box::new(http_executor),
-        Box::new(wait_executor),
-    ];
+    let executors: Vec<Box<dyn StepExecutor + Send + Sync>> =
+        vec![Box::new(http_executor), Box::new(wait_executor)];
 
     // 4. Executa os steps (paralelo ou sequencial).
     if !silent {
@@ -393,7 +404,11 @@ async fn execute_plan(
     let report = ExecutionReport {
         execution_id: execution_id.to_string(),
         plan_id: plan.meta.id.clone(),
-        status: if all_passed { "passed".to_string() } else { "failed".to_string() },
+        status: if all_passed {
+            "passed".to_string()
+        } else {
+            "failed".to_string()
+        },
         start_time: start_time.to_rfc3339(),
         end_time: end_time.to_rfc3339(),
         steps: step_results,
@@ -499,12 +514,26 @@ async fn execute_step_with_retry(
     context: &mut Context,
 ) -> protocol::StepResult {
     // Extrai configurações de retry da RecoveryPolicy.
-    let max_attempts = step.recovery_policy.as_ref().map(|p| p.max_attempts).unwrap_or(1);
-    let strategy = step.recovery_policy.as_ref()
+    let max_attempts = step
+        .recovery_policy
+        .as_ref()
+        .map(|p| p.max_attempts)
+        .unwrap_or(1);
+    let strategy = step
+        .recovery_policy
+        .as_ref()
         .map(|p| p.strategy.as_str())
         .unwrap_or("fail_fast");
-    let backoff_ms = step.recovery_policy.as_ref().map(|p| p.backoff_ms).unwrap_or(0);
-    let backoff_factor = step.recovery_policy.as_ref().map(|p| p.backoff_factor).unwrap_or(2.0);
+    let backoff_ms = step
+        .recovery_policy
+        .as_ref()
+        .map(|p| p.backoff_ms)
+        .unwrap_or(0);
+    let backoff_factor = step
+        .recovery_policy
+        .as_ref()
+        .map(|p| p.backoff_factor)
+        .unwrap_or(2.0);
 
     let mut attempt = 0u32;
 
