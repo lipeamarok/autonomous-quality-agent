@@ -260,6 +260,12 @@ def _generate_sample_body(schema: dict[str, Any]) -> dict[str, Any]:
     help="Modo interativo com perguntas guiadas.",
 )
 @click.option(
+    "--llm-mode",
+    type=click.Choice(["real", "mock"]),
+    default=None,
+    help="Modo do LLM: 'real' (usa API) ou 'mock' (respostas de teste).",
+)
+@click.option(
     "--json-output",
     is_flag=True,
     help="Saída em formato JSON (sem formatação Rich).",
@@ -273,6 +279,7 @@ def plan(
     include_auth: bool,
     endpoints: tuple[str, ...],
     interactive: bool,
+    llm_mode: str | None,
     json_output: bool,
 ) -> None:
     """

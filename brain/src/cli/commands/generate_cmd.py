@@ -74,6 +74,12 @@ from ..utils import load_config, get_default_model
     is_flag=True,
     help="Modo interativo com perguntas guiadas"
 )
+@click.option(
+    "--llm-mode",
+    type=click.Choice(["real", "mock"]),
+    default=None,
+    help="Modo do LLM: 'real' (usa API) ou 'mock' (respostas de teste).",
+)
 @click.pass_context
 def generate(
     ctx: click.Context,
@@ -83,6 +89,7 @@ def generate(
     model: str | None,
     output: str | None,
     interactive: bool,
+    llm_mode: str | None,
 ) -> None:
     """
     Gera um plano de teste UTDL usando IA.
@@ -93,6 +100,11 @@ def generate(
     """
     console: Console = ctx.obj["console"]
     verbose: bool = ctx.obj["verbose"]
+
+    # Configura modo LLM se especificado
+    if llm_mode:
+        import os
+        os.environ["AQA_LLM_MODE"] = llm_mode
 
     # Modo interativo
     if interactive:
