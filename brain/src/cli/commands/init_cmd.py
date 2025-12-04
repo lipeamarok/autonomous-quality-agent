@@ -85,13 +85,37 @@ variables:
     is_flag=True,
     help="Sobrescreve configuração existente"
 )
+@click.option(
+    "--swagger", "-s",
+    type=str,
+    help="URL ou caminho do OpenAPI/Swagger para extrair configurações"
+)
+@click.option(
+    "--base-url", "-u",
+    type=str,
+    help="URL base da API (sobrescreve valor do Swagger)"
+)
 @click.pass_context
-def init(ctx: click.Context, directory: str, force: bool) -> None:
+def init(
+    ctx: click.Context,
+    directory: str,
+    force: bool,
+    swagger: str | None,
+    base_url: str | None,
+) -> None:
     """
     Inicializa um workspace AQA no diretório especificado.
 
     Cria a estrutura de diretórios .aqa/ com configuração padrão.
     Use --force para reinicializar um workspace existente.
+
+    Exemplos:
+
+        aqa init
+
+        aqa init --swagger https://api.example.com/openapi.json
+
+        aqa init ./my-project --base-url https://api.example.com
     """
     console: Console = ctx.obj["console"]
 
@@ -110,14 +134,41 @@ def init(ctx: click.Context, directory: str, force: bool) -> None:
         console.print("Use [bold]--force[/bold] para reinicializar.")
         raise SystemExit(1)
 
+    # Extrai informações do Swagger se fornecido
+    api_base_url = base_url or "https://api.example.com"
+    api_title = "API"
+
+    if swagger:
+        try:
+            from ...ingestion.swagger import parse_openapi
+
+            console.print(f"[dim]Carregando OpenAPI: {swagger}[/dim]")
+            spec = parse_openapi(swagger, validate_spec=False)
+
+            if spec.get("base_url") and not base_url:
+                api_base_url = spec["base_url"]
+            if spec.get("title"):
+                api_title = spec["title"]
+
+            console.print(f"[green]✓[/] Spec carregada: {api_title}")
+            console.print()
+
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Erro ao carregar Swagger: {e}[/yellow]")
+            console.print("[dim]Continuando com valores padrão...[/dim]\n")
+
     # Cria estrutura de diretórios
     try:
         aqa_dir.mkdir(parents=True, exist_ok=True)
         plans_dir.mkdir(exist_ok=True)
         reports_dir.mkdir(exist_ok=True)
 
-        # Cria arquivo de configuração
-        config_file.write_text(CONFIG_TEMPLATE, encoding="utf-8")
+        # Cria arquivo de configuração com valores extraídos
+        config_content = CONFIG_TEMPLATE.replace(
+            "base_url: https://api.example.com",
+            f"base_url: {api_base_url}"
+        )
+        config_file.write_text(config_content, encoding="utf-8")
 
         # Cria .gitkeep nos diretórios vazios
         (plans_dir / ".gitkeep").touch()
