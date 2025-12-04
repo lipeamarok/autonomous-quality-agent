@@ -39,6 +39,7 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 
+from ...adapter import SmartFormatAdapter
 from ...validator import UTDLValidator
 
 
@@ -72,11 +73,17 @@ def _print_json_validation_result(results: list[dict[str, Any]], all_valid: bool
     is_flag=True,
     help="Trata warnings como erros"
 )
+@click.option(
+    "--normalize",
+    is_flag=True,
+    help="Normaliza automaticamente formatos alternativos (tests→steps, status→status_code, etc.)"
+)
 @click.pass_context
 def validate(
     ctx: click.Context,
     files: tuple[str, ...],
     strict: bool,
+    normalize: bool,
 ) -> None:
     """
     Valida um ou mais planos UTDL.
@@ -90,6 +97,7 @@ def validate(
     quiet: bool = ctx.obj.get("quiet", False)
 
     validator = UTDLValidator()
+    adapter = SmartFormatAdapter() if normalize else None
     all_valid = True
     total_errors = 0
     total_warnings = 0
@@ -104,9 +112,17 @@ def validate(
             console.print(f"\n🔍 Validando: [cyan]{path.name}[/cyan]")
 
         try:
-            # Carrega JSON
-            content = path.read_text(encoding="utf-8")
-            plan_data = json.loads(content)
+            # Carrega e opcionalmente normaliza
+            if adapter:
+                try:
+                    plan_data = adapter.load_and_normalize(path)
+                    if not quiet and not json_output:
+                        console.print("  [dim]📐 Formato normalizado[/dim]")
+                except ValueError as e:
+                    raise ValueError(f"Erro ao normalizar: {e}")
+            else:
+                content = path.read_text(encoding="utf-8")
+                plan_data = json.loads(content)
 
             # Valida
             result = validator.validate(plan_data)

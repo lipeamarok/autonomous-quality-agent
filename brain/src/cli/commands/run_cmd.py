@@ -38,6 +38,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
+from ...adapter import SmartFormatAdapter
 from ...generator import UTDLGenerator
 from ...ingestion import parse_openapi
 from ...ingestion.swagger import spec_to_requirement_text
@@ -136,6 +137,11 @@ def _print_json_result(console: Console, result: RunnerResult) -> None:
     type=click.Path(),
     help="Caminho explícito para o binário Runner"
 )
+@click.option(
+    "--normalize",
+    is_flag=True,
+    help="Normaliza automaticamente formatos alternativos (tests→steps, status→status_code, etc.)"
+)
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -149,6 +155,7 @@ def run(
     parallel: bool,
     timeout: int,
     runner_path: str | None,
+    normalize: bool,
 ) -> None:
     """
     Executa um plano de teste UTDL.
@@ -213,7 +220,21 @@ def run(
             console.print(f"📄 Carregando plano: [cyan]{plan_path.name}[/cyan]")
 
         try:
-            plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+            # Carrega e opcionalmente normaliza
+            if normalize:
+                adapter = SmartFormatAdapter()
+                try:
+                    plan_data = adapter.load_and_normalize(plan_path)
+                    if not quiet and not json_output:
+                        console.print("  [dim]📐 Formato normalizado[/dim]")
+                except ValueError as e:
+                    if json_output:
+                        _print_json_error(error_console, "NORMALIZATION_ERROR", str(e))
+                    else:
+                        console.print(f"[red]❌ Erro ao normalizar: {e}[/red]")
+                    raise SystemExit(1)
+            else:
+                plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             if json_output:
                 _print_json_error(error_console, "INVALID_JSON", str(e))
