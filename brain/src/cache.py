@@ -1128,15 +1128,15 @@ class ExecutionHistory:
     def clear_all(self) -> None:
         """
         Remove todos os registros do histórico.
-        
+
         ## Uso:
-        
+
             >>> history = ExecutionHistory()
             >>> history.clear_all()  # Remove tudo
         """
         if not self.enabled:
             return
-        
+
         with self._lock:
             self._ensure_dir()
             self._index = []

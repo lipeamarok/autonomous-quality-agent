@@ -44,6 +44,9 @@ pub mod http;
 /// Submódulo para delays/pausas (wait e sleep).
 pub mod wait;
 
+/// Submódulo para requisições GraphQL (plugin de exemplo).
+pub mod graphql;
+
 // Imports necessários para o trait.
 use crate::context::Context;
 use crate::protocol::{Step, StepResult};

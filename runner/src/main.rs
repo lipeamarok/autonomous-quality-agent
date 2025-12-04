@@ -373,8 +373,12 @@ async fn execute_plan(
     // Cria os executores para cada tipo de action.
     let http_executor = HttpExecutor::new();
     let wait_executor = WaitExecutor::new();
-    let executors: Vec<Box<dyn StepExecutor + Send + Sync>> =
-        vec![Box::new(http_executor), Box::new(wait_executor)];
+    let graphql_executor = executors::graphql::GraphqlExecutor::default();
+    let executors: Vec<Box<dyn StepExecutor + Send + Sync>> = vec![
+        Box::new(http_executor),
+        Box::new(wait_executor),
+        Box::new(graphql_executor),
+    ];
 
     // 4. Executa os steps (paralelo ou sequencial).
     if !silent {

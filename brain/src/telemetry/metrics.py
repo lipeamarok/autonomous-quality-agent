@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class MetricsConfig:
     """Configuração de métricas."""
-    
+
     enabled: bool = field(
         default_factory=lambda: os.getenv("AQA_METRICS_ENABLED", "").lower() == "true"
     )
@@ -83,7 +83,7 @@ _config = MetricsConfig()
 class Counter:
     """
     Contador monotônico (só incrementa).
-    
+
     ## Uso:
     ```python
     cache_hits = Counter("cache_hits", "Number of cache hits")
@@ -91,14 +91,14 @@ class Counter:
     cache_hits.add(5, labels={"endpoint": "/api/users"})
     ```
     """
-    
+
     def __init__(self, name: str, description: str = ""):
         self.name = name
         self.description = description
         self._value = 0.0
         self._labeled_values: dict[tuple[tuple[str, str], ...], float] = {}
         self._lock = Lock()
-    
+
     def add(self, value: float = 1, labels: dict[str, str] | None = None) -> None:
         """Incrementa o contador."""
         with self._lock:
@@ -107,7 +107,7 @@ class Counter:
                 self._labeled_values[key] = self._labeled_values.get(key, 0.0) + value
             else:
                 self._value += value
-    
+
     def get(self, labels: dict[str, str] | None = None) -> float:
         """Retorna valor atual."""
         with self._lock:
@@ -115,40 +115,40 @@ class Counter:
                 key = tuple(sorted(labels.items()))
                 return self._labeled_values.get(key, 0.0)
             return self._value
-    
+
     def to_prometheus(self) -> str:
         """Formata para Prometheus."""
         lines = [f"# HELP {self.name} {self.description}"]
         lines.append(f"# TYPE {self.name} counter")
-        
+
         with self._lock:
             if self._value > 0:
                 lines.append(f"{self.name} {self._value}")
             for key, value in self._labeled_values.items():
                 labels_str = ",".join(f'{k}="{v}"' for k, v in key)
                 lines.append(f"{self.name}{{{labels_str}}} {value}")
-        
+
         return "\n".join(lines)
 
 
 class Histogram:
     """
     Histograma para distribuições.
-    
+
     ## Uso:
     ```python
     gen_time = Histogram("generation_seconds", "Time to generate plan")
     gen_time.observe(2.5)
-    
+
     # Ou como context manager
     with gen_time.time():
         generate_plan()
     ```
     """
-    
+
     # Buckets padrão (em segundos)
     DEFAULT_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, float("inf"))
-    
+
     def __init__(
         self,
         name: str,
@@ -162,7 +162,7 @@ class Histogram:
         self._sum = 0.0
         self._bucket_counts: dict[float, int] = {b: 0 for b in self.buckets}
         self._lock = Lock()
-    
+
     def observe(self, value: float) -> None:
         """Registra uma observação."""
         with self._lock:
@@ -171,7 +171,7 @@ class Histogram:
             for bucket in self.buckets:
                 if value <= bucket:
                     self._bucket_counts[bucket] += 1
-    
+
     @contextmanager
     def time(self):
         """Context manager para medir tempo automaticamente."""
@@ -180,7 +180,7 @@ class Histogram:
             yield
         finally:
             self.observe(time.time() - start)
-    
+
     def get_stats(self) -> dict[str, float]:
         """Retorna estatísticas."""
         with self._lock:
@@ -189,12 +189,12 @@ class Histogram:
                 "sum": self._sum,
                 "avg": self._sum / self._count if self._count > 0 else 0,
             }
-    
+
     def to_prometheus(self) -> str:
         """Formata para Prometheus."""
         lines = [f"# HELP {self.name} {self.description}"]
         lines.append(f"# TYPE {self.name} histogram")
-        
+
         with self._lock:
             cumulative = 0
             for bucket in sorted(self.buckets):
@@ -206,14 +206,14 @@ class Histogram:
                 lines.append(f'{self.name}_bucket{{le="{bucket_label}"}} {cumulative}')
             lines.append(f"{self.name}_sum {self._sum}")
             lines.append(f"{self.name}_count {self._count}")
-        
+
         return "\n".join(lines)
 
 
 class Gauge:
     """
     Gauge para valores instantâneos.
-    
+
     ## Uso:
     ```python
     cache_size = Gauge("cache_size_bytes", "Size of cache in bytes")
@@ -222,33 +222,33 @@ class Gauge:
     cache_size.dec(50)
     ```
     """
-    
+
     def __init__(self, name: str, description: str = ""):
         self.name = name
         self.description = description
         self._value = 0.0
         self._lock = Lock()
-    
+
     def set(self, value: float) -> None:
         """Define valor."""
         with self._lock:
             self._value = value
-    
+
     def inc(self, value: float = 1) -> None:
         """Incrementa."""
         with self._lock:
             self._value += value
-    
+
     def dec(self, value: float = 1) -> None:
         """Decrementa."""
         with self._lock:
             self._value -= value
-    
+
     def get(self) -> float:
         """Retorna valor atual."""
         with self._lock:
             return self._value
-    
+
     def to_prometheus(self) -> str:
         """Formata para Prometheus."""
         lines = [f"# HELP {self.name} {self.description}"]
@@ -266,16 +266,16 @@ class Gauge:
 class Metrics:
     """
     Registry de métricas do AQA.
-    
+
     ## Métricas disponíveis:
-    
+
     ```python
     Metrics.generation_time.observe(2.5)
     Metrics.cache_hits.add(1)
     Metrics.llm_tokens.add(500, labels={"provider": "openai"})
     ```
     """
-    
+
     # Geração
     generation_time = Histogram(
         "aqa_generation_duration_seconds",
@@ -292,13 +292,13 @@ class Metrics:
         "Number of LLM correction loops",
         buckets=(0, 1, 2, 3, 4, 5, 10),
     )
-    
+
     # Cache
     cache_hits = Counter("aqa_cache_hits_total", "Number of cache hits")
     cache_misses = Counter("aqa_cache_misses_total", "Number of cache misses")
     cache_size = Gauge("aqa_cache_size_bytes", "Size of cache in bytes")
     cache_entries = Gauge("aqa_cache_entries_count", "Number of entries in cache")
-    
+
     # LLM
     llm_tokens = Counter("aqa_llm_tokens_total", "Total tokens consumed")
     llm_requests = Counter("aqa_llm_requests_total", "Total LLM API requests")
@@ -308,19 +308,19 @@ class Metrics:
         "LLM API response time",
         buckets=(0.1, 0.5, 1, 2, 5, 10, 30),
     )
-    
+
     # Validação
     validation_errors = Counter("aqa_validation_errors_total", "Validation errors")
     validation_time = Histogram(
         "aqa_validation_duration_seconds",
         "Time to validate plan",
     )
-    
+
     # Execução (do Runner, reportado via API)
     execution_steps = Counter("aqa_execution_steps_total", "Steps executed")
     execution_passed = Counter("aqa_execution_passed_total", "Steps passed")
     execution_failed = Counter("aqa_execution_failed_total", "Steps failed")
-    
+
     @classmethod
     def all_metrics(cls) -> list[Counter | Histogram | Gauge]:
         """Retorna todas as métricas."""
@@ -342,7 +342,7 @@ class Metrics:
             cls.execution_passed,
             cls.execution_failed,
         ]
-    
+
     @classmethod
     def to_prometheus(cls) -> str:
         """Exporta todas as métricas em formato Prometheus."""
@@ -351,7 +351,7 @@ class Metrics:
             lines.append(metric.to_prometheus())
             lines.append("")
         return "\n".join(lines)
-    
+
     @classmethod
     def get_summary(cls) -> dict[str, Any]:
         """Retorna resumo das métricas (para JSON API)."""
@@ -401,20 +401,20 @@ def init_metrics(
 ) -> bool:
     """
     Inicializa sistema de métricas.
-    
+
     ## Parâmetros:
     - enabled: Ativar métricas
     - port: Porta para endpoint Prometheus
-    
+
     ## Retorna:
     True se inicializado com sucesso
     """
     is_enabled = enabled if enabled is not None else _config.enabled
-    
+
     if not is_enabled:
         logger.debug("Metrics disabled")
         return False
-    
+
     # Por enquanto, apenas marca como habilitado
     # Em produção, aqui iniciaria um servidor HTTP para Prometheus
     logger.info("Metrics enabled")

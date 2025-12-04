@@ -384,7 +384,7 @@ def run(
     passed = sum(1 for s in result.steps if s.status == "passed")
     failed = sum(1 for s in result.steps if s.status == "failed")
     total_duration = sum(s.duration_ms for s in result.steps)
-    
+
     execution_record = history.record_execution(
         plan_file=str(plan_file or save_plan or "generated"),
         duration_ms=int(total_duration),
