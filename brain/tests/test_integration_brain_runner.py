@@ -17,6 +17,7 @@ Usa httpbin.org para requests HTTP reais (ou mock local).
 
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -150,7 +151,7 @@ class TestBrainToRunnerIntegration:
             temp_path.unlink()
 
     @pytest.mark.skipif(
-        subprocess.run(["cmd", "/c", "echo"], capture_output=True).returncode == 0,
+        sys.platform == "win32",
         reason="Skip on Windows due to Unicode encoding issues with Rich"
     )
     def test_cli_validate_accepts_mock_generated_plan(self):
