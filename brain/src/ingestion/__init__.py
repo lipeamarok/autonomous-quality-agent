@@ -11,11 +11,15 @@ from .security import (
     SecurityScheme,
     SecurityAnalysis,
     AuthStep,
+    LoginEndpointInfo,
     detect_security,
     generate_auth_steps,
     get_auth_header_for_scheme,
     inject_auth_into_steps,
     security_to_text,
+    find_login_endpoint,
+    generate_complete_auth_flow,
+    create_authenticated_plan_steps,
 )
 
 __all__ = [
@@ -33,10 +37,14 @@ __all__ = [
     "SecurityScheme",
     "SecurityAnalysis",
     "AuthStep",
+    "LoginEndpointInfo",
     "detect_security",
     "generate_auth_steps",
     "get_auth_header_for_scheme",
     "inject_auth_into_steps",
     "security_to_text",
+    "find_login_endpoint",
+    "generate_complete_auth_flow",
+    "create_authenticated_plan_steps",
 ]
 

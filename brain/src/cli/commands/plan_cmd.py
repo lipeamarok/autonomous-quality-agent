@@ -46,6 +46,7 @@ from rich.table import Table
 def _generate_plan_from_spec(
     spec: dict[str, Any],
     *,
+    original_spec: dict[str, Any] | None = None,
     include_negative: bool = False,
     include_auth: bool = False,
     endpoints_filter: list[str] | None = None,
@@ -55,6 +56,7 @@ def _generate_plan_from_spec(
 
     ## Parâmetros:
         spec: Spec normalizada (output de parse_openapi)
+        original_spec: Spec original (necessária para detecção de segurança)
         include_negative: Se True, inclui casos negativos
         include_auth: Se True, inclui step de autenticação
         endpoints_filter: Lista de paths para filtrar (None = todos)
@@ -63,8 +65,7 @@ def _generate_plan_from_spec(
         Plano UTDL completo
     """
     from ...ingestion.negative_cases import generate_negative_cases, negative_cases_to_utdl_steps
-    # Security imports reserved for future use
-    # from ...ingestion.security import detect_security, generate_auth_steps, inject_auth_into_steps
+    from ...ingestion.security import create_authenticated_plan_steps, detect_security
 
     base_url = spec.get("base_url", "")
     title = spec.get("title", "API Test Plan")
@@ -118,12 +119,20 @@ def _generate_plan_from_spec(
     all_steps = positive_steps + negative_steps
 
     # Adiciona autenticação se solicitado
-    auth_steps: list[dict[str, Any]] = []
-    if include_auth:
-        # Precisa da spec original (não normalizada) para security
-        # Por enquanto, usamos detect_security com a spec normalizada parcialmente
-        # TODO: Melhorar isso passando a spec original
-        pass
+    final_steps: list[dict[str, Any]] = all_steps
+    security_info = None
+
+    if include_auth and original_spec:
+        # Usa a spec original para detectar segurança
+        security_analysis = detect_security(original_spec)
+
+        if security_analysis.has_security:
+            # Cria steps autenticados
+            final_steps = create_authenticated_plan_steps(
+                original_spec,
+                all_steps,
+            )
+            security_info = security_analysis
 
     # Monta o plano
     plan: dict[str, Any] = {
@@ -139,8 +148,15 @@ def _generate_plan_from_spec(
             "base_url": base_url,
             "variables": {},
         },
-        "steps": auth_steps + all_steps,
+        "steps": final_steps,
     }
+
+    # Adiciona info de segurança ao meta se detectada
+    if security_info and security_info.primary_scheme:
+        plan["meta"]["security"] = {
+            "type": security_info.primary_scheme.security_type.value,
+            "scheme": security_info.primary_scheme.name,
+        }
 
     return plan
 
@@ -267,6 +283,10 @@ def plan(
     # Carrega e parseia a spec
     try:
         from ...ingestion.swagger import parse_openapi
+        import json as json_module
+        from pathlib import Path as PathLib
+
+        original_spec: dict[str, Any] = {}
 
         if not json_output:
             with Progress(
@@ -275,9 +295,40 @@ def plan(
                 console=console,
             ) as progress:
                 task = progress.add_task("Carregando especificação OpenAPI...", total=None)
+
+                # Carrega spec original para detecção de segurança
+                if swagger.startswith(("http://", "https://")):
+                    import requests
+                    resp = requests.get(swagger, timeout=30)
+                    resp.raise_for_status()
+                    original_spec = resp.json()
+                else:
+                    path = PathLib(swagger)
+                    with path.open(encoding="utf-8") as f:
+                        if path.suffix in (".yaml", ".yml"):
+                            import yaml
+                            original_spec = yaml.safe_load(f)
+                        else:
+                            original_spec = json_module.load(f)
+
                 spec = parse_openapi(swagger, validate_spec=True, strict=False)
                 progress.update(task, description="[green]✓[/] Especificação carregada")
         else:
+            # Carrega spec original
+            if swagger.startswith(("http://", "https://")):
+                import requests
+                resp = requests.get(swagger, timeout=30)
+                resp.raise_for_status()
+                original_spec = resp.json()
+            else:
+                path = PathLib(swagger)
+                with path.open(encoding="utf-8") as f:
+                    if path.suffix in (".yaml", ".yml"):
+                        import yaml
+                        original_spec = yaml.safe_load(f)
+                    else:
+                        original_spec = json_module.load(f)
+
             spec = parse_openapi(swagger, validate_spec=True, strict=False)
 
     except Exception as e:
@@ -292,6 +343,7 @@ def plan(
         endpoints_filter = list(endpoints) if endpoints else None
         generated_plan = _generate_plan_from_spec(
             spec,
+            original_spec=original_spec,
             include_negative=include_negative,
             include_auth=include_auth,
             endpoints_filter=endpoints_filter,

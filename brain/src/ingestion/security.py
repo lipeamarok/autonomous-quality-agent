@@ -717,3 +717,298 @@ def security_to_text(analysis: SecurityAnalysis) -> str:
             lines.append(f"  - {req.scheme_name} (scopes: {scopes})")
 
     return "\n".join(lines)
+
+
+# =============================================================================
+# DETECÇÃO AUTOMÁTICA DE ENDPOINT DE LOGIN
+# =============================================================================
+
+# Padrões comuns de endpoints de login/auth
+LOGIN_ENDPOINT_PATTERNS = [
+    "/auth/login",
+    "/auth/token",
+    "/auth/signin",
+    "/api/auth/login",
+    "/api/auth/token",
+    "/api/login",
+    "/api/token",
+    "/login",
+    "/token",
+    "/signin",
+    "/oauth/token",
+    "/oauth2/token",
+    "/v1/auth/login",
+    "/v1/auth/token",
+    "/v1/login",
+    "/v1/token",
+    "/api/v1/auth/login",
+    "/api/v1/auth/token",
+    "/api/v1/login",
+    "/api/v1/token",
+]
+
+# Keywords que indicam endpoint de login
+LOGIN_KEYWORDS = ["login", "signin", "authenticate", "token", "auth"]
+
+
+@dataclass
+class LoginEndpointInfo:
+    """
+    Informações sobre um endpoint de login detectado.
+
+    ## Atributos:
+        path: Caminho do endpoint (ex: /auth/login)
+        method: Método HTTP (geralmente POST)
+        body_schema: Schema do request body esperado
+        token_path: JSONPath para extrair o token da resposta
+        confidence: Nível de confiança na detecção (0.0 a 1.0)
+    """
+
+    path: str
+    method: str = "POST"
+    body_schema: dict[str, Any] = field(default_factory=lambda: {})
+    token_path: str = "$.access_token"
+    confidence: float = 0.5
+
+
+def find_login_endpoint(spec: dict[str, Any]) -> LoginEndpointInfo | None:
+    """
+    Detecta automaticamente o endpoint de login em uma spec OpenAPI.
+
+    ## Estratégia de detecção:
+
+    1. Procura por paths que correspondem a padrões conhecidos
+    2. Verifica se o endpoint aceita POST
+    3. Analisa o request body buscando campos de credenciais
+    4. Analisa responses buscando campos de token
+
+    ## Parâmetros:
+        spec: Especificação OpenAPI (dict original, não normalizada)
+
+    ## Retorna:
+        LoginEndpointInfo com detalhes do endpoint, ou None se não encontrado
+
+    ## Exemplo:
+        >>> spec = parse_openapi("./api.yaml", validate_spec=False)
+        >>> login_info = find_login_endpoint(spec)
+        >>> if login_info:
+        ...     print(f"Login endpoint: {login_info.path}")
+    """
+    paths = spec.get("paths", {})
+
+    candidates: list[tuple[LoginEndpointInfo, float]] = []
+
+    for path, methods in paths.items():
+        # Verifica se o path corresponde a algum padrão conhecido
+        path_lower = path.lower()
+
+        # Score baseado no path
+        path_score = 0.0
+
+        # Match exato com padrões conhecidos
+        if path_lower in [p.lower() for p in LOGIN_ENDPOINT_PATTERNS]:
+            path_score = 1.0
+        # Match parcial com keywords
+        elif any(kw in path_lower for kw in LOGIN_KEYWORDS):
+            path_score = 0.7
+
+        if path_score == 0:
+            continue
+
+        # Verifica se aceita POST
+        post_details = methods.get("post") or methods.get("POST")
+        if not post_details:
+            continue
+
+        # Analisa request body
+        body_score = 0.0
+        body_schema: dict[str, Any] = {}
+
+        request_body = post_details.get("requestBody", {})
+        if request_body:
+            content = request_body.get("content", {})
+            json_content = content.get("application/json", {})
+            schema = json_content.get("schema", {})
+
+            if schema:
+                body_schema = schema
+                properties = schema.get("properties", {})
+                prop_names = [p.lower() for p in properties.keys()]
+
+                # Procura por campos de credenciais
+                has_username = any(
+                    n in prop_names
+                    for n in ["username", "email", "user", "login"]
+                )
+                has_password = any(
+                    n in prop_names
+                    for n in ["password", "pass", "secret", "pwd"]
+                )
+
+                if has_username and has_password:
+                    body_score = 1.0
+                elif has_username or has_password:
+                    body_score = 0.5
+
+        # Analisa response para encontrar token path
+        token_path = "$.access_token"
+        response_score = 0.0
+
+        responses = post_details.get("responses", {})
+        success_response = responses.get("200") or responses.get("201")
+
+        if success_response:
+            resp_content = success_response.get("content", {})
+            resp_json = resp_content.get("application/json", {})
+            resp_schema = resp_json.get("schema", {})
+
+            if resp_schema:
+                resp_props = resp_schema.get("properties", {})
+                resp_prop_names = list(resp_props.keys())
+
+                # Procura por campos de token
+                for prop_name in resp_prop_names:
+                    prop_lower = prop_name.lower()
+                    if "token" in prop_lower or "jwt" in prop_lower:
+                        if "access" in prop_lower:
+                            token_path = f"$.{prop_name}"
+                            response_score = 1.0
+                            break
+                        elif "refresh" not in prop_lower:
+                            token_path = f"$.{prop_name}"
+                            response_score = 0.8
+
+        # Calcula confiança final
+        confidence = (path_score * 0.4) + (body_score * 0.3) + (response_score * 0.3)
+
+        if confidence > 0.3:
+            info = LoginEndpointInfo(
+                path=path,
+                method="POST",
+                body_schema=body_schema,
+                token_path=token_path,
+                confidence=confidence,
+            )
+            candidates.append((info, confidence))
+
+    # Retorna o candidato com maior confiança
+    if candidates:
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return candidates[0][0]
+
+    return None
+
+
+def generate_complete_auth_flow(
+    spec: dict[str, Any],
+    *,
+    credentials: dict[str, str] | None = None,
+    login_endpoint_override: str | None = None,
+) -> tuple[list[AuthStep], dict[str, str]]:
+    """
+    Gera o fluxo completo de autenticação para uma spec OpenAPI.
+
+    Esta função combina detect_security, find_login_endpoint e generate_auth_steps
+    para criar um fluxo de autenticação completo.
+
+    ## Parâmetros:
+        spec: Especificação OpenAPI original
+        credentials: Credenciais a usar (opcional, usa variáveis de ambiente se não fornecido)
+        login_endpoint_override: Endpoint de login manual (sobrescreve detecção automática)
+
+    ## Retorna:
+        Tupla com:
+        - Lista de AuthStep (steps de autenticação)
+        - Dict com headers a adicionar em requests subsequentes
+
+    ## Exemplo:
+        >>> auth_steps, auth_headers = generate_complete_auth_flow(spec)
+        >>> if auth_steps:
+        ...     plan["steps"] = [s.step for s in auth_steps] + plan["steps"]
+        ...     plan["steps"] = inject_auth_into_steps(plan["steps"][1:], auth_headers)
+    """
+    # Detecta segurança
+    analysis = detect_security(spec)
+
+    if not analysis.has_security:
+        return [], {}
+
+    # Determina endpoint de login
+    login_endpoint = login_endpoint_override
+
+    if not login_endpoint and analysis.primary_scheme:
+        scheme = analysis.primary_scheme
+
+        # Para Bearer JWT, tenta encontrar endpoint de login
+        if scheme.security_type == SecurityType.HTTP_BEARER:
+            login_info = find_login_endpoint(spec)
+            if login_info:
+                login_endpoint = login_info.path
+
+        # Para OAuth2, usa o token_url do flow
+        elif scheme.security_type in (
+            SecurityType.OAUTH2_PASSWORD,
+            SecurityType.OAUTH2_CLIENT_CREDENTIALS,
+        ):
+            login_endpoint = scheme.details.get("token_url")
+
+    # Gera steps de autenticação
+    auth_steps = generate_auth_steps(
+        analysis,
+        login_endpoint=login_endpoint,
+        credentials=credentials,
+    )
+
+    # Determina headers de autenticação
+    auth_headers: dict[str, str] = {}
+    if auth_steps:
+        auth_headers = auth_steps[0].usage_header
+
+    return auth_steps, auth_headers
+
+
+def create_authenticated_plan_steps(
+    spec: dict[str, Any],
+    base_steps: list[dict[str, Any]],
+    *,
+    credentials: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Cria uma lista de steps com autenticação integrada.
+
+    ## Parâmetros:
+        spec: Especificação OpenAPI original
+        base_steps: Steps base do plano (sem auth)
+        credentials: Credenciais opcionais
+
+    ## Retorna:
+        Lista de steps com auth step no início e headers injetados
+
+    ## Exemplo:
+        >>> steps = create_authenticated_plan_steps(spec, base_steps)
+        >>> plan["steps"] = steps
+    """
+    auth_steps, auth_headers = generate_complete_auth_flow(spec, credentials=credentials)
+
+    if not auth_steps:
+        return base_steps
+
+    # Insere steps de auth no início
+    result_steps = [step.step for step in auth_steps]
+
+    # Injeta headers nos steps subsequentes
+    authenticated_steps = inject_auth_into_steps(base_steps, auth_headers)
+    result_steps.extend(authenticated_steps)
+
+    # Adiciona dependência do auth step nos primeiros steps
+    for step in result_steps[len(auth_steps):len(auth_steps) + 1]:
+        if "depends_on" not in step:
+            step["depends_on"] = []
+        if auth_steps and auth_steps[0].step.get("id"):
+            auth_step_id = str(auth_steps[0].step["id"])
+            depends_on: list[str] = list(step.get("depends_on", []))
+            depends_on.append(auth_step_id)
+            step["depends_on"] = depends_on
+
+    return result_steps
+

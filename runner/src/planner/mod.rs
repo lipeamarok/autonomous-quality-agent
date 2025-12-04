@@ -322,7 +322,7 @@ impl DagPlanner {
                         }
                         found_failed_dep
                     }; // Guards são dropados aqui
-                    
+
                     if let Some(dep) = failed_dep {
                         // Pula este step porque uma dependência falhou
                         info!(step_id = %step_id, failed_dep = %dep, "Skipping step due to failed dependency");
@@ -405,13 +405,13 @@ impl DagPlanner {
                     // Libera dependentes para processamento
                     // Se passou: dependentes podem executar normalmente
                     // Se falhou: dependentes serão marcados como skipped
-                    // 
+                    //
                     // NOTA: Adquirimos todos os locks necessários de uma vez para evitar deadlock
                     let dependents_to_add: Vec<String> = {
                         let nodes_guard = nodes_clone.read().await;
                         let completed_guard = completed_clone.read().await;
                         let failed_guard = failed_clone.read().await;
-                        
+
                         let mut to_add = Vec::new();
                         if let Some(node) = nodes_guard.get(&step_id) {
                             for dependent_id in &node.dependents {
@@ -430,7 +430,7 @@ impl DagPlanner {
                         }
                         to_add
                     };
-                    
+
                     // Agora adiciona à fila ready (lock separado)
                     if !dependents_to_add.is_empty() {
                         let mut ready_guard = ready_clone.lock().await;
@@ -530,27 +530,27 @@ mod tests {
         // Testa que context_before/after são preenchidos quando não há executor
         let steps = vec![create_step_with_action("unknown_step", "unknown_action")];
         let planner = DagPlanner::new(steps);
-        
+
         let mut context = Context::new();
         context.set("test_var", json!("test_value"));
-        
+
         // Sem executores, o step deve falhar com "No executor"
         let executors: Arc<Vec<Box<dyn StepExecutor + Send + Sync>>> = Arc::new(vec![]);
         let context = Arc::new(RwLock::new(context));
         let limits = ExecutionLimits::default();
-        
+
         let results = planner.execute(executors, context, limits).await;
-        
+
         assert_eq!(results.len(), 1);
         let result = &results[0];
-        
+
         assert_eq!(result.status, StepStatus::Failed);
         assert!(result.error.as_ref().unwrap().contains("No executor"));
-        
+
         // Verifica que context_before e context_after estão preenchidos
         assert!(result.context_before.is_some(), "context_before should be Some");
         assert!(result.context_after.is_some(), "context_after should be Some");
-        
+
         // Verifica que contêm a variável de teste
         let ctx_before = result.context_before.as_ref().unwrap();
         assert_eq!(ctx_before.get("test_var").unwrap(), &json!("test_value"));
@@ -580,27 +580,27 @@ mod tests {
             extract: vec![],
             recovery_policy: None,
         };
-        
+
         let planner = DagPlanner::new(vec![step_a, step_b]);
-        
+
         let mut context = Context::new();
         context.set("initial_var", json!(42));
-        
+
         let executors: Arc<Vec<Box<dyn StepExecutor + Send + Sync>>> = Arc::new(vec![]);
         let context = Arc::new(RwLock::new(context));
         let limits = ExecutionLimits::default();
-        
+
         let results = planner.execute(executors, context, limits).await;
-        
+
         assert_eq!(results.len(), 2);
-        
+
         // Encontra o step pulado
         let skipped = results.iter().find(|r| r.step_id == "step_b").unwrap();
-        
+
         assert_eq!(skipped.status, StepStatus::Skipped);
         assert!(skipped.context_before.is_some(), "Skipped step should have context_before");
         assert!(skipped.context_after.is_some(), "Skipped step should have context_after");
-        
+
         // Verifica que a variável inicial está presente
         let ctx = skipped.context_before.as_ref().unwrap();
         assert_eq!(ctx.get("initial_var").unwrap(), &json!(42));

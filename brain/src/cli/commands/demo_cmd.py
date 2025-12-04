@@ -184,7 +184,7 @@ def demo(ctx: click.Context, url: str | None, dry_run: bool, save: str | None) -
     console: Console = ctx.obj["console"]
     json_output: bool = ctx.obj.get("json_output", False)
     quiet: bool = ctx.obj.get("quiet", False)
-    
+
     # Banner
     if not quiet and not json_output:
         console.print()
@@ -195,14 +195,14 @@ def demo(ctx: click.Context, url: str | None, dry_run: bool, save: str | None) -
             border_style="cyan",
         ))
         console.print()
-    
+
     # Se URL customizada foi fornecida, mostra aviso
     if url:
         if not quiet and not json_output:
             console.print(f"[yellow]⚠️  URL customizada não implementada ainda.[/yellow]")
             console.print(f"[yellow]   Usando plano demo padrão (httpbin.org)[/yellow]")
             console.print()
-    
+
     # Mostra o plano
     if dry_run:
         if json_output:
@@ -212,7 +212,7 @@ def demo(ctx: click.Context, url: str | None, dry_run: bool, save: str | None) -
             console.print()
             console.print_json(data=DEMO_PLAN)
         return
-    
+
     # Salva se solicitado
     if save:
         save_path = Path(save)
@@ -220,7 +220,7 @@ def demo(ctx: click.Context, url: str | None, dry_run: bool, save: str | None) -
         if not quiet and not json_output:
             console.print(f"[green]✅ Plano salvo em: {save_path}[/green]")
             console.print()
-    
+
     # Executa o plano
     if not quiet and not json_output:
         console.print("[bold]🚀 Executando demo...[/bold]")
@@ -236,7 +236,7 @@ def demo(ctx: click.Context, url: str | None, dry_run: bool, save: str | None) -
         console.print("[dim]Ou execute tudo de uma vez com:[/dim]")
         console.print("  [white]aqa demo --save demo.json && aqa run demo.json[/white]")
         console.print()
-        
+
         # Mostra resumo do plano
         console.print(Panel(
             f"[bold]Plano:[/bold] {DEMO_PLAN['meta']['name']}\n"
@@ -252,7 +252,7 @@ def demo(ctx: click.Context, url: str | None, dry_run: bool, save: str | None) -
             title="📊 Resumo do Demo",
             border_style="green",
         ))
-    
+
     if json_output:
         Console().print_json(data={
             "status": "demo_ready",

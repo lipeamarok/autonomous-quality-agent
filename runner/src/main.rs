@@ -510,7 +510,7 @@ async fn execute_step_with_retry(
 
     loop {
         attempt += 1;
-        
+
         // Snapshot do contexto antes da execução
         let context_before = context.variables.clone();
 
@@ -539,7 +539,7 @@ async fn execute_step_with_retry(
             }
             Err(e) => {
                 error!(step_id = %step.id, error = %e, attempt = attempt, "Step execution failed");
-                
+
                 // Captura contexto após erro para debug
                 let context_after = context.variables.clone();
 

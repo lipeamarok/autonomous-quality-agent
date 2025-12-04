@@ -5,6 +5,8 @@ Testa:
 - Detecção de diferentes tipos de security schemes
 - Geração de steps de autenticação
 - Injeção de headers em steps existentes
+- Detecção automática de endpoints de login
+- Geração de fluxos completos de autenticação
 """
 
 import sys
@@ -18,8 +20,11 @@ from src.ingestion.security import (
     SecurityAnalysis,
     SecurityScheme,
     SecurityType,
+    create_authenticated_plan_steps,
     detect_security,
+    find_login_endpoint,
     generate_auth_steps,
+    generate_complete_auth_flow,
     get_auth_header_for_scheme,
     inject_auth_into_steps,
     security_to_text,
@@ -501,3 +506,325 @@ class TestSecurityToText:
 
         assert "oauth2" in text.lower()
         assert "/oauth/token" in text
+
+
+# =============================================================================
+# TESTES DE DETECÇÃO DE ENDPOINT DE LOGIN
+# =============================================================================
+
+
+class TestFindLoginEndpoint:
+    """Testes para find_login_endpoint."""
+
+    def test_find_auth_login_endpoint(self) -> None:
+        """Encontra endpoint /auth/login."""
+        spec: dict[str, Any] = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/auth/login": {
+                    "post": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "properties": {
+                                            "username": {"type": "string"},
+                                            "password": {"type": "string"},
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "responses": {
+                            "200": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "properties": {
+                                                "access_token": {"type": "string"},
+                                                "refresh_token": {"type": "string"},
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                    }
+                },
+                "/users": {
+                    "get": {"responses": {"200": {"description": "OK"}}}
+                },
+            },
+        }
+
+        result = find_login_endpoint(spec)
+
+        assert result is not None
+        assert result.path == "/auth/login"
+        assert result.method == "POST"
+        assert result.confidence > 0.5
+
+    def test_find_token_endpoint(self) -> None:
+        """Encontra endpoint /token."""
+        spec: dict[str, Any] = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/token": {
+                    "post": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "properties": {
+                                            "email": {"type": "string"},
+                                            "password": {"type": "string"},
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "responses": {"200": {}},
+                    }
+                },
+            },
+        }
+
+        result = find_login_endpoint(spec)
+
+        assert result is not None
+        assert result.path == "/token"
+
+    def test_find_oauth_token_endpoint(self) -> None:
+        """Encontra endpoint /oauth/token."""
+        spec: dict[str, Any] = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/oauth/token": {
+                    "post": {
+                        "responses": {
+                            "200": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "properties": {
+                                                "token": {"type": "string"},
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                    }
+                },
+            },
+        }
+
+        result = find_login_endpoint(spec)
+
+        assert result is not None
+        assert result.path == "/oauth/token"
+
+    def test_no_login_endpoint(self) -> None:
+        """Retorna None quando não há endpoint de login."""
+        spec: dict[str, Any] = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/users": {"get": {"responses": {"200": {}}}},
+                "/products": {"get": {"responses": {"200": {}}}},
+            },
+        }
+
+        result = find_login_endpoint(spec)
+
+        assert result is None
+
+    def test_extracts_token_path(self) -> None:
+        """Extrai JSONPath correto para o token."""
+        spec: dict[str, Any] = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/auth/login": {
+                    "post": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "properties": {
+                                            "username": {"type": "string"},
+                                            "password": {"type": "string"},
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "responses": {
+                            "200": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "properties": {
+                                                "jwt_access_token": {"type": "string"},
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                    }
+                },
+            },
+        }
+
+        result = find_login_endpoint(spec)
+
+        assert result is not None
+        assert "jwt_access_token" in result.token_path
+
+
+class TestGenerateCompleteAuthFlow:
+    """Testes para generate_complete_auth_flow."""
+
+    def test_no_auth_when_no_security(self) -> None:
+        """Retorna vazio quando não há segurança."""
+        spec: dict[str, Any] = {
+            "openapi": "3.0.0",
+            "paths": {"/users": {"get": {}}},
+        }
+
+        auth_steps, auth_headers = generate_complete_auth_flow(spec)
+
+        assert len(auth_steps) == 0
+        assert len(auth_headers) == 0
+
+    def test_generates_bearer_auth_flow(self) -> None:
+        """Gera fluxo completo para Bearer JWT."""
+        spec: dict[str, Any] = {
+            "openapi": "3.0.0",
+            "components": {
+                "securitySchemes": {
+                    "bearerAuth": {
+                        "type": "http",
+                        "scheme": "bearer",
+                    }
+                }
+            },
+            "paths": {
+                "/auth/login": {
+                    "post": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "properties": {
+                                            "username": {"type": "string"},
+                                            "password": {"type": "string"},
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "responses": {"200": {}},
+                    }
+                },
+            },
+        }
+
+        auth_steps, auth_headers = generate_complete_auth_flow(spec)
+
+        assert len(auth_steps) == 1
+        assert auth_steps[0].step["action"]["endpoint"] == "/auth/login"
+        assert "Authorization" in auth_headers
+
+    def test_uses_login_endpoint_override(self) -> None:
+        """Usa endpoint de login fornecido manualmente."""
+        spec: dict[str, Any] = {
+            "openapi": "3.0.0",
+            "components": {
+                "securitySchemes": {
+                    "bearerAuth": {"type": "http", "scheme": "bearer"}
+                }
+            },
+            "paths": {},
+        }
+
+        auth_steps, _ = generate_complete_auth_flow(
+            spec, login_endpoint_override="/custom/login"
+        )
+
+        assert len(auth_steps) == 1
+        assert auth_steps[0].step["action"]["endpoint"] == "/custom/login"
+
+
+class TestCreateAuthenticatedPlanSteps:
+    """Testes para create_authenticated_plan_steps."""
+
+    def test_returns_original_when_no_auth(self) -> None:
+        """Retorna steps originais quando não há auth."""
+        spec: dict[str, Any] = {"openapi": "3.0.0", "paths": {}}
+        base_steps: list[dict[str, Any]] = [{"id": "step-1", "action": {"type": "http"}}]
+
+        result = create_authenticated_plan_steps(spec, base_steps)
+
+        assert result == base_steps
+
+    def test_prepends_auth_step(self) -> None:
+        """Adiciona step de auth no início."""
+        spec: dict[str, Any] = {
+            "openapi": "3.0.0",
+            "components": {
+                "securitySchemes": {
+                    "apiKey": {"type": "apiKey", "in": "header", "name": "X-API-Key"}
+                }
+            },
+            "paths": {},
+        }
+        base_steps: list[dict[str, Any]] = [
+            {"id": "step-1", "action": {"type": "http", "endpoint": "/users"}}
+        ]
+
+        result = create_authenticated_plan_steps(spec, base_steps)
+
+        # Primeiro step deve ser auth
+        assert result[0]["id"] == "auth-setup"
+        # Segundo step deve ser o original
+        assert result[1]["id"] == "step-1"
+
+    def test_injects_auth_headers(self) -> None:
+        """Injeta headers de auth nos steps HTTP."""
+        spec: dict[str, Any] = {
+            "openapi": "3.0.0",
+            "components": {
+                "securitySchemes": {
+                    "bearerAuth": {"type": "http", "scheme": "bearer"}
+                }
+            },
+            "paths": {
+                "/login": {
+                    "post": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "properties": {
+                                            "username": {"type": "string"},
+                                            "password": {"type": "string"},
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "responses": {"200": {}},
+                    }
+                }
+            },
+        }
+        base_steps: list[dict[str, Any]] = [
+            {"id": "step-1", "action": {"type": "http", "endpoint": "/users"}}
+        ]
+
+        result = create_authenticated_plan_steps(spec, base_steps)
+
+        # Verifica que o step HTTP tem header de Authorization
+        http_step = result[-1]
+        assert "headers" in http_step["action"]
+        assert "Authorization" in http_step["action"]["headers"]

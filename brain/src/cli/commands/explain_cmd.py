@@ -36,46 +36,46 @@ def _explain_step(step: dict[str, Any], index: int) -> str:
     step_id = step.get("id", f"step_{index}")
     action = step.get("action", "unknown")
     description = step.get("description", "")
-    
+
     params = step.get("params", {})
     method = params.get("method", "GET")
     path = params.get("path", "/")
-    
+
     lines: list[str] = []
     lines.append(f"📍 **Step {index + 1}: {step_id}**")
-    
+
     if description:
         lines.append(f"   {description}")
-    
+
     if action == "http_request":
         lines.append(f"   Faz requisição {method} para `{path}`")
-        
+
         if params.get("body"):
             lines.append("   Envia body JSON")
-        
+
         if params.get("headers"):
             lines.append(f"   Com {len(params['headers'])} header(s) customizado(s)")
-    
+
     elif action in ("wait", "sleep"):
         duration = params.get("duration_ms", params.get("ms", 0))
         lines.append(f"   Aguarda {duration}ms")
-    
+
     # Assertions
     assertions = step.get("assertions", [])
     if assertions:
         lines.append(f"   ✓ Verifica {len(assertions)} assertion(s)")
-    
+
     # Extractions
     extracts = step.get("extract", [])
     if extracts:
         targets = [e.get("target", "?") for e in extracts]
         lines.append(f"   📤 Extrai: {', '.join(targets)}")
-    
+
     # Dependencies
     deps = step.get("depends_on", [])
     if deps:
         lines.append(f"   ⏳ Depende de: {', '.join(deps)}")
-    
+
     return "\n".join(lines)
 
 
@@ -84,7 +84,7 @@ def _explain_plan_json(plan: dict[str, Any]) -> dict[str, Any]:
     meta = plan.get("meta", {})
     config = plan.get("config", {})
     steps = plan.get("steps", [])
-    
+
     return {
         "plan": {
             "id": meta.get("id", "unknown"),
@@ -136,9 +136,9 @@ def explain(ctx: click.Context, file: str, detailed: bool) -> None:
     """
     console: Console = ctx.obj["console"]
     json_output: bool = ctx.obj.get("json_output", False)
-    
+
     path = Path(file)
-    
+
     try:
         content = path.read_text(encoding="utf-8")
         plan = json.loads(content)
@@ -154,17 +154,17 @@ def explain(ctx: click.Context, file: str, detailed: bool) -> None:
         else:
             console.print(f"[red]❌ Erro: {e}[/red]")
         raise SystemExit(1)
-    
+
     # Saída JSON
     if json_output:
         Console().print_json(data=_explain_plan_json(plan))
         return
-    
+
     # Saída formatada
     meta = plan.get("meta", {})
     config = plan.get("config", {})
     steps = plan.get("steps", [])
-    
+
     # Header
     console.print()
     console.print(Panel(
@@ -173,11 +173,11 @@ def explain(ctx: click.Context, file: str, detailed: bool) -> None:
         title="📋 Explicação do Plano",
         border_style="cyan",
     ))
-    
+
     # Config
     console.print()
     console.print(f"[bold]🌐 Base URL:[/bold] {config.get('base_url', 'N/A')}")
-    
+
     variables = config.get("variables", {})
     if variables:
         console.print(f"[bold]📦 Variáveis:[/bold] {len(variables)} definida(s)")
@@ -185,21 +185,21 @@ def explain(ctx: click.Context, file: str, detailed: bool) -> None:
             for k, v in variables.items():
                 val_str = str(v)[:50] + "..." if len(str(v)) > 50 else str(v)
                 console.print(f"   • {k} = {val_str}")
-    
+
     # Steps
     console.print()
     console.print(f"[bold]📝 Steps ({len(steps)}):[/bold]")
     console.print()
-    
+
     for i, step in enumerate(steps):
         explanation = _explain_step(step, i)
         console.print(explanation)
         console.print()
-    
+
     # Summary
     http_count = sum(1 for s in steps if s.get("action") == "http_request")
     wait_count = sum(1 for s in steps if s.get("action") in ("wait", "sleep"))
-    
+
     console.print(Panel(
         f"[bold]Total:[/bold] {len(steps)} steps\n"
         f"[bold]HTTP Requests:[/bold] {http_count}\n"
