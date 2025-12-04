@@ -141,6 +141,34 @@ class AuthStep:
     usage_header: dict[str, str] = field(default_factory=lambda: {})
 
 
+@dataclass
+class AuthFlowResult:
+    """
+    Resultado de geração de fluxo de autenticação.
+
+    Esta classe encapsula todos os resultados da geração de autenticação
+    em um formato conveniente para uso no CLI e integrações.
+
+    ## Atributos:
+        auth_steps: Lista de dicts representando steps UTDL de auth
+        auth_headers: Headers a adicionar em requests autenticados
+        security_type: Tipo de segurança detectado
+        scheme_name: Nome do esquema utilizado
+        has_refresh: Se inclui step de refresh token
+    """
+
+    auth_steps: list[dict[str, Any]] = field(default_factory=lambda: [])
+    auth_headers: dict[str, str] = field(default_factory=lambda: {})
+    security_type: str = ""
+    scheme_name: str = ""
+    has_refresh: bool = False
+
+    @property
+    def has_auth(self) -> bool:
+        """Retorna True se há steps de autenticação."""
+        return len(self.auth_steps) > 0
+
+
 # =============================================================================
 # FUNÇÕES DE DETECÇÃO
 # =============================================================================
@@ -606,6 +634,90 @@ def _generate_oauth2_client_credentials_step(
     )
 
 
+def generate_refresh_token_step(
+    scheme: SecurityScheme,
+    token_url: str | None = None,
+    credentials: dict[str, str] | None = None,
+) -> AuthStep:
+    """
+    Gera step para renovar token usando refresh_token.
+
+    ## Para todos entenderem:
+    Tokens de acesso expiram. Quando isso acontece, em vez de pedir
+    login novamente, usamos o refresh_token para obter um novo
+    access_token sem precisar das credenciais originais.
+
+    ## Parâmetros:
+        scheme: Esquema de segurança (OAuth2 ou Bearer)
+        token_url: URL do endpoint de token (opcional)
+        credentials: Credenciais adicionais como client_id (opcional)
+
+    ## Retorna:
+        AuthStep com step de refresh configurado
+
+    ## Exemplo:
+        >>> refresh_step = generate_refresh_token_step(scheme, "/oauth/token")
+        >>> # O step usa ${refresh_token} extraído do login anterior
+    """
+    creds = credentials or {}
+    endpoint = token_url or scheme.details.get("token_url", "/oauth/token")
+    client_id = creds.get("client_id", "${CLIENT_ID}")
+    client_secret = creds.get("client_secret", "${CLIENT_SECRET}")
+
+    return AuthStep(
+        step={
+            "id": "auth-refresh-token",
+            "name": "Refresh Token - Renovar Access Token",
+            "description": "Renova o access_token usando refresh_token quando expirado",
+            "action": {
+                "type": "http",
+                "method": "POST",
+                "endpoint": endpoint,
+                "headers": {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                "body": {
+                    "grant_type": "refresh_token",
+                    "refresh_token": "${refresh_token}",
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                },
+            },
+            "expected": {
+                "status_code": 200,
+            },
+            "extract": [
+                {
+                    "name": "access_token",
+                    "from": "body",
+                    "path": "$.access_token",
+                    "critical": True,
+                },
+                {
+                    "name": "refresh_token",
+                    "from": "body",
+                    "path": "$.refresh_token",
+                    # Refresh token pode vir novo ou não
+                },
+                {
+                    "name": "expires_in",
+                    "from": "body",
+                    "path": "$.expires_in",
+                },
+            ],
+        },
+        extractions=[
+            {"name": "access_token", "path": "$.access_token"},
+            {"name": "refresh_token", "path": "$.refresh_token"},
+        ],
+        variables={
+            "access_token": "${access_token}",
+            "refresh_token": "${refresh_token}",
+        },
+        usage_header={"Authorization": "Bearer ${access_token}"},
+    )
+
+
 # =============================================================================
 # FUNÇÕES DE UTILIDADE
 # =============================================================================
@@ -904,7 +1016,9 @@ def generate_complete_auth_flow(
     *,
     credentials: dict[str, str] | None = None,
     login_endpoint_override: str | None = None,
-) -> tuple[list[AuthStep], dict[str, str]]:
+    security_scheme_name: str | None = None,
+    include_refresh_token: bool = False,
+) -> AuthFlowResult:
     """
     Gera o fluxo completo de autenticação para uma spec OpenAPI.
 
@@ -915,29 +1029,48 @@ def generate_complete_auth_flow(
         spec: Especificação OpenAPI original
         credentials: Credenciais a usar (opcional, usa variáveis de ambiente se não fornecido)
         login_endpoint_override: Endpoint de login manual (sobrescreve detecção automática)
+        security_scheme_name: Nome do esquema de segurança específico a usar
+        include_refresh_token: Se True, adiciona step de refresh token para OAuth2
 
     ## Retorna:
-        Tupla com:
-        - Lista de AuthStep (steps de autenticação)
-        - Dict com headers a adicionar em requests subsequentes
+        AuthFlowResult contendo:
+        - auth_steps: Lista de dicts representando steps UTDL
+        - auth_headers: Headers para adicionar em requests
+        - security_type: Tipo de segurança detectado
+        - scheme_name: Nome do esquema
+        - has_refresh: Se inclui refresh token
 
     ## Exemplo:
-        >>> auth_steps, auth_headers = generate_complete_auth_flow(spec)
-        >>> if auth_steps:
-        ...     plan["steps"] = [s.step for s in auth_steps] + plan["steps"]
-        ...     plan["steps"] = inject_auth_into_steps(plan["steps"][1:], auth_headers)
+        >>> result = generate_complete_auth_flow(spec, include_refresh_token=True)
+        >>> if result.has_auth:
+        ...     plan["steps"] = result.auth_steps + plan["steps"]
     """
     # Detecta segurança
     analysis = detect_security(spec)
 
     if not analysis.has_security:
-        return [], {}
+        return AuthFlowResult()
+
+    # Seleciona esquema específico se solicitado
+    target_scheme = analysis.primary_scheme
+    if security_scheme_name and analysis.schemes:
+        matching = [s for s in analysis.schemes.values() if s.name == security_scheme_name]
+        if matching:
+            target_scheme = matching[0]
+            # Cria nova análise com esse esquema como primário
+            analysis = SecurityAnalysis(
+                has_security=True,
+                schemes=analysis.schemes,
+                global_requirements=analysis.global_requirements,
+                endpoint_requirements=analysis.endpoint_requirements,
+                primary_scheme=target_scheme,
+            )
 
     # Determina endpoint de login
     login_endpoint = login_endpoint_override
 
-    if not login_endpoint and analysis.primary_scheme:
-        scheme = analysis.primary_scheme
+    if not login_endpoint and target_scheme:
+        scheme = target_scheme
 
         # Para Bearer JWT, tenta encontrar endpoint de login
         if scheme.security_type == SecurityType.HTTP_BEARER:
@@ -959,12 +1092,180 @@ def generate_complete_auth_flow(
         credentials=credentials,
     )
 
+    # Adiciona step de refresh token se solicitado e aplicável
+    has_refresh = False
+    if include_refresh_token and target_scheme and auth_steps:
+        if target_scheme.security_type in (
+            SecurityType.OAUTH2_PASSWORD,
+            SecurityType.OAUTH2_CLIENT_CREDENTIALS,
+            SecurityType.OAUTH2_AUTHORIZATION_CODE,
+        ):
+            # Extrai token_url do scheme
+            token_url = target_scheme.details.get("token_url")
+            if token_url:
+                refresh_step = generate_refresh_token_step(
+                    scheme=target_scheme,
+                    token_url=token_url,
+                )
+                auth_steps.append(refresh_step)
+                has_refresh = True
+
     # Determina headers de autenticação
     auth_headers: dict[str, str] = {}
     if auth_steps:
         auth_headers = auth_steps[0].usage_header
 
-    return auth_steps, auth_headers
+    # Converte AuthSteps para dicts para facilitar uso
+    auth_step_dicts = [step.step for step in auth_steps]
+
+    return AuthFlowResult(
+        auth_steps=auth_step_dicts,
+        auth_headers=auth_headers,
+        security_type=target_scheme.security_type.value if target_scheme else "",
+        scheme_name=target_scheme.name if target_scheme else "",
+        has_refresh=has_refresh,
+    )
+
+
+def generate_complete_auth_flow_multi(
+    spec: dict[str, Any],
+    *,
+    credentials: dict[str, str] | None = None,
+    login_endpoint_override: str | None = None,
+    include_refresh_token: bool = False,
+    scheme_names: list[str] | None = None,
+) -> AuthFlowResult:
+    """
+    Gera fluxo de autenticação com suporte a múltiplos esquemas e refresh tokens.
+
+    Esta é a versão avançada que suporta:
+    - Múltiplos esquemas de segurança simultaneamente
+    - Geração de steps de refresh token
+    - Seleção de esquemas específicos
+
+    ## Parâmetros:
+        spec: Especificação OpenAPI original
+        credentials: Credenciais a usar (opcional)
+        login_endpoint_override: Endpoint de login manual
+        include_refresh_token: Se True, inclui step de refresh token
+        scheme_names: Lista de nomes de schemes a usar (None = usa primary)
+
+    ## Retorna:
+        AuthFlowResult contendo:
+        - auth_steps: Lista de dicts representando steps UTDL
+        - auth_headers: Headers para adicionar em requests
+        - security_type: Tipo de segurança (do primeiro esquema)
+        - scheme_name: Nomes dos esquemas usados
+        - has_refresh: Se inclui refresh token
+
+    ## Exemplo:
+        >>> # Com refresh token
+        >>> result = generate_complete_auth_flow_multi(
+        ...     spec, include_refresh_token=True
+        ... )
+        >>>
+        >>> # Com múltiplos schemes
+        >>> result = generate_complete_auth_flow_multi(
+        ...     spec, scheme_names=["bearerAuth", "apiKey"]
+        ... )
+    """
+    analysis = detect_security(spec)
+
+    if not analysis.has_security:
+        return AuthFlowResult()
+
+    # Determina quais schemes usar
+    schemes_to_use: list[SecurityScheme] = []
+
+    if scheme_names:
+        for name in scheme_names:
+            if name in analysis.schemes:
+                schemes_to_use.append(analysis.schemes[name])
+    else:
+        # Usa scheme primário
+        if analysis.primary_scheme:
+            schemes_to_use.append(analysis.primary_scheme)
+
+    if not schemes_to_use:
+        return AuthFlowResult()
+
+    all_auth_steps: list[AuthStep] = []
+    combined_headers: dict[str, str] = {}
+    has_refresh = False
+
+    for scheme in schemes_to_use:
+        # Determina endpoint de login para cada scheme
+        login_endpoint = login_endpoint_override
+
+        if not login_endpoint:
+            if scheme.security_type == SecurityType.HTTP_BEARER:
+                login_info = find_login_endpoint(spec)
+                if login_info:
+                    login_endpoint = login_info.path
+
+            elif scheme.security_type in (
+                SecurityType.OAUTH2_PASSWORD,
+                SecurityType.OAUTH2_CLIENT_CREDENTIALS,
+            ):
+                login_endpoint = scheme.details.get("token_url")
+
+        # Gera step de auth
+        single_analysis = SecurityAnalysis(
+            schemes={scheme.name: scheme},
+            has_security=True,
+            primary_scheme=scheme,
+        )
+
+        auth_steps = generate_auth_steps(
+            single_analysis,
+            login_endpoint=login_endpoint,
+            credentials=credentials,
+        )
+
+        if auth_steps:
+            # Gera IDs únicos se há múltiplos schemes
+            if len(schemes_to_use) > 1:
+                for step in auth_steps:
+                    step.step["id"] = f"{step.step['id']}-{scheme.name}"
+
+            all_auth_steps.extend(auth_steps)
+            combined_headers.update(auth_steps[0].usage_header)
+
+            # Adiciona refresh token se solicitado e aplicável
+            if include_refresh_token and scheme.security_type in (
+                SecurityType.HTTP_BEARER,
+                SecurityType.OAUTH2_PASSWORD,
+                SecurityType.OAUTH2_CLIENT_CREDENTIALS,
+            ):
+                token_url = scheme.details.get("token_url")
+                if token_url:
+                    refresh_step = generate_refresh_token_step(
+                        scheme=scheme,
+                        token_url=token_url,
+                    )
+                    # Adiciona dependência do login
+                    if auth_steps:
+                        refresh_step.step["depends_on"] = [auth_steps[0].step["id"]]
+                        # ID único para refresh
+                        refresh_step.step["id"] = f"auth-refresh-{scheme.name}"
+
+                    all_auth_steps.append(refresh_step)
+                    has_refresh = True
+
+    # Converte AuthSteps para dicts
+    auth_step_dicts = [step.step for step in all_auth_steps]
+
+    # Determina tipo e nome do primeiro scheme
+    security_type = schemes_to_use[0].security_type.value if schemes_to_use else ""
+    scheme_name = ", ".join(s.name for s in schemes_to_use) if schemes_to_use else ""
+
+    return AuthFlowResult(
+        auth_steps=auth_step_dicts,
+        auth_headers=combined_headers,
+        security_type=security_type,
+        scheme_name=scheme_name,
+        has_refresh=has_refresh,
+    )
 
 
 def create_authenticated_plan_steps(
@@ -972,6 +1273,7 @@ def create_authenticated_plan_steps(
     base_steps: list[dict[str, Any]],
     *,
     credentials: dict[str, str] | None = None,
+    include_refresh: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Cria uma lista de steps com autenticação integrada.
@@ -980,6 +1282,7 @@ def create_authenticated_plan_steps(
         spec: Especificação OpenAPI original
         base_steps: Steps base do plano (sem auth)
         credentials: Credenciais opcionais
+        include_refresh: Se True, inclui step de refresh token
 
     ## Retorna:
         Lista de steps com auth step no início e headers injetados
@@ -988,26 +1291,33 @@ def create_authenticated_plan_steps(
         >>> steps = create_authenticated_plan_steps(spec, base_steps)
         >>> plan["steps"] = steps
     """
-    auth_steps, auth_headers = generate_complete_auth_flow(spec, credentials=credentials)
+    result = generate_complete_auth_flow_multi(
+        spec, credentials=credentials, include_refresh_token=include_refresh
+    )
 
-    if not auth_steps:
+    if not result.has_auth:
         return base_steps
 
     # Insere steps de auth no início
-    result_steps = [step.step for step in auth_steps]
+    result_steps = list(result.auth_steps)
 
     # Injeta headers nos steps subsequentes
-    authenticated_steps = inject_auth_into_steps(base_steps, auth_headers)
+    authenticated_steps = inject_auth_into_steps(base_steps, result.auth_headers)
     result_steps.extend(authenticated_steps)
 
     # Adiciona dependência do auth step nos primeiros steps
-    for step in result_steps[len(auth_steps):len(auth_steps) + 1]:
-        if "depends_on" not in step:
-            step["depends_on"] = []
-        if auth_steps and auth_steps[0].step.get("id"):
-            auth_step_id = str(auth_steps[0].step["id"])
+    # (ignora refresh steps, que são para uso manual/condicional)
+    auth_login_steps = [s for s in result.auth_steps if "refresh" not in s.get("id", "")]
+    if auth_login_steps:
+        first_base_step_idx = len(result.auth_steps)
+        if first_base_step_idx < len(result_steps):
+            step = result_steps[first_base_step_idx]
+            if "depends_on" not in step:
+                step["depends_on"] = []
+            auth_step_id = str(auth_login_steps[-1]["id"])
             depends_on: list[str] = list(step.get("depends_on", []))
-            depends_on.append(auth_step_id)
+            if auth_step_id not in depends_on:
+                depends_on.append(auth_step_id)
             step["depends_on"] = depends_on
 
     return result_steps

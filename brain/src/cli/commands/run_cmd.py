@@ -133,6 +133,18 @@ def _print_json_result(console: Console, result: RunnerResult) -> None:
     help="Timeout global em segundos (padrão: 300)"
 )
 @click.option(
+    "--max-steps",
+    type=int,
+    default=None,
+    help="Máximo de steps a executar (None = sem limite)"
+)
+@click.option(
+    "--max-retries",
+    type=int,
+    default=3,
+    help="Máximo de retries por step em caso de falha (padrão: 3)"
+)
+@click.option(
     "--runner-path",
     type=click.Path(),
     help="Caminho explícito para o binário Runner"
@@ -154,6 +166,8 @@ def run(
     save_plan: str | None,
     parallel: bool,
     timeout: int,
+    max_steps: int | None,
+    max_retries: int,
     runner_path: str | None,
     normalize: bool,
 ) -> None:
@@ -314,8 +328,17 @@ def run(
     try:
         if quiet or json_output:
             # Execução silenciosa
-            result: RunnerResult = run_plan(plan, runner_path=str(runner_binary))
+            result: RunnerResult = run_plan(
+                plan,
+                runner_path=str(runner_binary),
+                timeout=timeout,
+                max_steps=max_steps,
+                max_retries=max_retries,
+            )
         else:
+            # Calcula total de steps a executar
+            steps_to_run = max_steps if max_steps and max_steps < len(plan.steps) else len(plan.steps)
+            
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -325,11 +348,17 @@ def run(
             ) as progress:
                 task = progress.add_task(
                     "[cyan]Executando steps...[/cyan]",
-                    total=len(plan.steps)
+                    total=steps_to_run
                 )
 
-                result = run_plan(plan, runner_path=str(runner_binary))
-                progress.update(task, completed=len(plan.steps))
+                result = run_plan(
+                    plan,
+                    runner_path=str(runner_binary),
+                    timeout=timeout,
+                    max_steps=max_steps,
+                    max_retries=max_retries,
+                )
+                progress.update(task, completed=steps_to_run)
 
     except RuntimeError as e:
         if json_output:

@@ -522,7 +522,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=90,  # Increased for slow network conditions
         )
 
         # Verbose deve funcionar

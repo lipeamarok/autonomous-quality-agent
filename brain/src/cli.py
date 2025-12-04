@@ -235,7 +235,7 @@ def run_generate(args: Namespace) -> None:
 
     try:
         # Cria gerador e gera plano
-        generator = UTDLGenerator(model=args.model)
+        generator = UTDLGenerator(provider=args.model)
         plan = generator.generate(requirement, base_url)
 
         # Serializa para JSON
@@ -285,7 +285,7 @@ def run_full(args: Namespace) -> None:
     print(f"🧠 Gerando plano UTDL usando {args.model}...", file=sys.stderr)
 
     try:
-        generator = UTDLGenerator(model=args.model)
+        generator = UTDLGenerator(provider=args.model)
         plan = generator.generate(requirement, base_url)
 
         # Opcionalmente salva o plano

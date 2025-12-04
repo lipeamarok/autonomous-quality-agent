@@ -67,6 +67,9 @@ from ..validator import Plan
 # Prompts: Os templates de texto que enviamos ao LLM
 from .prompts import ERROR_CORRECTION_PROMPT, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 
+# Cache: Sistema de cache para evitar chamadas repetidas ao LLM
+from ..cache import PlanCache
+
 
 # =============================================================================
 # CLASSE PRINCIPAL - UTDLGenerator
@@ -90,6 +93,13 @@ class UTDLGenerator:
     - A classe valida se o JSON está correto
     - Se não estiver, a classe pede correção automaticamente
 
+    ## Cache de Planos:
+    
+    Para economizar custos e garantir determinismo, o gerador cacheia
+    resultados baseado no hash da requisição (requirements + base_url +
+    provider + model). Se o mesmo input for passado novamente, retorna
+    o plano cacheado sem chamar o LLM.
+
     ## Provedores com Fallback:
 
     O gerador tenta primeiro o provedor primário (OpenAI GPT-5.1).
@@ -99,11 +109,15 @@ class UTDLGenerator:
         provider: Provedor LLM com suporte a fallback
         max_correction_attempts: Máximo de tentativas de correção
         verbose: Se True, loga detalhes das chamadas
+        cache: Cache de planos para evitar regeneração
 
     ## Exemplo:
         >>> generator = UTDLGenerator()  # Usa GPT-5.1 por padrão
         >>> plan = generator.generate("Testar API de login", "https://api.example.com")
         >>> print(plan.to_json())
+        
+        >>> # Segunda chamada com mesmo input: retorna do cache!
+        >>> plan2 = generator.generate("Testar API de login", "https://api.example.com")
     """
 
     def __init__(
@@ -112,6 +126,8 @@ class UTDLGenerator:
         max_correction_attempts: int = 3,
         temperature: float = 0.2,
         verbose: bool = False,
+        cache_enabled: bool = True,
+        cache: PlanCache | None = None,
     ) -> None:
         """
         Inicializa o gerador UTDL.
@@ -128,6 +144,8 @@ class UTDLGenerator:
             max_correction_attempts: Quantas vezes tentar corrigir erros
             temperature: Quão "criativa" a IA deve ser (0.0-2.0)
             verbose: Se True, mostra logs detalhados
+            cache_enabled: Se True, usa cache (default: True)
+            cache: Instância de PlanCache (None = usa default)
         """
         # Converte string para ProviderName se necessário
         if provider is None:
@@ -147,11 +165,29 @@ class UTDLGenerator:
         self.max_correction_attempts = max_correction_attempts
         self.verbose = verbose
         self._last_provider_used: ProviderName | None = None
+        
+        # Configura cache
+        self._cache_enabled = cache_enabled
+        if cache is not None:
+            self._cache = cache
+        elif cache_enabled:
+            # Usa cache global por padrão com TTL de 30 dias
+            self._cache = PlanCache.global_cache(
+                enabled=True,
+                ttl_days=30,
+                compress=True,
+            )
+        else:
+            self._cache = PlanCache(enabled=False)
+        
+        # Guarda info do provider para o hash do cache
+        self._primary_provider = primary
 
     def generate(
         self,
         requirement: str,
         base_url: str = "https://api.example.com",
+        skip_cache: bool = False,
     ) -> Plan:
         """
         Gera um plano UTDL validado a partir de uma descrição de requisitos.
@@ -160,20 +196,31 @@ class UTDLGenerator:
         Esta é a função principal! Você passa uma descrição do que quer
         testar e ela retorna um plano de testes completo e validado.
 
+        ## Cache de Planos:
+        
+        Por padrão, o gerador verifica se já existe um plano cacheado
+        para o mesmo input (requirements + base_url + provider + model).
+        Se existir e não estiver expirado, retorna do cache sem chamar
+        o LLM. Use `skip_cache=True` para forçar nova geração.
+
         ## Como funciona internamente:
-        1. Formata o prompt com os requisitos do usuário
-        2. Envia para o LLM e recebe JSON bruto
-        3. Tenta validar o JSON
-        4. Se falhar, entra no loop de correção:
+        1. Verifica se existe plano no cache
+        2. Se sim, retorna do cache (rápido e grátis!)
+        3. Se não, formata o prompt com os requisitos do usuário
+        4. Envia para o LLM e recebe JSON bruto
+        5. Tenta validar o JSON
+        6. Se falhar, entra no loop de correção:
            - Envia os erros de volta para o LLM
            - LLM corrige e retorna novo JSON
            - Repete até validar ou esgotar tentativas
+        7. Armazena plano válido no cache
 
         ## Parâmetros:
             requirement: Descrição em linguagem natural do que testar
                 Exemplo: "Testar o fluxo de login com email e senha"
             base_url: URL base da API sob teste
                 Exemplo: "https://api.meusite.com"
+            skip_cache: Se True, ignora cache e força nova geração
 
         ## Retorna:
             Objeto Plan validado e pronto para execução pelo Runner
@@ -182,6 +229,31 @@ class UTDLGenerator:
             ValueError: Se não conseguir gerar um plano válido após
                         todas as tentativas de correção
         """
+        provider_name = self._primary_provider.value
+        model_name = self._provider.primary_model
+        
+        # =====================================================================
+        # PASSO 1: Verificar cache
+        # =====================================================================
+        
+        if self._cache_enabled and not skip_cache:
+            cached_plan = self._cache.get(
+                requirements=requirement,
+                base_url=base_url,
+                provider=provider_name,
+                model=model_name,
+            )
+            
+            if cached_plan is not None:
+                if self.verbose:
+                    print(f"[Cache HIT] Retornando plano do cache")
+                # Converte dict para Plan
+                return Plan.model_validate(cached_plan)
+        
+        # =====================================================================
+        # PASSO 2: Gerar via LLM
+        # =====================================================================
+        
         # Formata o prompt do usuário usando o template
         # .format() substitui {requirement} e {base_url} pelos valores reais
         user_prompt = USER_PROMPT_TEMPLATE.format(
@@ -203,8 +275,20 @@ class UTDLGenerator:
             # Retorna (Plan, None) se válido ou (None, "erros") se inválido
             plan, errors = self._validate_json(raw_json)
 
-            # Se validou com sucesso, retorna o plano!
+            # Se validou com sucesso, armazena no cache e retorna!
             if plan is not None:
+                # Armazena no cache para próximas chamadas
+                if self._cache_enabled:
+                    self._cache.store(
+                        requirements=requirement,
+                        base_url=base_url,
+                        plan=plan.model_dump(mode="json"),
+                        provider=provider_name,
+                        model=model_name,
+                    )
+                    if self.verbose:
+                        print(f"[Cache STORE] Plano armazenado no cache")
+                
                 return plan
 
             # Guarda os erros para possível mensagem final
@@ -227,6 +311,63 @@ class UTDLGenerator:
             f"Falha ao gerar UTDL válido após {self.max_correction_attempts} tentativas. "
             f"Últimos erros: {last_errors}"
         )
+    
+    def invalidate_cache(
+        self,
+        requirement: str,
+        base_url: str,
+    ) -> bool:
+        """
+        Remove plano específico do cache (invalidação manual).
+        
+        Útil quando você sabe que o plano cacheado está desatualizado
+        e quer forçar regeneração.
+        
+        ## Parâmetros:
+            requirement: Descrição usada na geração original
+            base_url: URL base usada na geração original
+            
+        ## Retorna:
+            True se entry foi removida, False se não existia
+        """
+        if not self._cache_enabled:
+            return False
+        
+        return self._cache.invalidate(
+            requirements=requirement,
+            base_url=base_url,
+            provider=self._primary_provider.value,
+            model=self._provider.primary_model,
+        )
+    
+    def clear_cache(self) -> int:
+        """
+        Limpa todo o cache de planos.
+        
+        ## Retorna:
+            Número de entries removidas
+        """
+        if not self._cache_enabled:
+            return 0
+        
+        return self._cache.clear()
+    
+    def cache_stats(self) -> dict:
+        """
+        Retorna estatísticas do cache.
+        
+        ## Retorna:
+            Dict com enabled, entries, expired_entries, size_bytes, etc.
+        """
+        stats = self._cache.stats()
+        return {
+            "enabled": stats.enabled,
+            "entries": stats.entries,
+            "expired_entries": stats.expired_entries,
+            "size_bytes": stats.size_bytes,
+            "compressed_entries": stats.compressed_entries,
+            "cache_dir": stats.cache_dir,
+        }
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         """

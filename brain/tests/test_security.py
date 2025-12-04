@@ -691,10 +691,11 @@ class TestGenerateCompleteAuthFlow:
             "paths": {"/users": {"get": {}}},
         }
 
-        auth_steps, auth_headers = generate_complete_auth_flow(spec)
+        result = generate_complete_auth_flow(spec)
 
-        assert len(auth_steps) == 0
-        assert len(auth_headers) == 0
+        assert len(result.auth_steps) == 0
+        assert len(result.auth_headers) == 0
+        assert not result.has_auth
 
     def test_generates_bearer_auth_flow(self) -> None:
         """Gera fluxo completo para Bearer JWT."""
@@ -729,11 +730,12 @@ class TestGenerateCompleteAuthFlow:
             },
         }
 
-        auth_steps, auth_headers = generate_complete_auth_flow(spec)
+        result = generate_complete_auth_flow(spec)
 
-        assert len(auth_steps) == 1
-        assert auth_steps[0].step["action"]["endpoint"] == "/auth/login"
-        assert "Authorization" in auth_headers
+        assert len(result.auth_steps) == 1
+        assert result.auth_steps[0]["action"]["endpoint"] == "/auth/login"
+        assert "Authorization" in result.auth_headers
+        assert result.has_auth
 
     def test_uses_login_endpoint_override(self) -> None:
         """Usa endpoint de login fornecido manualmente."""
@@ -747,12 +749,12 @@ class TestGenerateCompleteAuthFlow:
             "paths": {},
         }
 
-        auth_steps, _ = generate_complete_auth_flow(
+        result = generate_complete_auth_flow(
             spec, login_endpoint_override="/custom/login"
         )
 
-        assert len(auth_steps) == 1
-        assert auth_steps[0].step["action"]["endpoint"] == "/custom/login"
+        assert len(result.auth_steps) == 1
+        assert result.auth_steps[0]["action"]["endpoint"] == "/custom/login"
 
 
 class TestCreateAuthenticatedPlanSteps:

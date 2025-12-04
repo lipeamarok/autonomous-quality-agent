@@ -48,10 +48,22 @@ main.py (este) -> cli.py -> generator/llm.py -> LLM (OpenAI/Claude)
 ```
 """
 
-# Importa a função main do módulo CLI
-from .cli import main
+# Nota: Existe tanto src/cli.py quanto src/cli/ (pacote).
+# O pyright pode confundir qual módulo estamos importando.
+# Usamos importação explícita do arquivo cli.py via TYPE_CHECKING.
+from __future__ import annotations
+
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    pass
+
+# Importa a função main do módulo CLI (arquivo cli.py)
+# Este import funciona em runtime, mas pyright pode reportar erro.
+from .cli import main as cli_main  # type: ignore[attr-defined]
 
 # Este bloco só executa se rodarmos este arquivo diretamente
 # Não executa se importarmos como módulo
 if __name__ == "__main__":
-    main()
+    cli_main()  # type: ignore[operator]

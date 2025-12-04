@@ -239,14 +239,14 @@ class TestValidatorCacheIntegration:
         cache.store("req3", "url3", valid_plan_dict)
 
         stats = cache.stats()
-        assert stats["entries"] == 3
+        assert stats.entries == 3
 
         # Clear
         removed = cache.clear()
         assert removed == 3
 
         stats = cache.stats()
-        assert stats["entries"] == 0
+        assert stats.entries == 0
 
 
 # =============================================================================
@@ -455,7 +455,7 @@ class TestCacheConcurrency:
         # Verifica
         assert len(errors) == 0
         stats = cache.stats()
-        assert stats["entries"] == 10
+        assert stats.entries == 10
 
 
 # =============================================================================
@@ -505,7 +505,7 @@ class TestCacheProviderModel:
 
         # Deve haver 2 entradas no cache
         stats = cache.stats()
-        assert stats["entries"] == 2
+        assert stats.entries == 2
 
     def test_same_provider_different_models_different_hashes(
         self, temp_cache_dir: str, valid_plan_dict: PlanDict
@@ -600,3 +600,297 @@ class TestCacheProviderModel:
         assert entry["provider"] == "openai"
         assert entry["model"] == "gpt-5.1"
 
+
+# =============================================================================
+# TESTES DE CACHE COM TTL E COMPRESSÃO
+# =============================================================================
+
+
+class TestCacheTTLAndCompression:
+    """
+    Testes para funcionalidades de TTL e compressão do cache.
+    """
+
+    def test_cache_with_ttl_stores_expiry(
+        self, temp_cache_dir: str, valid_plan_dict: PlanDict
+    ) -> None:
+        """
+        Cache com TTL armazena data de expiração.
+        """
+        from datetime import datetime, timezone, timedelta
+        
+        cache = PlanCache(cache_dir=temp_cache_dir, enabled=True, ttl_days=7)
+        
+        hash_key = cache.store("req", "https://api.com", valid_plan_dict)
+        
+        # Verifica que entry tem expires_at
+        assert hash_key in cache._index
+        entry_meta = cache._index[hash_key]
+        assert entry_meta["expires_at"] is not None
+        
+        # Verifica que expiração é aproximadamente 7 dias
+        expires = datetime.fromisoformat(entry_meta["expires_at"].replace("Z", "+00:00"))
+        expected = datetime.now(timezone.utc) + timedelta(days=7)
+        diff = abs((expires - expected).total_seconds())
+        assert diff < 60  # Menos de 1 minuto de diferença
+
+    def test_cache_without_ttl_no_expiry(
+        self, temp_cache_dir: str, valid_plan_dict: PlanDict
+    ) -> None:
+        """
+        Cache sem TTL não tem data de expiração.
+        """
+        cache = PlanCache(cache_dir=temp_cache_dir, enabled=True, ttl_days=None)
+        
+        hash_key = cache.store("req", "https://api.com", valid_plan_dict)
+        
+        entry_meta = cache._index[hash_key]
+        assert entry_meta["expires_at"] is None
+
+    def test_cache_with_compression_creates_gzip(
+        self, temp_cache_dir: str, valid_plan_dict: PlanDict
+    ) -> None:
+        """
+        Cache com compressão cria arquivos .gz.
+        """
+        import gzip
+        from pathlib import Path
+        
+        cache = PlanCache(cache_dir=temp_cache_dir, enabled=True, compress=True)
+        
+        hash_key = cache.store("req", "https://api.com", valid_plan_dict)
+        
+        # Verifica que arquivo é .json.gz
+        filepath = Path(temp_cache_dir) / f"{hash_key}.json.gz"
+        assert filepath.exists()
+        
+        # Verifica que é gzip válido
+        with gzip.open(filepath, "rt", encoding="utf-8") as f:
+            entry = json.load(f)
+        assert entry["plan"]["meta"]["id"] == valid_plan_dict["meta"]["id"]
+
+    def test_cache_compressed_can_be_retrieved(
+        self, temp_cache_dir: str, valid_plan_dict: PlanDict
+    ) -> None:
+        """
+        Cache comprimido pode ser lido corretamente.
+        """
+        cache = PlanCache(cache_dir=temp_cache_dir, enabled=True, compress=True)
+        
+        cache.store("req", "https://api.com", valid_plan_dict)
+        result = cache.get("req", "https://api.com")
+        
+        assert result is not None
+        assert result["meta"]["id"] == valid_plan_dict["meta"]["id"]
+
+    def test_cache_stats_shows_compression_info(
+        self, temp_cache_dir: str, valid_plan_dict: PlanDict
+    ) -> None:
+        """
+        Stats mostra informações sobre compressão.
+        """
+        cache = PlanCache(cache_dir=temp_cache_dir, enabled=True, compress=True)
+        
+        cache.store("req1", "https://api.com", valid_plan_dict)
+        cache.store("req2", "https://api.com", valid_plan_dict)
+        
+        stats = cache.stats()
+        assert stats.compressed_entries == 2
+        assert stats.size_bytes > 0
+
+
+# =============================================================================
+# TESTES DE HISTÓRICO DE EXECUÇÕES
+# =============================================================================
+
+
+class TestExecutionHistory:
+    """
+    Testes para o sistema de histórico de execuções.
+    """
+
+    def test_record_execution_creates_entry(
+        self, temp_cache_dir: str
+    ) -> None:
+        """
+        Registrar execução cria entrada no histórico.
+        """
+        from src.cache import ExecutionHistory
+        
+        history = ExecutionHistory(history_dir=temp_cache_dir, enabled=True)
+        
+        record = history.record_execution(
+            plan_file="test_plan.json",
+            duration_ms=1500,
+            total_steps=5,
+            passed_steps=4,
+            failed_steps=1,
+            status="failure",
+        )
+        
+        assert record.id != "disabled"
+        assert record.plan_file == "test_plan.json"
+        assert record.status == "failure"
+
+    def test_get_recent_returns_latest(
+        self, temp_cache_dir: str
+    ) -> None:
+        """
+        get_recent retorna execuções mais recentes primeiro.
+        """
+        from src.cache import ExecutionHistory
+        
+        history = ExecutionHistory(history_dir=temp_cache_dir, enabled=True)
+        
+        # Registra 3 execuções
+        history.record_execution(
+            plan_file="plan1.json", duration_ms=100,
+            total_steps=1, passed_steps=1, failed_steps=0, status="success"
+        )
+        history.record_execution(
+            plan_file="plan2.json", duration_ms=200,
+            total_steps=2, passed_steps=2, failed_steps=0, status="success"
+        )
+        history.record_execution(
+            plan_file="plan3.json", duration_ms=300,
+            total_steps=3, passed_steps=3, failed_steps=0, status="success"
+        )
+        
+        recent = history.get_recent(limit=2)
+        
+        assert len(recent) == 2
+        assert recent[0]["plan_file"] == "plan3.json"  # Mais recente primeiro
+        assert recent[1]["plan_file"] == "plan2.json"
+
+    def test_get_by_status_filters_correctly(
+        self, temp_cache_dir: str
+    ) -> None:
+        """
+        get_by_status filtra por status corretamente.
+        """
+        from src.cache import ExecutionHistory
+        
+        history = ExecutionHistory(history_dir=temp_cache_dir, enabled=True)
+        
+        history.record_execution(
+            plan_file="pass1.json", duration_ms=100,
+            total_steps=1, passed_steps=1, failed_steps=0, status="success"
+        )
+        history.record_execution(
+            plan_file="fail1.json", duration_ms=200,
+            total_steps=2, passed_steps=1, failed_steps=1, status="failure"
+        )
+        history.record_execution(
+            plan_file="pass2.json", duration_ms=300,
+            total_steps=3, passed_steps=3, failed_steps=0, status="success"
+        )
+        
+        successes = history.get_by_status("success")
+        failures = history.get_by_status("failure")
+        
+        assert len(successes) == 2
+        assert len(failures) == 1
+        assert failures[0]["plan_file"] == "fail1.json"
+
+    def test_history_stats(
+        self, temp_cache_dir: str
+    ) -> None:
+        """
+        Stats retorna contagens corretas.
+        """
+        from src.cache import ExecutionHistory
+        
+        history = ExecutionHistory(history_dir=temp_cache_dir, enabled=True)
+        
+        history.record_execution(
+            plan_file="p1.json", duration_ms=100,
+            total_steps=1, passed_steps=1, failed_steps=0, status="success"
+        )
+        history.record_execution(
+            plan_file="p2.json", duration_ms=100,
+            total_steps=1, passed_steps=0, failed_steps=1, status="failure"
+        )
+        history.record_execution(
+            plan_file="p3.json", duration_ms=100,
+            total_steps=1, passed_steps=0, failed_steps=0, status="error"
+        )
+        
+        stats = history.stats()
+        
+        assert stats["enabled"] is True
+        assert stats["total_records"] == 3
+        assert stats["success_count"] == 1
+        assert stats["failure_count"] == 1
+        assert stats["error_count"] == 1
+
+    def test_history_disabled_returns_empty(
+        self, temp_cache_dir: str
+    ) -> None:
+        """
+        Histórico desabilitado retorna listas vazias.
+        """
+        from src.cache import ExecutionHistory
+        
+        history = ExecutionHistory(history_dir=temp_cache_dir, enabled=False)
+        
+        record = history.record_execution(
+            plan_file="test.json", duration_ms=100,
+            total_steps=1, passed_steps=1, failed_steps=0, status="success"
+        )
+        
+        assert record.id == "disabled"
+        assert history.get_recent() == []
+        assert history.stats()["enabled"] is False
+
+
+# =============================================================================
+# TESTES DE CONFIG COM CACHE E HISTÓRICO
+# =============================================================================
+
+
+class TestConfigCacheIntegration:
+    """
+    Testes de integração entre BrainConfig e cache/history.
+    """
+
+    def test_config_get_cache_local(
+        self, temp_cache_dir: str
+    ) -> None:
+        """
+        Config cria cache local corretamente.
+        """
+        from src.config import BrainConfig
+        
+        config = BrainConfig(
+            cache_enabled=True,
+            cache_global=False,
+            cache_dir=temp_cache_dir,
+        )
+        
+        cache = config.get_cache()
+        
+        assert cache.enabled is True
+        assert str(cache.cache_dir) == temp_cache_dir
+
+    def test_config_for_production_uses_global_cache(self) -> None:
+        """
+        Config de produção usa cache global por padrão.
+        """
+        from src.config import BrainConfig
+        
+        config = BrainConfig.for_production()
+        
+        assert config.cache_global is True
+        assert config.cache_ttl_days == 30
+        assert config.cache_compress is True
+
+    def test_config_for_testing_disables_cache(self) -> None:
+        """
+        Config de testes desabilita cache.
+        """
+        from src.config import BrainConfig
+        
+        config = BrainConfig.for_testing()
+        
+        assert config.cache_enabled is False
+        assert config.history_enabled is False

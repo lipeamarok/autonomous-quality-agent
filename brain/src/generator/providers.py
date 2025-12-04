@@ -217,6 +217,11 @@ class LLMProvider:
 
         # Ordem completa de tentativas
         self._providers = [primary] + self.fallbacks
+    
+    @property
+    def primary_model(self) -> str:
+        """Retorna o identificador do modelo primário."""
+        return self._get_config(self.primary).model
 
     def _get_config(self, provider: ProviderName) -> ProviderConfig:
         """Retorna a configuração de um provedor."""

@@ -90,6 +90,28 @@ from ..utils import load_config, get_default_model
     is_flag=True,
     help="Detectar e incluir step de autenticação automaticamente"
 )
+@click.option(
+    "--auth-scheme",
+    type=str,
+    default=None,
+    help="Esquema de autenticação específico a usar (ex: 'bearerAuth', 'apiKeyAuth'). Se não especificado, usa o primário."
+)
+@click.option(
+    "--include-refresh", "-R",
+    is_flag=True,
+    help="Incluir step de refresh token para OAuth2 (requer --include-auth)"
+)
+@click.option(
+    "--all-auth-schemes",
+    is_flag=True,
+    help="Usar todos os esquemas de autenticação disponíveis (requer --include-auth)"
+)
+@click.option(
+    "--max-steps",
+    type=int,
+    default=None,
+    help="Limitar número máximo de steps gerados (None = sem limite)"
+)
 @click.pass_context
 def generate(
     ctx: click.Context,
@@ -102,6 +124,10 @@ def generate(
     llm_mode: str | None,
     include_negative: bool,
     include_auth: bool,
+    auth_scheme: str | None,
+    include_refresh: bool,
+    all_auth_schemes: bool,
+    max_steps: int | None,
 ) -> None:
     """
     Gera um plano de teste UTDL usando IA.
@@ -158,6 +184,12 @@ def generate(
             console.print("[dim]Incluindo casos negativos[/dim]")
         if include_auth:
             console.print("[dim]Detectando autenticação[/dim]")
+            if auth_scheme:
+                console.print(f"[dim]Esquema de auth: {auth_scheme}[/dim]")
+            if include_refresh:
+                console.print("[dim]Incluindo refresh token[/dim]")
+            if all_auth_schemes:
+                console.print("[dim]Usando todos os esquemas de auth[/dim]")
 
     # Verifica se está em modo mock
     from ...llm import get_llm_provider
@@ -227,16 +259,84 @@ def generate(
 
     # Aplica autenticação se solicitado
     if include_auth and original_spec:
-        from ...ingestion.security import detect_security
+        from ...ingestion.security import (
+            detect_security,
+            generate_complete_auth_flow,
+            generate_complete_auth_flow_multi,
+        )
         console.print("[cyan]🔐 Detectando esquemas de segurança...[/cyan]")
         security_analysis = detect_security(original_spec)
+        
         if security_analysis.has_security:
-            console.print(f"[green]  ✓ Segurança detectada: {security_analysis.primary_scheme.security_type.value if security_analysis.primary_scheme else 'unknown'}[/green]")
-            # Nota: create_authenticated_plan_steps espera dicts, não objetos
-            # Por simplicidade, apenas logamos; integração completa requer refatoração
-            console.print("[yellow]  ⚠ Autenticação detectada. Use 'aqa plan' para integração completa.[/yellow]")
+            primary_type = security_analysis.primary_scheme.security_type.value if security_analysis.primary_scheme else 'unknown'
+            console.print(f"[green]  ✓ Segurança detectada: {primary_type}[/green]")
+            
+            # Lista esquemas disponíveis se verbose
+            if verbose and security_analysis.schemes:
+                scheme_names = list(security_analysis.schemes.keys())
+                console.print(f"[dim]  Esquemas disponíveis: {', '.join(scheme_names)}[/dim]")
+            
+            # Determina quais esquemas usar
+            if all_auth_schemes:
+                # Usa todos os esquemas disponíveis
+                console.print("[cyan]  Gerando auth para todos os esquemas...[/cyan]")
+                scheme_names_list = list(security_analysis.schemes.keys())
+                auth_result = generate_complete_auth_flow_multi(
+                    spec=original_spec,
+                    include_refresh_token=include_refresh,
+                    scheme_names=scheme_names_list,
+                )
+            elif auth_scheme:
+                # Usa esquema específico se encontrado
+                if auth_scheme in security_analysis.schemes:
+                    console.print(f"[cyan]  Gerando auth para esquema: {auth_scheme}...[/cyan]")
+                    auth_result = generate_complete_auth_flow(
+                        spec=original_spec,
+                        security_scheme_name=auth_scheme,
+                        include_refresh_token=include_refresh,
+                    )
+                else:
+                    console.print(f"[yellow]  ⚠ Esquema '{auth_scheme}' não encontrado, usando primário[/yellow]")
+                    auth_result = generate_complete_auth_flow(
+                        spec=original_spec,
+                        include_refresh_token=include_refresh,
+                    )
+            else:
+                # Usa esquema primário (padrão)
+                auth_result = generate_complete_auth_flow(
+                    spec=original_spec,
+                    include_refresh_token=include_refresh,
+                )
+            
+            # Adiciona steps de autenticação ao início do plano
+            if auth_result.auth_steps:
+                from ...validator.models import Step
+                
+                # Prepara steps de auth com IDs únicos
+                auth_step_objects: list[Step] = []
+                for i, auth_step in enumerate(auth_result.auth_steps):
+                    auth_step["id"] = f"auth-{i + 1:03d}"
+                    auth_step_objects.append(Step(**auth_step))
+                
+                # Insere no início do plano
+                plan.steps = auth_step_objects + list(plan.steps)
+                
+                console.print(f"[green]  ✓ {len(auth_result.auth_steps)} steps de autenticação adicionados[/green]")
+                
+                # Reporta refresh token se incluído
+                if include_refresh:
+                    refresh_steps = [s for s in auth_result.auth_steps if "refresh" in s.get("id", "").lower() or "refresh" in s.get("description", "").lower()]
+                    if refresh_steps:
+                        console.print(f"[green]  ✓ Refresh token step incluído[/green]")
+            else:
+                console.print("[yellow]  ⚠ Nenhum step de autenticação gerado[/yellow]")
         else:
             console.print("[dim]  Nenhum esquema de segurança detectado[/dim]")
+
+    # Limita número de steps se solicitado
+    if max_steps is not None and max_steps > 0 and len(plan.steps) > max_steps:
+        console.print(f"[yellow]⚠ Limitando de {len(plan.steps)} para {max_steps} steps[/yellow]")
+        plan.steps = plan.steps[:max_steps]
 
     # Output do plano
     json_output = plan.to_json()

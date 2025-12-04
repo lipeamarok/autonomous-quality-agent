@@ -189,6 +189,8 @@ def run_plan(
     plan: Plan,
     runner_path: str | None = None,
     timeout: int = 60,
+    max_steps: int | None = None,
+    max_retries: int = 3,
 ) -> RunnerResult:
     """
     Executa um plano UTDL usando o Runner Rust.
@@ -217,6 +219,13 @@ def run_plan(
 
         timeout: Timeout de execução em segundos.
             Default: 60 segundos. Após isso, aborta.
+
+        max_steps: Máximo de steps a executar.
+            None = sem limite. Útil para debug parcial.
+
+        max_retries: Número de retries para steps falhando.
+            Default: 3. O Runner pode tentar novamente steps
+            com falhas transitórias (ex: 503 Service Unavailable).
 
     ## Retorna:
         RunnerResult com detalhes da execução.
@@ -260,6 +269,22 @@ def run_plan(
             )
 
     # -----------------------------------------------------------------
+    # Passo 1.5: Aplicar limite de steps (se configurado)
+    # -----------------------------------------------------------------
+    
+    execution_plan = plan
+    if max_steps is not None and max_steps > 0:
+        if max_steps < len(plan.steps):
+            # Cria cópia do plano com apenas os primeiros N steps
+            limited_steps = plan.steps[:max_steps]
+            execution_plan = Plan(
+                spec_version=plan.spec_version,
+                meta=plan.meta,
+                config=plan.config,
+                steps=limited_steps,
+            )
+
+    # -----------------------------------------------------------------
     # Passo 2: Criar arquivo temporário para o plano
     # -----------------------------------------------------------------
 
@@ -272,7 +297,7 @@ def run_plan(
         encoding="utf-8",
     ) as plan_file:
         # Serializa o plano para JSON e escreve no arquivo
-        plan_file.write(plan.to_json())
+        plan_file.write(execution_plan.to_json())
         plan_path = plan_file.name  # Guarda o caminho
 
     # -----------------------------------------------------------------
@@ -292,16 +317,23 @@ def run_plan(
     # -----------------------------------------------------------------
 
     try:
+        # Monta comando base
+        cmd = [
+            runner_path,  # Executável
+            "execute",  # Comando
+            "--file",  # Flag
+            plan_path,  # Arquivo de entrada
+            "--output",  # Flag
+            report_path,  # Arquivo de saída
+        ]
+        
+        # Adiciona max_retries se diferente do default
+        if max_retries != 3:
+            cmd.extend(["--max-retries", str(max_retries)])
+        
         # subprocess.run executa comando externo
         subprocess.run(
-            [
-                runner_path,  # Executável
-                "execute",  # Comando
-                "--file",  # Flag
-                plan_path,  # Arquivo de entrada
-                "--output",  # Flag
-                report_path,  # Arquivo de saída
-            ],
+            cmd,
             capture_output=True,  # Captura stdout/stderr
             text=True,  # Retorna como string (não bytes)
             timeout=timeout,  # Timeout em segundos
