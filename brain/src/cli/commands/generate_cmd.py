@@ -256,7 +256,7 @@ def _interactive_mode(
             extras.append("casos negativos (inputs inválidos, campos obrigatórios faltando)")
         if include_retries:
             extras.append("política de retry com backoff exponencial")
-        
+
         requirement = f"{requirement}. Inclua também: {', '.join(extras)}."
 
     console.print()
