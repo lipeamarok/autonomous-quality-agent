@@ -21,6 +21,9 @@ aqa plan --swagger ./api.yaml --include-negative
 # Gerar com autenticação automática
 aqa plan --swagger ./api.yaml --include-auth
 
+# Modo interativo
+aqa plan --interactive
+
 # Especificar endpoints
 aqa plan --swagger ./api.yaml --endpoints /users --endpoints /orders
 
@@ -40,6 +43,7 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
 
@@ -228,7 +232,6 @@ def _generate_sample_body(schema: dict[str, Any]) -> dict[str, Any]:
 @click.option(
     "--swagger", "-s",
     type=str,
-    required=True,
     help="URL ou caminho do arquivo OpenAPI/Swagger.",
 )
 @click.option(
@@ -252,6 +255,11 @@ def _generate_sample_body(schema: dict[str, Any]) -> dict[str, Any]:
     help="Filtrar endpoints específicos (pode usar múltiplas vezes).",
 )
 @click.option(
+    "--interactive", "-i",
+    is_flag=True,
+    help="Modo interativo com perguntas guiadas.",
+)
+@click.option(
     "--json-output",
     is_flag=True,
     help="Saída em formato JSON (sem formatação Rich).",
@@ -259,11 +267,12 @@ def _generate_sample_body(schema: dict[str, Any]) -> dict[str, Any]:
 @click.pass_context
 def plan(
     ctx: click.Context,
-    swagger: str,
+    swagger: str | None,
     output: str | None,
     include_negative: bool,
     include_auth: bool,
     endpoints: tuple[str, ...],
+    interactive: bool,
     json_output: bool,
 ) -> None:
     """
@@ -272,13 +281,28 @@ def plan(
     O plano gerado inclui steps para testar todos os endpoints documentados
     na especificação, com valores de exemplo gerados automaticamente.
 
+    Use --interactive para modo guiado com perguntas.
+
     Exemplos:
 
         aqa plan --swagger https://api.example.com/openapi.json
 
         aqa plan --swagger ./api.yaml --include-negative -o plan.json
+
+        aqa plan --interactive
     """
     console: Console = ctx.obj["console"]
+
+    # Modo interativo
+    if interactive:
+        swagger, output, include_negative, include_auth = _interactive_plan_mode(console)
+
+    # Valida que swagger foi fornecido
+    if not swagger:
+        console.print(
+            "[red]❌ Erro: forneça --swagger ou use --interactive[/red]"
+        )
+        raise SystemExit(1)
 
     # Carrega e parseia a spec
     try:
@@ -415,3 +439,59 @@ def plan(
             console.print()
             console.print("[dim]Use -o FILE para salvar o plano em um arquivo.[/]")
             console.print("[dim]Use --json-output para obter o JSON completo.[/]")
+
+
+def _interactive_plan_mode(
+    console: Console,
+) -> tuple[str, str | None, bool, bool]:
+    """
+    Modo interativo com perguntas guiadas para o comando plan.
+
+    Retorna tupla: (swagger, output, include_negative, include_auth)
+    """
+    console.print()
+    console.print(Panel(
+        "[cyan]🧪 Modo Interativo — Geração de Plano de Testes[/cyan]\n\n"
+        "Vou te guiar para criar seu plano de testes a partir de um Swagger.",
+        border_style="cyan",
+    ))
+    console.print()
+
+    # Pergunta 1: Swagger
+    swagger = Prompt.ask(
+        "[yellow]?[/yellow] Caminho ou URL do arquivo OpenAPI/Swagger",
+        default="openapi.yaml",
+    )
+
+    # Valida se existe (se for arquivo local)
+    if not swagger.startswith(("http://", "https://")):
+        if not Path(swagger).exists():
+            console.print(f"[red]❌ Arquivo não encontrado: {swagger}[/red]")
+            raise SystemExit(1)
+
+    # Pergunta 2: Casos negativos?
+    include_negative = Confirm.ask(
+        "[yellow]?[/yellow] Incluir casos negativos (invalid input, missing fields)?",
+        default=True,
+    )
+
+    # Pergunta 3: Auth?
+    include_auth = Confirm.ask(
+        "[yellow]?[/yellow] Detectar e incluir autenticação automaticamente?",
+        default=True,
+    )
+
+    # Pergunta 4: Retries?
+    # (Não há opção de retry no plan, mas podemos sugerir)
+
+    # Pergunta 5: Output
+    output = Prompt.ask(
+        "[yellow]?[/yellow] Arquivo de saída",
+        default="plan.json",
+    )
+
+    console.print()
+    console.print("[dim]─" * 50 + "[/dim]")
+    console.print()
+
+    return swagger, output, include_negative, include_auth

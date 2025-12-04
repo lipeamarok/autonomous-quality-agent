@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  PYTHON_VERSION: "3.11"
+
+permissions:
+  contents: write
+
+jobs:
+  # =============================================================================
+  # Create Release
+  # =============================================================================
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            ## Autonomous Quality Agent ${{ github.ref_name }}
+            
+            ### What's New
+            - See [CHANGELOG.md](./CHANGELOG.md) for details
+            
+            ### Installation
+            ```bash
+            # Python CLI
+            pip install aqa
+            
+            # Rust Runner (download binary below)
+            ```
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
+
+  # =============================================================================
+  # Build Rust Binaries
+  # =============================================================================
+  build-runner:
+    name: Build Runner (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: release
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: aqa-runner-linux-x64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: aqa-runner-macos-x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: aqa-runner-macos-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: aqa-runner-windows-x64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        working-directory: runner
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Prepare artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp runner/target/${{ matrix.target }}/release/runner ${{ matrix.artifact }}
+          chmod +x ${{ matrix.artifact }}
+
+      - name: Prepare artifact (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          copy runner\target\${{ matrix.target }}\release\runner.exe ${{ matrix.artifact }}
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.release.outputs.upload_url }}
+          asset_path: ./${{ matrix.artifact }}
+          asset_name: ${{ matrix.artifact }}
+          asset_content_type: application/octet-stream
+
+  # =============================================================================
+  # Publish Python Package
+  # =============================================================================
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build package
+        working-directory: brain
+        run: python -m build
+
+      - name: Publish to PyPI
+        working-directory: brain
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          twine upload dist/*
+        continue-on-error: true  # Don't fail if PyPI not configured

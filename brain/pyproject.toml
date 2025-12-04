@@ -1,9 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "autonomous-quality-agent-brain"
+name = "aqa"
 version = "0.3.0"
-description = "Brain module for the Autonomous Quality Agent - LLM-powered test plan generation"
+description = "Autonomous Quality Agent - LLM-powered API test generation and execution"
 readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "AQA Team", email = "aqa@example.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
+keywords = ["testing", "api", "openapi", "llm", "automation", "quality"]
 dependencies = [
     "pydantic>=2.0.0",
     "litellm>=1.0.0",
@@ -14,6 +33,11 @@ dependencies = [
     "rich>=13.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/lipeamarok/autonomous-quality-agent"
+Repository = "https://github.com/lipeamarok/autonomous-quality-agent"
+Documentation = "https://github.com/lipeamarok/autonomous-quality-agent#readme"
+
 [project.scripts]
 aqa = "src.cli.main:main"
 
@@ -21,7 +45,15 @@ aqa = "src.cli.main:main"
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "mypy>=1.0.0",
 ]
+
+[tool.setuptools]
+packages = ["src", "src.cli", "src.cli.commands", "src.ingestion", "src.generator"]
+package-dir = {"" = "."}
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
 
 [tool.pyright]
 include = ["src", "tests"]
