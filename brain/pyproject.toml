@@ -49,7 +49,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["src", "src.cli", "src.cli.commands", "src.ingestion", "src.generator"]
+packages = ["src", "src.cli", "src.cli.commands", "src.ingestion", "src.generator", "src.adapter", "src.llm", "src.validator", "src.runner"]
 package-dir = {"" = "."}
 
 [tool.setuptools.package-data]
