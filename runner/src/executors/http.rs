@@ -182,12 +182,15 @@ impl HttpExecutor {
                 // Exemplo: { "type": "json_body", "path": "data.id", "operator": "eq", "value": 123 }
                 "json_body" => {
                     if let Some(path) = &assertion.path {
+                        // Remove prefixo $. do JSONPath se presente
+                        let clean_path = path.strip_prefix("$.").unwrap_or(path);
+
                         // Converte o path para formato JSON Pointer.
                         // "data.user.id" → "/data/user/id"
-                        let pointer = if path.starts_with('/') {
-                            path.clone()
+                        let pointer = if clean_path.starts_with('/') {
+                            clean_path.to_string()
                         } else {
-                            format!("/{}", path.replace('.', "/"))
+                            format!("/{}", clean_path.replace('.', "/"))
                         };
 
                         // Tenta encontrar o valor no body usando JSON Pointer.

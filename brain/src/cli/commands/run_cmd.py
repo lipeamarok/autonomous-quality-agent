@@ -293,7 +293,7 @@ def run(
     try:
         if quiet or json_output:
             # Execução silenciosa
-            result: RunnerResult = run_plan(plan)
+            result: RunnerResult = run_plan(plan, runner_path=str(runner_binary))
         else:
             with Progress(
                 SpinnerColumn(),
@@ -307,7 +307,7 @@ def run(
                     total=len(plan.steps)
                 )
 
-                result = run_plan(plan)
+                result = run_plan(plan, runner_path=str(runner_binary))
                 progress.update(task, completed=len(plan.steps))
 
     except RuntimeError as e:
