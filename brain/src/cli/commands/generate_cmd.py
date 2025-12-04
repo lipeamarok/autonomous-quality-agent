@@ -153,10 +153,17 @@ def generate(
     if verbose:
         console.print(f"[dim]Base URL: {final_base_url}[/dim]")
         console.print(f"[dim]Model: {final_model}[/dim]")
+        console.print(f"[dim]LLM Mode: {llm_mode or 'real'}[/dim]")
         if include_negative:
             console.print("[dim]Incluindo casos negativos[/dim]")
         if include_auth:
             console.print("[dim]Detectando autenticação[/dim]")
+
+    # Verifica se está em modo mock
+    from ...llm import get_llm_provider
+    llm_provider = get_llm_provider(mode=llm_mode)
+    provider_name = llm_provider.name
+    is_mock = provider_name == "mock"
 
     # Gera plano com progress spinner
     with Progress(
@@ -164,15 +171,32 @@ def generate(
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        task = progress.add_task(
-            f"[cyan]🧠 Gerando plano com {final_model}...[/cyan]",
-            total=None
-        )
+        if is_mock:
+            task = progress.add_task(
+                "[cyan]🧠 Gerando plano com MockLLM (modo teste)...[/cyan]",
+                total=None
+            )
+        else:
+            task = progress.add_task(
+                f"[cyan]🧠 Gerando plano com {final_model}...[/cyan]",
+                total=None
+            )
 
         try:
-            # UTDLGenerator usa 'provider' e não 'model' (detecta automaticamente)
-            generator = UTDLGenerator()
-            plan = generator.generate(str(requirement_text), final_base_url)
+            if is_mock:
+                # Usa MockLLMProvider diretamente
+                response = llm_provider.generate(str(requirement_text))
+                import json
+                plan_dict = json.loads(response.content)
+                # Converte para objeto Plan
+                from ...validator.models import Plan
+                plan_dict["config"] = plan_dict.get("config", {})
+                plan_dict["config"]["base_url"] = final_base_url
+                plan = Plan(**plan_dict)
+            else:
+                # UTDLGenerator usa 'provider' e não 'model' (detecta automaticamente)
+                generator = UTDLGenerator()
+                plan = generator.generate(str(requirement_text), final_base_url)
             progress.update(task, completed=True)
 
         except ValueError as e:

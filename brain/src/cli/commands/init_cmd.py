@@ -48,8 +48,8 @@ CONFIG_TEMPLATE = """\
 base_url: https://api.example.com
 
 # Modelo LLM a usar para geração de planos
-# Opções: gpt-4, gpt-4-turbo, gpt-3.5-turbo, claude-3-opus, claude-3-sonnet
-model: gpt-4
+# Opções: gpt-5.1, gpt-4-turbo, grok-4-1-fast-reasoning
+model: gpt-5.1
 
 # Provedor LLM (detectado automaticamente pela API key)
 # provider: openai

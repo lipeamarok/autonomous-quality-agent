@@ -59,12 +59,12 @@ def get_default_model() -> str:
 
     ## Prioridade:
     1. Variável de ambiente AQA_MODEL
-    2. Fallback para gpt-4
+    2. Fallback para gpt-5.1
 
     ## Retorna:
-        Nome do modelo (ex: "gpt-4", "claude-3-opus")
+        Nome do modelo (ex: "gpt-5.1", "grok-4-1-fast-reasoning")
     """
-    return os.environ.get("AQA_MODEL", "gpt-4")
+    return os.environ.get("AQA_MODEL", "gpt-5.1")
 
 
 def get_runner_path(runner_path_override: str | None = None) -> Path | None:
