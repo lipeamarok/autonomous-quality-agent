@@ -1,0 +1,654 @@
+# Autonomous Quality Agent - Developer Guide
+
+> Guia para desenvolvedores: como contribuir, estrutura do código, testes e padrões.
+
+## Índice
+
+1. [Setup de Desenvolvimento](#1-setup-de-desenvolvimento)
+2. [Estrutura do Projeto](#2-estrutura-do-projeto)
+3. [Brain (Python)](#3-brain-python)
+4. [Runner (Rust)](#4-runner-rust)
+5. [Testes](#5-testes)
+6. [Padrões de Código](#6-padrões-de-código)
+7. [Fluxo de Contribuição](#7-fluxo-de-contribuição)
+8. [CI/CD](#8-cicd)
+
+---
+
+## 1. Setup de Desenvolvimento
+
+### Pré-requisitos
+
+- Python 3.11+
+- Rust 1.75+
+- Git
+- Make (opcional, mas recomendado)
+
+### Clone e Setup Inicial
+
+```bash
+git clone https://github.com/lipeamarok/autonomous-quality-agent.git
+cd autonomous-quality-agent
+
+# Setup completo via Make
+make setup
+
+# Ou manualmente:
+# Brain
+cd brain
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+
+# Runner
+cd ../runner
+cargo build
+```
+
+### Verificar Instalação
+
+```bash
+# Testes Python
+cd brain && pytest tests/ -v
+
+# Testes Rust
+cd runner && cargo test
+
+# Tudo via Make
+make test
+```
+
+---
+
+## 2. Estrutura do Projeto
+
+```
+autonomous-quality-agent/
+├── brain/                    # 🐍 Python - Orquestração e IA
+│   ├── src/
+│   │   ├── cli/              # Interface de linha de comando
+│   │   │   ├── commands/     # Subcomandos (generate, run, etc)
+│   │   │   └── main.py       # Entry point CLI
+│   │   ├── generator/        # Geração de planos via LLM
+│   │   ├── ingestion/        # Parsing de OpenAPI, segurança
+│   │   ├── llm/              # Providers de LLM (mock/real)
+│   │   ├── runner/           # Integração com Runner Rust
+│   │   ├── storage/          # Persistência (SQLite/S3/JSON)
+│   │   ├── validator/        # Validação de UTDL
+│   │   ├── cache.py          # Cache de planos
+│   │   ├── config.py         # Configuração centralizada
+│   │   └── main.py           # Entry point programático
+│   ├── tests/                # Testes unitários e E2E
+│   ├── pyproject.toml        # Dependências Python
+│   └── requirements.txt      # Lock file
+│
+├── runner/                   # 🦀 Rust - Execução de alta performance
+│   ├── src/
+│   │   ├── context/          # Variáveis e interpolação
+│   │   ├── executors/        # HTTP, Wait, GraphQL
+│   │   ├── extractors/       # Extração de dados
+│   │   ├── limits/           # Rate limiting
+│   │   ├── loader/           # Parser UTDL
+│   │   ├── planner/          # DAG de execução
+│   │   ├── protocol/         # Tipos UTDL
+│   │   ├── retry/            # Políticas de retry
+│   │   ├── telemetry/        # OTEL
+│   │   ├── validation/       # Validação de planos
+│   │   ├── errors/           # Códigos de erro estruturados
+│   │   └── main.rs           # Entry point
+│   └── Cargo.toml            # Dependências Rust
+│
+├── schemas/                  # JSON Schemas
+│   ├── context.schema.json
+│   └── runner_report.schema.json
+│
+├── docs/                     # Documentação
+│   ├── user-guide.md         # Para usuários
+│   ├── developer-guide.md    # Este arquivo
+│   ├── architecture.md       # Decisões técnicas
+│   └── error_codes.md        # Referência de erros
+│
+├── Makefile                  # Comandos de desenvolvimento
+└── README.md                 # Visão geral
+```
+
+---
+
+## 3. Brain (Python)
+
+### Stack Tecnológica
+
+| Componente | Tecnologia | Propósito |
+|------------|------------|-----------|
+| CLI | Click | Interface de linha de comando |
+| Validação | Pydantic v2 | Validação de schemas UTDL |
+| LLM | LiteLLM | Abstração de providers |
+| Parsing | PyYAML, orjson | Parsing eficiente |
+| Testes | pytest | Framework de testes |
+| Tipos | pyright | Type checking estático |
+
+### Módulos Principais
+
+#### `cli/` - Interface de Linha de Comando
+
+```python
+# brain/src/cli/main.py
+@click.group()
+def cli():
+    """Autonomous Quality Agent CLI"""
+    pass
+
+@cli.command()
+@click.option("--input", "-i", help="Requisito em texto")
+def generate(input: str):
+    """Gera plano UTDL"""
+    ...
+```
+
+#### `llm/` - Providers de LLM
+
+Implementa o padrão Strategy para alternar entre LLMs:
+
+```python
+# brain/src/llm/base.py
+class BaseLLMProvider(ABC):
+    @abstractmethod
+    def generate(self, prompt: str) -> LLMResponse:
+        """Gera resposta do LLM"""
+        pass
+
+# brain/src/llm/providers.py
+def get_llm_provider(mode: str = "real") -> BaseLLMProvider:
+    if mode == "mock":
+        return MockLLMProvider()
+    return RealLLMProvider()
+```
+
+#### `validator/` - Validação UTDL
+
+```python
+# brain/src/validator/utdl_validator.py
+class UTDLValidator:
+    def validate(self, data: dict) -> ValidationResult:
+        """Valida plano UTDL"""
+        # 1. Estrutura Pydantic
+        # 2. IDs únicos
+        # 3. Dependências existem
+        # 4. Sem ciclos
+        # 5. Actions válidas
+```
+
+#### `storage/` - Persistência
+
+Três backends disponíveis:
+
+```python
+# SQLite (padrão)
+storage = SQLiteStorage(db_path="history.db")
+
+# S3 (cloud)
+storage = S3Storage(bucket="my-bucket")
+
+# JSON (legacy)
+storage = JsonStorage(history_dir="./history")
+
+# Factory
+storage = create_storage("sqlite")
+```
+
+### Adicionando um Novo Comando CLI
+
+1. Crie o arquivo em `brain/src/cli/commands/`:
+
+```python
+# brain/src/cli/commands/my_cmd.py
+import click
+
+@click.command("mycommand")
+@click.option("--param", "-p", help="Descrição")
+def my_command(param: str) -> None:
+    """Descrição do comando"""
+    click.echo(f"Executando com {param}")
+```
+
+2. Registre em `brain/src/cli/commands/__init__.py`:
+
+```python
+from .my_cmd import my_command
+
+__all__ = [..., "my_command"]
+```
+
+3. Adicione ao grupo principal em `brain/src/cli/main.py`:
+
+```python
+from .commands import my_command
+cli.add_command(my_command)
+```
+
+---
+
+## 4. Runner (Rust)
+
+### Stack Tecnológica
+
+| Componente | Crate | Propósito |
+|------------|-------|-----------|
+| Async Runtime | tokio | I/O assíncrono |
+| HTTP Client | reqwest | Requisições HTTP |
+| Serialização | serde, serde_json | JSON parsing |
+| CLI | clap | Argumentos |
+| Telemetria | tracing, opentelemetry | Observabilidade |
+| Erros | anyhow, thiserror | Error handling |
+
+### Módulos Principais
+
+#### `executors/` - Executores de Ações
+
+Implementa o trait `StepExecutor`:
+
+```rust
+// runner/src/executors/mod.rs
+#[async_trait]
+pub trait StepExecutor: Send + Sync {
+    fn can_handle(&self, action: &str) -> bool;
+    async fn execute(&self, step: &Step, ctx: &mut Context) -> Result<StepResult>;
+}
+
+// runner/src/executors/http.rs
+pub struct HttpExecutor { ... }
+
+impl StepExecutor for HttpExecutor {
+    fn can_handle(&self, action: &str) -> bool {
+        action == "http_request"
+    }
+    // ...
+}
+```
+
+#### `context/` - Variáveis e Interpolação
+
+```rust
+// runner/src/context/mod.rs
+pub struct Context {
+    variables: HashMap<String, Value>,
+}
+
+impl Context {
+    pub fn interpolate(&self, template: &str) -> String {
+        // Substitui ${var} pelos valores
+    }
+    
+    pub fn set(&mut self, key: &str, value: Value) {
+        self.variables.insert(key.to_string(), value);
+    }
+}
+```
+
+#### `planner/` - DAG de Execução
+
+```rust
+// runner/src/planner/mod.rs
+pub struct ExecutionPlan {
+    dag: HashMap<String, Vec<String>>,
+    roots: Vec<String>,
+}
+
+impl ExecutionPlan {
+    pub fn from_steps(steps: &[Step]) -> Result<Self> {
+        // Constrói DAG
+        // Detecta ciclos
+        // Identifica raízes
+    }
+}
+```
+
+### Adicionando um Novo Executor
+
+1. Crie o arquivo em `runner/src/executors/`:
+
+```rust
+// runner/src/executors/grpc.rs
+use super::{StepExecutor, StepResult};
+
+pub struct GrpcExecutor;
+
+#[async_trait]
+impl StepExecutor for GrpcExecutor {
+    fn can_handle(&self, action: &str) -> bool {
+        action == "grpc_call"
+    }
+    
+    async fn execute(&self, step: &Step, ctx: &mut Context) -> Result<StepResult> {
+        // Implementação
+    }
+}
+```
+
+2. Registre em `runner/src/executors/mod.rs`:
+
+```rust
+mod grpc;
+pub use grpc::GrpcExecutor;
+
+pub fn get_executors() -> Vec<Box<dyn StepExecutor>> {
+    vec![
+        Box::new(HttpExecutor::new()),
+        Box::new(WaitExecutor),
+        Box::new(GrpcExecutor),  // Novo
+    ]
+}
+```
+
+---
+
+## 5. Testes
+
+### Estrutura de Testes
+
+```
+brain/tests/
+├── test_cli.py              # Testes de CLI
+├── test_validator.py        # Validação UTDL
+├── test_llm_providers.py    # Mock/Real providers
+├── test_storage.py          # Backends de storage
+├── test_swagger.py          # Parsing OpenAPI
+├── test_security.py         # Detecção de auth
+├── test_negative_cases.py   # Casos negativos
+├── test_integration.py      # Integração Brain
+├── test_e2e_runner*.py      # E2E com Runner
+└── conftest.py              # Fixtures compartilhadas
+
+runner/src/
+├── context/mod.rs           # #[cfg(test)] mod tests
+├── executors/http.rs        # #[cfg(test)] mod tests
+└── ...
+```
+
+### Executando Testes
+
+```bash
+# Todos os testes Python
+cd brain && pytest tests/ -v
+
+# Testes específicos
+pytest tests/test_validator.py -v
+pytest tests/test_storage.py::TestSQLiteStorage -v
+
+# Com cobertura
+pytest tests/ --cov=src --cov-report=html
+
+# Testes Rust
+cd runner && cargo test
+
+# Testes específicos Rust
+cargo test context::tests
+cargo test --test integration
+
+# Tudo via Make
+make test
+```
+
+### Escrevendo Testes Python
+
+```python
+# brain/tests/test_example.py
+import pytest
+from src.validator import UTDLValidator
+
+class TestMyFeature:
+    """Testes para minha feature"""
+    
+    @pytest.fixture
+    def validator(self) -> UTDLValidator:
+        return UTDLValidator()
+    
+    def test_valid_plan(self, validator: UTDLValidator) -> None:
+        """Plano válido deve passar"""
+        plan = {"spec_version": "0.1", "meta": {...}, ...}
+        result = validator.validate(plan)
+        assert result.is_valid
+    
+    def test_invalid_plan_raises(self, validator: UTDLValidator) -> None:
+        """Plano inválido deve falhar"""
+        with pytest.raises(ValueError):
+            validator.validate({})
+```
+
+### Escrevendo Testes Rust
+
+```rust
+// runner/src/my_module.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_basic() {
+        let result = my_function();
+        assert_eq!(result, expected);
+    }
+    
+    #[tokio::test]
+    async fn test_async() {
+        let result = my_async_function().await;
+        assert!(result.is_ok());
+    }
+}
+```
+
+### Fixtures Importantes
+
+```python
+# brain/tests/conftest.py
+
+@pytest.fixture
+def sample_plan() -> dict:
+    """Plano UTDL válido para testes"""
+    return {
+        "spec_version": "0.1",
+        "meta": {"id": "test", "name": "Test"},
+        "config": {"base_url": "https://api.test"},
+        "steps": [...]
+    }
+
+@pytest.fixture
+def mock_llm_provider():
+    """Provider mock para testes"""
+    from src.llm import MockLLMProvider
+    return MockLLMProvider()
+```
+
+---
+
+## 6. Padrões de Código
+
+### Python
+
+#### Type Hints Obrigatórios
+
+```python
+# ✅ Correto
+def process(data: dict[str, Any]) -> ValidationResult:
+    ...
+
+# ❌ Errado
+def process(data):
+    ...
+```
+
+#### Docstrings
+
+```python
+def validate(self, data: dict[str, Any]) -> ValidationResult:
+    """Valida um plano UTDL.
+    
+    Args:
+        data: Dicionário com o plano UTDL
+        
+    Returns:
+        ValidationResult com is_valid e errors
+        
+    Raises:
+        ValueError: Se estrutura básica inválida
+    """
+```
+
+#### Formatação
+
+```bash
+# Formatter
+black src/ tests/
+
+# Linter
+ruff check src/ tests/
+
+# Type checker
+pyright src/
+```
+
+### Rust
+
+#### Error Handling
+
+```rust
+// ✅ Use Result e ?
+fn parse(json: &str) -> Result<Plan> {
+    let plan: Plan = serde_json::from_str(json)?;
+    Ok(plan)
+}
+
+// ❌ Evite unwrap em produção
+fn parse(json: &str) -> Plan {
+    serde_json::from_str(json).unwrap()  // Pode panic
+}
+```
+
+#### Formatação
+
+```bash
+# Formatter
+cargo fmt
+
+# Linter
+cargo clippy -- -D warnings
+```
+
+### Commits
+
+Seguimos [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+feat: add GraphQL executor support
+fix: resolve timeout issue in HTTP executor
+docs: update developer guide
+test: add E2E tests for auth flow
+refactor: extract validation logic
+chore: update dependencies
+```
+
+---
+
+## 7. Fluxo de Contribuição
+
+### 1. Fork e Clone
+
+```bash
+# Fork via GitHub UI
+git clone https://github.com/SEU-USER/autonomous-quality-agent.git
+cd autonomous-quality-agent
+git remote add upstream https://github.com/lipeamarok/autonomous-quality-agent.git
+```
+
+### 2. Branch
+
+```bash
+git checkout -b feat/my-feature
+# ou
+git checkout -b fix/issue-123
+```
+
+### 3. Desenvolva
+
+```bash
+# Faça suas mudanças
+# Rode testes frequentemente
+make test
+```
+
+### 4. Commit
+
+```bash
+git add .
+git commit -m "feat: add new feature X"
+```
+
+### 5. Push e PR
+
+```bash
+git push origin feat/my-feature
+# Abra PR via GitHub
+```
+
+### Checklist do PR
+
+- [ ] Testes passando (`make test`)
+- [ ] Lint passando (`make lint`)
+- [ ] Type check passando (`pyright`)
+- [ ] Documentação atualizada (se necessário)
+- [ ] Commit messages seguem padrão
+
+---
+
+## 8. CI/CD
+
+### GitHub Actions
+
+O projeto usa GitHub Actions para CI:
+
+```yaml
+# .github/workflows/ci.yml
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ -v
+      
+  test-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test
+```
+
+### Makefile
+
+Comandos disponíveis:
+
+```bash
+make setup     # Setup inicial
+make test      # Todos os testes
+make lint      # Linting
+make fmt       # Formatação
+make build     # Build de produção
+make clean     # Limpar artifacts
+make demo      # Rodar demo
+```
+
+---
+
+## Próximos Passos
+
+- Leia a [Architecture](./architecture.md) para decisões técnicas
+- Consulte o [User Guide](./user-guide.md) para uso
+- Veja [Error Codes](./error_codes.md) para referência

@@ -1,4 +1,14 @@
-# Projeto: Autonomous Quality Agent (MVP v1.0)
+# Technical Design Document (TDD) - Referência Completa
+
+> ⚠️ **Nota:** Este é o documento de design técnico completo e histórico do projeto.
+> Para documentação de uso diário, consulte:
+> - [User Guide](./user-guide.md) - Instalação, CLI, exemplos
+> - [Developer Guide](./developer-guide.md) - Contribuição, testes, padrões
+> - [Architecture](./architecture.md) - Decisões técnicas resumidas
+
+---
+
+**Projeto: Autonomous Quality Agent (MVP v1.0)**
 
 ## ÍNDICE
 

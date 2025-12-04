@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 from typing import Any
 
-from src.validator.utdl_validator import UTDLValidator
+from src.validator.utdl_validator import UTDLValidator #type: ignore
 
 
 # Type aliases for UTDL structures
@@ -96,7 +96,7 @@ def create_assertion(
     path: str | None = None
 ) -> UTDLAssertion:
     """Create a valid assertion matching the UTDL schema.
-    
+
     Args:
         assertion_type: One of 'status_code', 'json_body', 'header', 'latency'
         operator: One of 'eq', 'neq', 'lt', 'gt', 'contains'
@@ -142,7 +142,7 @@ class TestLargePlans:
             depends: list[str] | None = None
             if i % 10 != 0 and i >= 10:
                 depends = [f"step_{i//10 * 10}"]
-            
+
             step = create_http_step(
                 step_id=f"step_{i}",
                 method="GET",
@@ -198,10 +198,10 @@ class TestParallelExecution:
             for step_num in range(5):
                 step_id = f"branch_{branch}_step_{step_num}"
                 deps: list[str] = (
-                    ["init"] if step_num == 0 
+                    ["init"] if step_num == 0
                     else [f"branch_{branch}_step_{step_num-1}"]
                 )
-                
+
                 steps.append(create_http_step(
                     step_id=step_id,
                     method="GET",

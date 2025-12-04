@@ -16,10 +16,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.storage.base import ExecutionRecord, StorageNotFoundError
-from src.storage.sqlite import SQLiteStorage
-from src.storage.json_backend import JsonStorage
-from src.storage.factory import create_storage, get_default_storage
+from src.storage.base import ExecutionRecord, StorageNotFoundError # type: ignore
+from src.storage.sqlite import SQLiteStorage # type: ignore
+from src.storage.json_backend import JsonStorage # type: ignore
+from src.storage.factory import create_storage, get_default_storage # type: ignore
 
 
 # =============================================================================
@@ -537,7 +537,7 @@ class TestS3StorageMocked:
             }
             with patch.dict(os.environ, env_without_bucket, clear=True):
                 with pytest.raises(ValueError, match="S3 bucket is required"):
-                    from src.storage.s3 import S3Storage
+                    from src.storage.s3 import S3Storage # type: ignore
 
                     S3Storage()
 
@@ -547,7 +547,7 @@ class TestS3StorageMocked:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
 
-            from src.storage.s3 import S3Storage
+            from src.storage.s3 import S3Storage # type: ignore
 
             storage = S3Storage(bucket="test-bucket")
 
@@ -606,7 +606,7 @@ class TestStorageIntegration:
         self, sqlite_storage: SQLiteStorage, json_storage: JsonStorage
     ) -> None:
         """Todos os backends devem implementar StorageBackend."""
-        from src.storage.base import StorageBackend
+        from src.storage.base import StorageBackend # type: ignore
 
         assert isinstance(sqlite_storage, StorageBackend)
         assert isinstance(json_storage, StorageBackend)

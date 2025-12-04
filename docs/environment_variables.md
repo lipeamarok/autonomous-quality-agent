@@ -31,6 +31,16 @@ Este documento lista todas as variáveis de ambiente suportadas pelo Autonomous 
 | `AQA_DEFAULT_OUTPUT` | Formato de saída padrão (`json`, `text`) | `text` |
 | `AQA_VERBOSE` | Modo verbose por padrão | `false` |
 
+### Storage (Histórico de Execuções)
+
+| Variável | Descrição | Padrão |
+|----------|-----------|--------|
+| `AQA_STORAGE_BACKEND` | Backend de storage (`sqlite`, `s3`, `json`) | `sqlite` |
+| `AQA_STORAGE_PATH` | Caminho do banco SQLite ou diretório JSON | `.aqa/history.db` |
+| `AQA_S3_BUCKET` | Nome do bucket S3 (se backend=s3) | - |
+| `AQA_S3_PREFIX` | Prefixo para objetos no S3 | `aqa/history/` |
+| `AQA_S3_REGION` | Região do S3 | `us-east-1` |
+
 ---
 
 ## Runner (Rust)

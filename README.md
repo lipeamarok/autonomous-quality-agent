@@ -12,6 +12,20 @@ O **Autonomous Quality Agent** é uma plataforma de engenharia de qualidade que 
 
 ---
 
+## 📖 Documentação
+
+| Documento | Descrição |
+|-----------|-----------|
+| [**User Guide**](docs/user-guide.md) | Guia completo para usuários: instalação, CLI, exemplos |
+| [**Developer Guide**](docs/developer-guide.md) | Para contribuidores: estrutura, testes, padrões |
+| [**Architecture**](docs/architecture.md) | Decisões técnicas, C4 diagrams, spec UTDL |
+| [**Plugin Development**](docs/plugin_development.md) | Como criar executores customizados |
+| [**Error Codes**](docs/error_codes.md) | Referência de códigos de erro |
+| [**Environment Variables**](docs/environment_variables.md) | Variáveis de ambiente |
+| [**Reference TDD**](docs/reference-tdd.md) | Documento de design técnico completo (histórico) |
+
+---
+
 ## 📋 Índice
 
 - [Arquitetura](#-arquitetura-monorepo)
