@@ -39,12 +39,20 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.table import Table
 
 from ...adapter import SmartFormatAdapter
+from ...cache import ExecutionHistory
+from ...config import BrainConfig
 from ...generator import UTDLGenerator
 from ...ingestion import parse_openapi
 from ...ingestion.swagger import spec_to_requirement_text
 from ...runner import run_plan, RunnerResult
 from ...validator import UTDLValidator, Plan
 from ..utils import load_config, get_default_model, get_runner_path, get_runner_search_paths
+
+
+def _get_execution_history() -> ExecutionHistory:
+    """Obtém instância de ExecutionHistory configurada."""
+    config = BrainConfig.from_env()
+    return config.get_history()
 
 
 def _print_json_error(console: Console, code: str, message: str, details: dict[str, Any] | None = None) -> None:
@@ -338,7 +346,7 @@ def run(
         else:
             # Calcula total de steps a executar
             steps_to_run = max_steps if max_steps and max_steps < len(plan.steps) else len(plan.steps)
-            
+
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -370,6 +378,22 @@ def run(
     # =========================================================================
     # RESULTADOS
     # =========================================================================
+
+    # Registra execução no histórico
+    history = _get_execution_history()
+    passed = sum(1 for s in result.steps if s.status == "passed")
+    failed = sum(1 for s in result.steps if s.status == "failed")
+    total_duration = sum(s.duration_ms for s in result.steps)
+    
+    execution_record = history.record_execution(
+        plan_file=str(plan_file or save_plan or "generated"),
+        duration_ms=int(total_duration),
+        total_steps=len(result.steps),
+        passed_steps=passed,
+        failed_steps=failed,
+        status="success" if result.success else "failure",
+        runner_report=result.raw_report,
+    )
 
     # Modo JSON: saída estruturada
     if json_output:
@@ -439,6 +463,10 @@ def run(
             encoding="utf-8"
         )
         console.print(f"\n📊 Relatório salvo em: [cyan]{report}[/cyan]")
+
+    # Mostra ID da execução para referência
+    if verbose:
+        console.print(f"[dim]📝 Execução registrada: {execution_record.id}[/dim]")
 
     # Exit code
     raise SystemExit(0 if result.success else 1)

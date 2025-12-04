@@ -94,7 +94,7 @@ class UTDLGenerator:
     - Se não estiver, a classe pede correção automaticamente
 
     ## Cache de Planos:
-    
+
     Para economizar custos e garantir determinismo, o gerador cacheia
     resultados baseado no hash da requisição (requirements + base_url +
     provider + model). Se o mesmo input for passado novamente, retorna
@@ -115,7 +115,7 @@ class UTDLGenerator:
         >>> generator = UTDLGenerator()  # Usa GPT-5.1 por padrão
         >>> plan = generator.generate("Testar API de login", "https://api.example.com")
         >>> print(plan.to_json())
-        
+
         >>> # Segunda chamada com mesmo input: retorna do cache!
         >>> plan2 = generator.generate("Testar API de login", "https://api.example.com")
     """
@@ -165,7 +165,7 @@ class UTDLGenerator:
         self.max_correction_attempts = max_correction_attempts
         self.verbose = verbose
         self._last_provider_used: ProviderName | None = None
-        
+
         # Configura cache
         self._cache_enabled = cache_enabled
         if cache is not None:
@@ -179,7 +179,7 @@ class UTDLGenerator:
             )
         else:
             self._cache = PlanCache(enabled=False)
-        
+
         # Guarda info do provider para o hash do cache
         self._primary_provider = primary
 
@@ -197,7 +197,7 @@ class UTDLGenerator:
         testar e ela retorna um plano de testes completo e validado.
 
         ## Cache de Planos:
-        
+
         Por padrão, o gerador verifica se já existe um plano cacheado
         para o mesmo input (requirements + base_url + provider + model).
         Se existir e não estiver expirado, retorna do cache sem chamar
@@ -231,11 +231,11 @@ class UTDLGenerator:
         """
         provider_name = self._primary_provider.value
         model_name = self._provider.primary_model
-        
+
         # =====================================================================
         # PASSO 1: Verificar cache
         # =====================================================================
-        
+
         if self._cache_enabled and not skip_cache:
             cached_plan = self._cache.get(
                 requirements=requirement,
@@ -243,17 +243,17 @@ class UTDLGenerator:
                 provider=provider_name,
                 model=model_name,
             )
-            
+
             if cached_plan is not None:
                 if self.verbose:
                     print(f"[Cache HIT] Retornando plano do cache")
                 # Converte dict para Plan
                 return Plan.model_validate(cached_plan)
-        
+
         # =====================================================================
         # PASSO 2: Gerar via LLM
         # =====================================================================
-        
+
         # Formata o prompt do usuário usando o template
         # .format() substitui {requirement} e {base_url} pelos valores reais
         user_prompt = USER_PROMPT_TEMPLATE.format(
@@ -288,7 +288,7 @@ class UTDLGenerator:
                     )
                     if self.verbose:
                         print(f"[Cache STORE] Plano armazenado no cache")
-                
+
                 return plan
 
             # Guarda os erros para possível mensagem final
@@ -311,7 +311,7 @@ class UTDLGenerator:
             f"Falha ao gerar UTDL válido após {self.max_correction_attempts} tentativas. "
             f"Últimos erros: {last_errors}"
         )
-    
+
     def invalidate_cache(
         self,
         requirement: str,
@@ -319,43 +319,43 @@ class UTDLGenerator:
     ) -> bool:
         """
         Remove plano específico do cache (invalidação manual).
-        
+
         Útil quando você sabe que o plano cacheado está desatualizado
         e quer forçar regeneração.
-        
+
         ## Parâmetros:
             requirement: Descrição usada na geração original
             base_url: URL base usada na geração original
-            
+
         ## Retorna:
             True se entry foi removida, False se não existia
         """
         if not self._cache_enabled:
             return False
-        
+
         return self._cache.invalidate(
             requirements=requirement,
             base_url=base_url,
             provider=self._primary_provider.value,
             model=self._provider.primary_model,
         )
-    
+
     def clear_cache(self) -> int:
         """
         Limpa todo o cache de planos.
-        
+
         ## Retorna:
             Número de entries removidas
         """
         if not self._cache_enabled:
             return 0
-        
+
         return self._cache.clear()
-    
+
     def cache_stats(self) -> dict:
         """
         Retorna estatísticas do cache.
-        
+
         ## Retorna:
             Dict com enabled, entries, expired_entries, size_bytes, etc.
         """

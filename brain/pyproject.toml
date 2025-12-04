@@ -47,9 +47,15 @@ dev = [
     "pytest-cov>=4.0.0",
     "mypy>=1.0.0",
 ]
+telemetry = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp>=1.20.0",
+    "opentelemetry-instrumentation-requests>=0.41b0",
+]
 
 [tool.setuptools]
-packages = ["src", "src.cli", "src.cli.commands", "src.ingestion", "src.generator", "src.adapter", "src.llm", "src.validator", "src.runner"]
+packages = ["src", "src.cli", "src.cli.commands", "src.ingestion", "src.generator", "src.adapter", "src.llm", "src.validator", "src.runner", "src.telemetry"]
 package-dir = {"" = "."}
 
 [tool.setuptools.package-data]

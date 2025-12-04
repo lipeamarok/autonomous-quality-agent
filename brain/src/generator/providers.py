@@ -217,7 +217,7 @@ class LLMProvider:
 
         # Ordem completa de tentativas
         self._providers = [primary] + self.fallbacks
-    
+
     @property
     def primary_model(self) -> str:
         """Retorna o identificador do modelo primário."""

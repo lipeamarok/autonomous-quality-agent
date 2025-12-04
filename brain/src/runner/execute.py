@@ -271,7 +271,7 @@ def run_plan(
     # -----------------------------------------------------------------
     # Passo 1.5: Aplicar limite de steps (se configurado)
     # -----------------------------------------------------------------
-    
+
     execution_plan = plan
     if max_steps is not None and max_steps > 0:
         if max_steps < len(plan.steps):
@@ -326,11 +326,11 @@ def run_plan(
             "--output",  # Flag
             report_path,  # Arquivo de saída
         ]
-        
+
         # Adiciona max_retries se diferente do default
         if max_retries != 3:
             cmd.extend(["--max-retries", str(max_retries)])
-        
+
         # subprocess.run executa comando externo
         subprocess.run(
             cmd,

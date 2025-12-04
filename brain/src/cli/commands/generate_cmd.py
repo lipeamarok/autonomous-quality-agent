@@ -266,16 +266,16 @@ def generate(
         )
         console.print("[cyan]🔐 Detectando esquemas de segurança...[/cyan]")
         security_analysis = detect_security(original_spec)
-        
+
         if security_analysis.has_security:
             primary_type = security_analysis.primary_scheme.security_type.value if security_analysis.primary_scheme else 'unknown'
             console.print(f"[green]  ✓ Segurança detectada: {primary_type}[/green]")
-            
+
             # Lista esquemas disponíveis se verbose
             if verbose and security_analysis.schemes:
                 scheme_names = list(security_analysis.schemes.keys())
                 console.print(f"[dim]  Esquemas disponíveis: {', '.join(scheme_names)}[/dim]")
-            
+
             # Determina quais esquemas usar
             if all_auth_schemes:
                 # Usa todos os esquemas disponíveis
@@ -307,22 +307,22 @@ def generate(
                     spec=original_spec,
                     include_refresh_token=include_refresh,
                 )
-            
+
             # Adiciona steps de autenticação ao início do plano
             if auth_result.auth_steps:
                 from ...validator.models import Step
-                
+
                 # Prepara steps de auth com IDs únicos
                 auth_step_objects: list[Step] = []
                 for i, auth_step in enumerate(auth_result.auth_steps):
                     auth_step["id"] = f"auth-{i + 1:03d}"
                     auth_step_objects.append(Step(**auth_step))
-                
+
                 # Insere no início do plano
                 plan.steps = auth_step_objects + list(plan.steps)
-                
+
                 console.print(f"[green]  ✓ {len(auth_result.auth_steps)} steps de autenticação adicionados[/green]")
-                
+
                 # Reporta refresh token se incluído
                 if include_refresh:
                     refresh_steps = [s for s in auth_result.auth_steps if "refresh" in s.get("id", "").lower() or "refresh" in s.get("description", "").lower()]

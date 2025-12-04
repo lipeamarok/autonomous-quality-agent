@@ -366,26 +366,26 @@ class BrainConfig(BaseModel):
             silent=True,
             strict_validation=True,
         )
-    
+
     def get_cache(self) -> "PlanCache":
         """
         Cria instância de PlanCache baseada na configuração.
-        
+
         Retorna cache global ou local dependendo das configurações.
-        
+
         ## Retorno:
-        
+
         Instância de PlanCache configurada.
-        
+
         ## Exemplo:
-        
+
             >>> config = BrainConfig(cache_global=True)
             >>> cache = config.get_cache()
             >>> cache.cache_dir
             PosixPath('/home/user/.aqa/cache')
         """
         from .cache import PlanCache
-        
+
         if self.cache_global:
             return PlanCache.global_cache(
                 enabled=self.cache_enabled,
@@ -399,24 +399,24 @@ class BrainConfig(BaseModel):
                 ttl_days=self.cache_ttl_days,
                 compress=self.cache_compress,
             )
-    
+
     def get_history(self) -> "ExecutionHistory":
         """
         Cria instância de ExecutionHistory baseada na configuração.
-        
+
         ## Retorno:
-        
+
         Instância de ExecutionHistory configurada.
-        
+
         ## Exemplo:
-        
+
             >>> config = BrainConfig(history_enabled=True)
             >>> history = config.get_history()
             >>> history.history_dir
             PosixPath('/home/user/.aqa/history')
         """
         from .cache import ExecutionHistory
-        
+
         return ExecutionHistory(
             history_dir=self.history_dir,
             enabled=self.history_enabled,

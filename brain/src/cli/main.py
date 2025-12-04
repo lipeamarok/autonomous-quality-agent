@@ -131,6 +131,8 @@ from .commands.run_cmd import run
 from .commands.explain_cmd import explain
 from .commands.demo_cmd import demo
 from .commands.plan_cmd import plan
+from .commands.history_cmd import history
+from .commands.show_cmd import show
 
 # Registra os comandos no grupo principal
 cli.add_command(init)
@@ -140,6 +142,8 @@ cli.add_command(run)
 cli.add_command(explain)
 cli.add_command(demo)
 cli.add_command(plan)
+cli.add_command(history)
+cli.add_command(show)
 
 
 # =============================================================================

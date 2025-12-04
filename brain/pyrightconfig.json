@@ -7,5 +7,8 @@
   "reportUnknownMemberType": false,
   "reportUnknownArgumentType": false,
   "reportUnknownVariableType": false,
-  "reportMissingTypeStubs": false
+  "reportMissingTypeStubs": false,
+  "reportUnknownParameterType": false,
+  "reportUnusedVariable": "warning",
+  "reportPartialStubPackages": false
 }

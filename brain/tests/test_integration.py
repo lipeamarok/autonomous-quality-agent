@@ -618,16 +618,16 @@ class TestCacheTTLAndCompression:
         Cache com TTL armazena data de expiração.
         """
         from datetime import datetime, timezone, timedelta
-        
+
         cache = PlanCache(cache_dir=temp_cache_dir, enabled=True, ttl_days=7)
-        
+
         hash_key = cache.store("req", "https://api.com", valid_plan_dict)
-        
+
         # Verifica que entry tem expires_at
         assert hash_key in cache._index
         entry_meta = cache._index[hash_key]
         assert entry_meta["expires_at"] is not None
-        
+
         # Verifica que expiração é aproximadamente 7 dias
         expires = datetime.fromisoformat(entry_meta["expires_at"].replace("Z", "+00:00"))
         expected = datetime.now(timezone.utc) + timedelta(days=7)
@@ -641,9 +641,9 @@ class TestCacheTTLAndCompression:
         Cache sem TTL não tem data de expiração.
         """
         cache = PlanCache(cache_dir=temp_cache_dir, enabled=True, ttl_days=None)
-        
+
         hash_key = cache.store("req", "https://api.com", valid_plan_dict)
-        
+
         entry_meta = cache._index[hash_key]
         assert entry_meta["expires_at"] is None
 
@@ -655,15 +655,15 @@ class TestCacheTTLAndCompression:
         """
         import gzip
         from pathlib import Path
-        
+
         cache = PlanCache(cache_dir=temp_cache_dir, enabled=True, compress=True)
-        
+
         hash_key = cache.store("req", "https://api.com", valid_plan_dict)
-        
+
         # Verifica que arquivo é .json.gz
         filepath = Path(temp_cache_dir) / f"{hash_key}.json.gz"
         assert filepath.exists()
-        
+
         # Verifica que é gzip válido
         with gzip.open(filepath, "rt", encoding="utf-8") as f:
             entry = json.load(f)
@@ -676,10 +676,10 @@ class TestCacheTTLAndCompression:
         Cache comprimido pode ser lido corretamente.
         """
         cache = PlanCache(cache_dir=temp_cache_dir, enabled=True, compress=True)
-        
+
         cache.store("req", "https://api.com", valid_plan_dict)
         result = cache.get("req", "https://api.com")
-        
+
         assert result is not None
         assert result["meta"]["id"] == valid_plan_dict["meta"]["id"]
 
@@ -690,10 +690,10 @@ class TestCacheTTLAndCompression:
         Stats mostra informações sobre compressão.
         """
         cache = PlanCache(cache_dir=temp_cache_dir, enabled=True, compress=True)
-        
+
         cache.store("req1", "https://api.com", valid_plan_dict)
         cache.store("req2", "https://api.com", valid_plan_dict)
-        
+
         stats = cache.stats()
         assert stats.compressed_entries == 2
         assert stats.size_bytes > 0
@@ -716,9 +716,9 @@ class TestExecutionHistory:
         Registrar execução cria entrada no histórico.
         """
         from src.cache import ExecutionHistory
-        
+
         history = ExecutionHistory(history_dir=temp_cache_dir, enabled=True)
-        
+
         record = history.record_execution(
             plan_file="test_plan.json",
             duration_ms=1500,
@@ -727,7 +727,7 @@ class TestExecutionHistory:
             failed_steps=1,
             status="failure",
         )
-        
+
         assert record.id != "disabled"
         assert record.plan_file == "test_plan.json"
         assert record.status == "failure"
@@ -739,9 +739,9 @@ class TestExecutionHistory:
         get_recent retorna execuções mais recentes primeiro.
         """
         from src.cache import ExecutionHistory
-        
+
         history = ExecutionHistory(history_dir=temp_cache_dir, enabled=True)
-        
+
         # Registra 3 execuções
         history.record_execution(
             plan_file="plan1.json", duration_ms=100,
@@ -755,9 +755,9 @@ class TestExecutionHistory:
             plan_file="plan3.json", duration_ms=300,
             total_steps=3, passed_steps=3, failed_steps=0, status="success"
         )
-        
+
         recent = history.get_recent(limit=2)
-        
+
         assert len(recent) == 2
         assert recent[0]["plan_file"] == "plan3.json"  # Mais recente primeiro
         assert recent[1]["plan_file"] == "plan2.json"
@@ -769,9 +769,9 @@ class TestExecutionHistory:
         get_by_status filtra por status corretamente.
         """
         from src.cache import ExecutionHistory
-        
+
         history = ExecutionHistory(history_dir=temp_cache_dir, enabled=True)
-        
+
         history.record_execution(
             plan_file="pass1.json", duration_ms=100,
             total_steps=1, passed_steps=1, failed_steps=0, status="success"
@@ -784,10 +784,10 @@ class TestExecutionHistory:
             plan_file="pass2.json", duration_ms=300,
             total_steps=3, passed_steps=3, failed_steps=0, status="success"
         )
-        
+
         successes = history.get_by_status("success")
         failures = history.get_by_status("failure")
-        
+
         assert len(successes) == 2
         assert len(failures) == 1
         assert failures[0]["plan_file"] == "fail1.json"
@@ -799,9 +799,9 @@ class TestExecutionHistory:
         Stats retorna contagens corretas.
         """
         from src.cache import ExecutionHistory
-        
+
         history = ExecutionHistory(history_dir=temp_cache_dir, enabled=True)
-        
+
         history.record_execution(
             plan_file="p1.json", duration_ms=100,
             total_steps=1, passed_steps=1, failed_steps=0, status="success"
@@ -814,9 +814,9 @@ class TestExecutionHistory:
             plan_file="p3.json", duration_ms=100,
             total_steps=1, passed_steps=0, failed_steps=0, status="error"
         )
-        
+
         stats = history.stats()
-        
+
         assert stats["enabled"] is True
         assert stats["total_records"] == 3
         assert stats["success_count"] == 1
@@ -830,14 +830,14 @@ class TestExecutionHistory:
         Histórico desabilitado retorna listas vazias.
         """
         from src.cache import ExecutionHistory
-        
+
         history = ExecutionHistory(history_dir=temp_cache_dir, enabled=False)
-        
+
         record = history.record_execution(
             plan_file="test.json", duration_ms=100,
             total_steps=1, passed_steps=1, failed_steps=0, status="success"
         )
-        
+
         assert record.id == "disabled"
         assert history.get_recent() == []
         assert history.stats()["enabled"] is False
@@ -860,15 +860,15 @@ class TestConfigCacheIntegration:
         Config cria cache local corretamente.
         """
         from src.config import BrainConfig
-        
+
         config = BrainConfig(
             cache_enabled=True,
             cache_global=False,
             cache_dir=temp_cache_dir,
         )
-        
+
         cache = config.get_cache()
-        
+
         assert cache.enabled is True
         assert str(cache.cache_dir) == temp_cache_dir
 
@@ -877,9 +877,9 @@ class TestConfigCacheIntegration:
         Config de produção usa cache global por padrão.
         """
         from src.config import BrainConfig
-        
+
         config = BrainConfig.for_production()
-        
+
         assert config.cache_global is True
         assert config.cache_ttl_days == 30
         assert config.cache_compress is True
@@ -889,8 +889,8 @@ class TestConfigCacheIntegration:
         Config de testes desabilita cache.
         """
         from src.config import BrainConfig
-        
+
         config = BrainConfig.for_testing()
-        
+
         assert config.cache_enabled is False
         assert config.history_enabled is False
