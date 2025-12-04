@@ -139,10 +139,8 @@ jobs:
             "steps": [
               {
                 "id": "health_check",
-                "action": "http",
-                "method": "GET",
-                "path": "/health",
-                "expect": {"status": 200}
+                "action": "http_request",
+                "params": {"method": "GET", "path": "/health"}
               }
             ]
           }
