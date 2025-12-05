@@ -39,6 +39,7 @@ use crate::extractors::{ExtractionResult, Extractor};
 use crate::protocol::{Assertion, Extraction, Step, StepResult, StepStatus};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use jsonschema::JSONSchema;
 use regex::Regex;
 use reqwest::{header::HeaderMap, Client, Method};
 use serde_json::Value;
@@ -184,7 +185,7 @@ impl HttpExecutor {
                 // Também suporta ranges customizados: "4xx", "5xx", etc.
                 "status_range" => {
                     let range_str = assertion.value.as_str().unwrap_or("");
-                    
+
                     // Determina o range esperado
                     let (min_status, max_status) = match range_str.to_lowercase().as_str() {
                         "1xx" => (100, 199),
@@ -258,8 +259,8 @@ impl HttpExecutor {
                                 // Valida que o valor corresponde a uma expressão regular.
                                 // Exemplo: { "operator": "matches_regex", "value": "^[A-Z]{2}\\d{4}$" }
                                 "matches_regex" | "regex" => {
-                                    if let (Some(actual_str), Some(pattern)) = 
-                                        (actual.as_str(), assertion.value.as_str()) 
+                                    if let (Some(actual_str), Some(pattern)) =
+                                        (actual.as_str(), assertion.value.as_str())
                                     {
                                         match Regex::new(pattern) {
                                             Ok(re) => re.is_match(actual_str),
@@ -398,6 +399,98 @@ impl HttpExecutor {
                             "Assertion failed: latency {} {}ms (got {}ms)",
                             assertion.operator, expected, ctx.duration_ms
                         ));
+                    }
+                }
+
+                // ============================================================
+                // ASSERTION: JSON_SCHEMA
+                // ============================================================
+                // Valida que o body da resposta (ou parte dele) está em conformidade
+                // com um JSON Schema.
+                //
+                // Formatos suportados:
+                // 1. Schema inline no campo value:
+                //    { "type": "json_schema", "operator": "valid", "value": {"type": "object", ...} }
+                //
+                // 2. Validação de sub-path com schema:
+                //    { "type": "json_schema", "path": "data.user", "operator": "valid", "value": {...} }
+                //
+                // Operadores:
+                // - "valid" / "conforms": Body deve conformar ao schema
+                // - "invalid" / "not_conforms": Body NÃO deve conformar (para testes negativos)
+                "json_schema" => {
+                    // O schema é passado como value
+                    let schema = &assertion.value;
+
+                    // Valor a validar (body inteiro ou sub-path)
+                    let value_to_validate = if let Some(path) = &assertion.path {
+                        // Remove prefixo $. do JSONPath se presente
+                        let clean_path = path.strip_prefix("$.").unwrap_or(path);
+                        let pointer = if clean_path.starts_with('/') {
+                            clean_path.to_string()
+                        } else {
+                            format!("/{}", clean_path.replace('.', "/"))
+                        };
+
+                        match ctx.body.pointer(&pointer) {
+                            Some(v) => v.clone(),
+                            None => {
+                                return Some(format!(
+                                    "Assertion failed: json_schema path '{}' not found in response",
+                                    path
+                                ));
+                            }
+                        }
+                    } else {
+                        ctx.body.clone()
+                    };
+
+                    // Compila o schema
+                    let compiled_schema = match JSONSchema::compile(schema) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                "Invalid JSON Schema in assertion"
+                            );
+                            return Some(format!("Assertion failed: invalid JSON Schema - {}", e));
+                        }
+                    };
+
+                    // Valida o valor contra o schema
+                    let validation_result = compiled_schema.validate(&value_to_validate);
+                    let is_valid = validation_result.is_ok();
+
+                    let passed = match assertion.operator.as_str() {
+                        "valid" | "conforms" | "eq" => is_valid,
+                        "invalid" | "not_conforms" | "neq" => !is_valid,
+                        _ => is_valid, // Default: valid
+                    };
+
+                    if !passed {
+                        if is_valid {
+                            // Esperava inválido, mas era válido
+                            return Some(
+                                "Assertion failed: json_schema expected invalid but body conforms to schema".to_string()
+                            );
+                        } else {
+                            // Esperava válido, mas era inválido
+                            // Coleta erros de validação para mensagem detalhada
+                            let errors: Vec<String> = compiled_schema
+                                .validate(&value_to_validate)
+                                .err()
+                                .map(|iter| {
+                                    iter.map(|e| format!("{} at {}", e, e.instance_path))
+                                        .take(3) // Limita a 3 erros para não poluir
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            return Some(format!(
+                                "Assertion failed: json_schema validation errors: [{}]",
+                                errors.join("; ")
+                            ));
+                        }
                     }
                 }
 
@@ -706,7 +799,7 @@ mod tests {
             value: json!(200),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_none(), "Assertion should pass");
     }
@@ -728,7 +821,7 @@ mod tests {
             value: json!(200),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_some(), "Assertion should fail");
         assert!(result.unwrap().contains("404"));
@@ -755,7 +848,7 @@ mod tests {
             value: json!("2xx"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_none(), "Status 200 should be in 2xx range");
     }
@@ -777,7 +870,7 @@ mod tests {
             value: json!("2xx"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_none(), "Status 201 should be in 2xx range");
     }
@@ -799,7 +892,7 @@ mod tests {
             value: json!("2xx"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_some(), "Status 404 should NOT be in 2xx range");
     }
@@ -821,7 +914,7 @@ mod tests {
             value: json!("4xx"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_none(), "Status 404 should be in 4xx range");
     }
@@ -843,7 +936,7 @@ mod tests {
             value: json!("5xx"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_none(), "Status 500 should be in 5xx range");
     }
@@ -865,7 +958,7 @@ mod tests {
             value: json!("success"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_none(), "Status 204 should match 'success' alias");
     }
@@ -887,9 +980,12 @@ mod tests {
             value: json!("client_error"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
-        assert!(result.is_none(), "Status 422 should match 'client_error' alias");
+        assert!(
+            result.is_none(),
+            "Status 422 should match 'client_error' alias"
+        );
     }
 
     #[test]
@@ -909,7 +1005,7 @@ mod tests {
             value: json!("4xx"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_none(), "Status 200 should NOT be in 4xx range");
     }
@@ -931,9 +1027,12 @@ mod tests {
             value: json!("200-299"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
-        assert!(result.is_none(), "Status 250 should be in custom range 200-299");
+        assert!(
+            result.is_none(),
+            "Status 250 should be in custom range 200-299"
+        );
     }
 
     #[test]
@@ -953,9 +1052,12 @@ mod tests {
             value: json!("4xx"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
-        assert!(result.is_none(), "Status 400 (lower boundary) should be in 4xx range");
+        assert!(
+            result.is_none(),
+            "Status 400 (lower boundary) should be in 4xx range"
+        );
     }
 
     #[test]
@@ -975,9 +1077,12 @@ mod tests {
             value: json!("4xx"),
             path: None,
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
-        assert!(result.is_none(), "Status 499 (upper boundary) should be in 4xx range");
+        assert!(
+            result.is_none(),
+            "Status 499 (upper boundary) should be in 4xx range"
+        );
     }
 
     // ========================================================================
@@ -1001,15 +1106,18 @@ mod tests {
             value: json!("^[A-Z]{2}\\d{4}$"),
             path: Some("code".to_string()),
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
-        assert!(result.is_none(), "Code 'AB1234' should match pattern ^[A-Z]{{2}}\\d{{4}}$");
+        assert!(
+            result.is_none(),
+            "Code 'AB1234' should match pattern ^[A-Z]{{2}}\\d{{4}}$"
+        );
     }
 
     #[test]
     fn test_matches_regex_fail() {
         let executor = create_test_executor();
-        let body = json!({"code": "abc123"});  // Lowercase, invalid
+        let body = json!({"code": "abc123"}); // Lowercase, invalid
         let headers = HeaderMap::new();
         let ctx = ResponseContext {
             status: 200,
@@ -1023,7 +1131,7 @@ mod tests {
             value: json!("^[A-Z]{2}\\d{4}$"),
             path: Some("code".to_string()),
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_some(), "Code 'abc123' should NOT match pattern");
     }
@@ -1045,7 +1153,7 @@ mod tests {
             value: json!(r"^[\w.-]+@[\w.-]+\.\w+$"),
             path: Some("email".to_string()),
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_none(), "Email should match basic email pattern");
     }
@@ -1063,11 +1171,11 @@ mod tests {
         };
         let assertions = vec![Assertion {
             assertion_type: "json_body".to_string(),
-            operator: "regex".to_string(),  // Test alias
+            operator: "regex".to_string(), // Test alias
             value: json!("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
             path: Some("id".to_string()),
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_none(), "UUID should match UUID pattern");
     }
@@ -1086,10 +1194,10 @@ mod tests {
         let assertions = vec![Assertion {
             assertion_type: "json_body".to_string(),
             operator: "matches_regex".to_string(),
-            value: json!("([invalid"),  // Invalid regex
+            value: json!("([invalid"), // Invalid regex
             path: Some("code".to_string()),
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_some(), "Invalid regex should fail assertion");
     }
@@ -1097,7 +1205,7 @@ mod tests {
     #[test]
     fn test_matches_regex_on_non_string() {
         let executor = create_test_executor();
-        let body = json!({"count": 42});  // Number, not string
+        let body = json!({"count": 42}); // Number, not string
         let headers = HeaderMap::new();
         let ctx = ResponseContext {
             status: 200,
@@ -1111,8 +1219,527 @@ mod tests {
             value: json!("\\d+"),
             path: Some("count".to_string()),
         }];
-        
+
         let result = executor.validate_assertions(&assertions, &ctx);
         assert!(result.is_some(), "Regex on non-string should fail");
+    }
+
+    // ========================================================================
+    // Testes: json_schema assertions
+    // ========================================================================
+
+    #[test]
+    fn test_json_schema_valid_object() {
+        let executor = create_test_executor();
+        let body = json!({
+            "name": "John Doe",
+            "age": 30,
+            "email": "john@example.com"
+        });
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        // Schema que espera um objeto com name (string), age (integer), email (string)
+        let schema = json!({
+            "type": "object",
+            "required": ["name", "age"],
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer", "minimum": 0},
+                "email": {"type": "string", "format": "email"}
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Valid object should conform to schema");
+    }
+
+    #[test]
+    fn test_json_schema_invalid_missing_required() {
+        let executor = create_test_executor();
+        let body = json!({
+            "name": "John Doe"
+            // missing "age" which is required
+        });
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "object",
+            "required": ["name", "age"],
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer"}
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(
+            result.is_some(),
+            "Object missing required field should fail"
+        );
+        assert!(result.unwrap().contains("json_schema"));
+    }
+
+    #[test]
+    fn test_json_schema_invalid_wrong_type() {
+        let executor = create_test_executor();
+        let body = json!({
+            "name": "John",
+            "age": "thirty"  // Should be integer
+        });
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer"}
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_some(), "Wrong type should fail validation");
+    }
+
+    #[test]
+    fn test_json_schema_operator_invalid_expects_failure() {
+        let executor = create_test_executor();
+        let body = json!({
+            "name": "John",
+            "age": "not_a_number"  // Invalid
+        });
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 400,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "age": {"type": "integer"}
+            }
+        });
+
+        // Operator "invalid" espera que o body NÃO conforme ao schema
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "invalid".to_string(),
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(
+            result.is_none(),
+            "Invalid body should pass when operator is 'invalid'"
+        );
+    }
+
+    #[test]
+    fn test_json_schema_with_path() {
+        let executor = create_test_executor();
+        let body = json!({
+            "data": {
+                "user": {
+                    "id": 123,
+                    "name": "Alice"
+                }
+            }
+        });
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        // Valida apenas o sub-objeto data.user
+        let schema = json!({
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+                "id": {"type": "integer"},
+                "name": {"type": "string"}
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: Some("data.user".to_string()),
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Nested object should conform to schema");
+    }
+
+    #[test]
+    fn test_json_schema_path_not_found() {
+        let executor = create_test_executor();
+        let body = json!({"name": "Test"});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({"type": "object"});
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: Some("nonexistent.path".to_string()),
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_some(), "Non-existent path should fail");
+        assert!(result.unwrap().contains("not found"));
+    }
+
+    #[test]
+    fn test_json_schema_array_validation() {
+        let executor = create_test_executor();
+        let body = json!({
+            "items": [
+                {"id": 1, "name": "Item 1"},
+                {"id": 2, "name": "Item 2"}
+            ]
+        });
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": {"type": "integer"},
+                    "name": {"type": "string"}
+                }
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: Some("items".to_string()),
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Array of valid objects should conform");
+    }
+
+    #[test]
+    fn test_json_schema_with_enum() {
+        let executor = create_test_executor();
+        let body = json!({
+            "status": "active"
+        });
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "inactive", "pending"]
+                }
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Valid enum value should pass");
+    }
+
+    #[test]
+    fn test_json_schema_enum_invalid_value() {
+        let executor = create_test_executor();
+        let body = json!({
+            "status": "unknown"  // Not in enum
+        });
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "inactive", "pending"]
+                }
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_some(), "Invalid enum value should fail");
+    }
+
+    #[test]
+    fn test_json_schema_conforms_alias() {
+        let executor = create_test_executor();
+        let body = json!({"value": 42});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "value": {"type": "integer"}
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "conforms".to_string(), // Alias for "valid"
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "conforms operator should work like valid");
+    }
+
+    #[test]
+    fn test_json_schema_not_conforms_alias() {
+        let executor = create_test_executor();
+        let body = json!({"value": "not_a_number"});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "value": {"type": "integer"}
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "not_conforms".to_string(), // Alias for "invalid"
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(
+            result.is_none(),
+            "not_conforms should pass when body doesn't conform"
+        );
+    }
+
+    #[test]
+    fn test_json_schema_minimum_maximum() {
+        let executor = create_test_executor();
+        let body = json!({"age": 25});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "age": {
+                    "type": "integer",
+                    "minimum": 18,
+                    "maximum": 120
+                }
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Age within bounds should pass");
+    }
+
+    #[test]
+    fn test_json_schema_minimum_violation() {
+        let executor = create_test_executor();
+        let body = json!({"age": 15}); // Below minimum
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "age": {
+                    "type": "integer",
+                    "minimum": 18
+                }
+            }
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_some(), "Age below minimum should fail");
+    }
+
+    #[test]
+    fn test_json_schema_invalid_schema() {
+        let executor = create_test_executor();
+        let body = json!({"test": "value"});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        // Schema inválido (type errado)
+        let schema = json!({
+            "type": "not_a_valid_type"
+        });
+
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: None,
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_some(), "Invalid schema should produce error");
+        assert!(result.unwrap().contains("invalid JSON Schema"));
+    }
+
+    #[test]
+    fn test_json_schema_jsonpath_prefix() {
+        let executor = create_test_executor();
+        let body = json!({
+            "data": {"id": 123}
+        });
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"}
+            }
+        });
+
+        // Path com prefixo $.
+        let assertions = vec![Assertion {
+            assertion_type: "json_schema".to_string(),
+            operator: "valid".to_string(),
+            value: schema,
+            path: Some("$.data".to_string()),
+        }];
+
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "JSONPath prefix $. should be handled");
     }
 }

@@ -20,7 +20,6 @@ from src.ingestion.negative_cases import (
     NegativeTestResult,
     RobustnessCase,
     LatencySLA,
-    DEFAULT_LATENCY_SLAS,
     analyze_and_generate,
     generate_negative_cases,
     generate_robustness_cases,
@@ -527,18 +526,18 @@ class TestNegativeCasesToUtdlSteps:
 
         assert len(steps) == 1
         step = steps[0]
-        
+
         # Deve ter assertions no novo formato
         assert "assertions" in step
         assertions = step["assertions"]
         assert len(assertions) == 1
-        
+
         # Assertion deve ser status_range
         assertion = assertions[0]
         assert assertion["type"] == "status_range"
         assert assertion["operator"] == "eq"
         assert assertion["value"] == "4xx"
-        
+
         # Também deve manter expected para backwards compatibility
         assert step["expected"]["status_code"] == 400
 
@@ -561,7 +560,7 @@ class TestNegativeCasesToUtdlSteps:
 
         step = steps[0]
         assertions = step["assertions"]
-        
+
         # Deve usar status_code específico
         assertion = assertions[0]
         assert assertion["type"] == "status_code"
@@ -832,7 +831,7 @@ class TestRobustnessCases:
         }
 
         cases = generate_robustness_cases(
-            spec, 
+            spec,
             exclude_endpoints=["/internal/health"],
             include_types=["empty_body"],
         )
@@ -919,7 +918,7 @@ class TestLatencyAssertions:
         }
 
         assertions = generate_latency_assertions(
-            spec, 
+            spec,
             slas=[],  # Sem SLAs
             default_max_latency_ms=300,
         )
@@ -1013,3 +1012,711 @@ class TestLatencyAssertions:
 
         # Não deve adicionar assertions
         assert "assertions" not in enriched[0]
+
+
+# =============================================================================
+# TESTES: JSON SCHEMA ASSERTIONS
+# =============================================================================
+
+from src.ingestion.negative_cases import (
+    SchemaAssertion,
+    openapi_schema_to_json_schema,
+    extract_response_schema,
+    generate_schema_assertions,
+    schema_assertions_to_dict,
+    inject_schema_assertions,
+    generate_schema_violation_cases,
+)
+
+
+class TestOpenAPISchemaConversion:
+    """Testes para openapi_schema_to_json_schema."""
+
+    def test_simple_object_schema(self) -> None:
+        """Converte schema de objeto simples."""
+        openapi_schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer"},
+            },
+            "required": ["name"],
+        }
+
+        json_schema = openapi_schema_to_json_schema(openapi_schema)
+
+        assert json_schema["type"] == "object"
+        assert "name" in json_schema["properties"]
+        assert "required" in json_schema
+
+    def test_nullable_field_conversion(self) -> None:
+        """Converte campo nullable para anyOf."""
+        openapi_schema = {
+            "type": "string",
+            "nullable": True,
+        }
+
+        json_schema = openapi_schema_to_json_schema(openapi_schema)
+
+        # Deve usar anyOf para nullable
+        assert "anyOf" in json_schema
+        types = [s.get("type") for s in json_schema["anyOf"]]
+        assert "string" in types
+        assert "null" in types
+
+    def test_removes_openapi_keywords(self) -> None:
+        """Remove keywords específicas do OpenAPI."""
+        openapi_schema = {
+            "type": "string",
+            "readOnly": True,
+            "deprecated": True,
+            "example": "test",
+            "externalDocs": {"url": "http://example.com"},
+        }
+
+        json_schema = openapi_schema_to_json_schema(openapi_schema)
+
+        assert "readOnly" not in json_schema
+        assert "deprecated" not in json_schema
+        assert "example" not in json_schema
+        assert "externalDocs" not in json_schema
+        assert json_schema["type"] == "string"
+
+    def test_nested_object_conversion(self) -> None:
+        """Converte schemas aninhados recursivamente."""
+        openapi_schema = {
+            "type": "object",
+            "properties": {
+                "user": {
+                    "type": "object",
+                    "nullable": True,
+                    "properties": {
+                        "id": {"type": "integer", "readOnly": True},
+                    },
+                },
+            },
+        }
+
+        json_schema = openapi_schema_to_json_schema(openapi_schema)
+
+        # Propriedade aninhada deve ter anyOf por causa do nullable
+        user_schema = json_schema["properties"]["user"]
+        assert "anyOf" in user_schema
+
+    def test_array_items_conversion(self) -> None:
+        """Converte items de array."""
+        openapi_schema = {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "nullable": True,
+            },
+        }
+
+        json_schema = openapi_schema_to_json_schema(openapi_schema)
+
+        assert json_schema["type"] == "array"
+        assert "anyOf" in json_schema["items"]
+
+    def test_allof_conversion(self) -> None:
+        """Converte allOf com schemas."""
+        openapi_schema = {
+            "allOf": [
+                {"type": "object", "nullable": True},
+                {"properties": {"extra": {"type": "string"}}},
+            ],
+        }
+
+        json_schema = openapi_schema_to_json_schema(openapi_schema)
+
+        assert "allOf" in json_schema
+        # Primeiro schema deve ter anyOf por causa do nullable
+        assert "anyOf" in json_schema["allOf"][0]
+
+
+class TestExtractResponseSchema:
+    """Testes para extract_response_schema."""
+
+    def test_extracts_200_schema(self) -> None:
+        """Extrai schema de resposta 200."""
+        endpoint = {
+            "responses": {
+                "200": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {"id": {"type": "integer"}},
+                    },
+                },
+            },
+        }
+
+        schema = extract_response_schema(endpoint, "200")
+
+        assert schema is not None
+        assert schema["type"] == "object"
+
+    def test_extracts_openapi3_content_schema(self) -> None:
+        """Extrai schema no formato OpenAPI 3.0."""
+        endpoint = {
+            "responses": {
+                "200": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                    },
+                },
+            },
+        }
+
+        schema = extract_response_schema(endpoint)
+
+        assert schema is not None
+        assert schema["type"] == "array"
+
+    def test_fallback_to_default_response(self) -> None:
+        """Usa resposta default se status específico não existir."""
+        endpoint = {
+            "responses": {
+                "default": {
+                    "schema": {"type": "object"},
+                },
+            },
+        }
+
+        schema = extract_response_schema(endpoint, "404")
+
+        assert schema is not None
+        assert schema["type"] == "object"
+
+    def test_returns_none_for_missing_schema(self) -> None:
+        """Retorna None se não houver schema."""
+        endpoint = {
+            "responses": {
+                "200": {
+                    "description": "Success",
+                },
+            },
+        }
+
+        schema = extract_response_schema(endpoint)
+
+        assert schema is None
+
+    def test_returns_none_for_empty_responses(self) -> None:
+        """Retorna None para respostas vazias."""
+        endpoint = {"responses": {}}
+
+        schema = extract_response_schema(endpoint)
+
+        assert schema is None
+
+
+class TestGenerateSchemaAssertions:
+    """Testes para generate_schema_assertions."""
+
+    def test_generates_assertions_for_endpoints(self) -> None:
+        """Gera assertions para endpoints com schemas."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "GET",
+                    "responses": {
+                        "200": {
+                            "schema": {
+                                "type": "array",
+                                "items": {"type": "object"},
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        assertions = generate_schema_assertions(spec)
+
+        assert len(assertions) >= 1
+        assert assertions[0].endpoint_key == "GET /users"
+        assert assertions[0].schema["type"] == "array"
+        assert assertions[0].operator == "valid"
+
+    def test_generates_nested_path_assertions(self) -> None:
+        """Gera assertions para sub-paths quando habilitado."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users/{id}",
+                    "method": "GET",
+                    "responses": {
+                        "200": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "data": {
+                                        "type": "object",
+                                        "properties": {"id": {"type": "integer"}},
+                                    },
+                                    "meta": {
+                                        "type": "object",
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        assertions = generate_schema_assertions(spec, include_nested_paths=True)
+
+        # Deve ter assertion para o body e para sub-paths
+        paths = [a.path for a in assertions]
+        assert None in paths  # Body principal
+        assert "data" in paths
+        assert "meta" in paths
+
+    def test_skips_endpoints_without_schema(self) -> None:
+        """Ignora endpoints sem schema de resposta."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/health",
+                    "method": "GET",
+                    "responses": {
+                        "200": {"description": "OK"},
+                    },
+                },
+            ],
+        }
+
+        assertions = generate_schema_assertions(spec)
+
+        assert len(assertions) == 0
+
+    def test_tries_multiple_success_codes(self) -> None:
+        """Tenta múltiplos status codes 2xx."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "POST",
+                    "responses": {
+                        "201": {
+                            "schema": {"type": "object"},
+                        },
+                    },
+                },
+            ],
+        }
+
+        assertions = generate_schema_assertions(spec)
+
+        assert len(assertions) == 1
+        assert assertions[0].endpoint_key == "POST /users"
+
+
+class TestSchemaAssertionsToDict:
+    """Testes para schema_assertions_to_dict."""
+
+    def test_converts_to_runner_format(self) -> None:
+        """Converte para formato de assertion do Runner."""
+        assertions = [
+            SchemaAssertion(
+                endpoint_key="GET /users",
+                schema={"type": "array"},
+                operator="valid",
+            ),
+        ]
+
+        result = schema_assertions_to_dict(assertions)
+
+        assert "GET /users" in result
+        assert len(result["GET /users"]) == 1
+        assert result["GET /users"][0]["type"] == "json_schema"
+        assert result["GET /users"][0]["operator"] == "valid"
+        assert result["GET /users"][0]["value"] == {"type": "array"}
+
+    def test_includes_path_when_present(self) -> None:
+        """Inclui path na assertion quando especificado."""
+        assertions = [
+            SchemaAssertion(
+                endpoint_key="GET /users",
+                schema={"type": "object"},
+                path="data.user",
+                operator="valid",
+            ),
+        ]
+
+        result = schema_assertions_to_dict(assertions)
+
+        assert result["GET /users"][0]["path"] == "data.user"
+
+    def test_groups_by_endpoint(self) -> None:
+        """Agrupa assertions por endpoint."""
+        assertions = [
+            SchemaAssertion(
+                endpoint_key="GET /users",
+                schema={"type": "array"},
+                operator="valid",
+            ),
+            SchemaAssertion(
+                endpoint_key="GET /users",
+                schema={"type": "object"},
+                path="data",
+                operator="valid",
+            ),
+            SchemaAssertion(
+                endpoint_key="POST /users",
+                schema={"type": "object"},
+                operator="valid",
+            ),
+        ]
+
+        result = schema_assertions_to_dict(assertions)
+
+        assert len(result["GET /users"]) == 2
+        assert len(result["POST /users"]) == 1
+
+
+class TestInjectSchemaAssertions:
+    """Testes para inject_schema_assertions."""
+
+    def test_injects_schema_assertion(self) -> None:
+        """Injeta assertion de schema em steps."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "GET",
+                    "responses": {
+                        "200": {
+                            "schema": {"type": "array"},
+                        },
+                    },
+                },
+            ],
+        }
+
+        steps = [
+            {
+                "id": "get-users",
+                "action": {
+                    "type": "http",
+                    "method": "GET",
+                    "endpoint": "/users",
+                },
+            },
+        ]
+
+        enriched = inject_schema_assertions(steps, spec)
+
+        assert "assertions" in enriched[0]
+        schema_assertions = [
+            a for a in enriched[0]["assertions"] if a["type"] == "json_schema"
+        ]
+        assert len(schema_assertions) == 1
+        assert schema_assertions[0]["operator"] == "valid"
+
+    def test_does_not_duplicate_schema_assertion(self) -> None:
+        """Não duplica assertion de schema se já existir."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "GET",
+                    "responses": {
+                        "200": {"schema": {"type": "array"}},
+                    },
+                },
+            ],
+        }
+
+        steps = [
+            {
+                "id": "get-users",
+                "action": {
+                    "type": "http",
+                    "method": "GET",
+                    "endpoint": "/users",
+                },
+                "assertions": [
+                    {"type": "json_schema", "operator": "valid", "value": {"type": "object"}},
+                ],
+            },
+        ]
+
+        enriched = inject_schema_assertions(steps, spec)
+
+        schema_assertions = [
+            a for a in enriched[0]["assertions"] if a["type"] == "json_schema"
+        ]
+        # Deve manter apenas o original
+        assert len(schema_assertions) == 1
+        assert schema_assertions[0]["value"] == {"type": "object"}
+
+    def test_preserves_other_assertions(self) -> None:
+        """Preserva outras assertions ao injetar schema."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "GET",
+                    "responses": {
+                        "200": {"schema": {"type": "array"}},
+                    },
+                },
+            ],
+        }
+
+        steps = [
+            {
+                "id": "get-users",
+                "action": {
+                    "type": "http",
+                    "method": "GET",
+                    "endpoint": "/users",
+                },
+                "assertions": [
+                    {"type": "status_code", "operator": "eq", "value": 200},
+                ],
+            },
+        ]
+
+        enriched = inject_schema_assertions(steps, spec)
+
+        assert len(enriched[0]["assertions"]) == 2
+        types = [a["type"] for a in enriched[0]["assertions"]]
+        assert "status_code" in types
+        assert "json_schema" in types
+
+    def test_skips_non_http_steps(self) -> None:
+        """Ignora steps que não são HTTP."""
+        spec = {"endpoints": []}
+
+        steps = [
+            {
+                "id": "wait-1",
+                "action": {"type": "wait", "duration_ms": 1000},
+            },
+        ]
+
+        enriched = inject_schema_assertions(steps, spec)
+
+        assert "assertions" not in enriched[0]
+
+    def test_includes_nested_paths_when_enabled(self) -> None:
+        """Inclui assertions para sub-paths quando habilitado."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users/{id}",
+                    "method": "GET",
+                    "responses": {
+                        "200": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "data": {"type": "object"},
+                                },
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        steps = [
+            {
+                "id": "get-user",
+                "action": {
+                    "type": "http",
+                    "method": "GET",
+                    "endpoint": "/users/{id}",
+                },
+            },
+        ]
+
+        enriched = inject_schema_assertions(steps, spec, validate_nested=True)
+
+        schema_assertions = [
+            a for a in enriched[0]["assertions"] if a["type"] == "json_schema"
+        ]
+        # Deve ter assertion para body e para "data"
+        assert len(schema_assertions) >= 2
+
+
+class TestGenerateSchemaViolationCases:
+    """Testes para generate_schema_violation_cases."""
+
+    def test_generates_type_violation_cases(self) -> None:
+        """Gera casos de violação de tipo."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "POST",
+                    "responses": {
+                        "200": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "age": {"type": "integer"},
+                                },
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        cases = generate_schema_violation_cases(spec)
+
+        assert len(cases) >= 1
+        case_types = [c.case_type for c in cases]
+        assert "schema_type_violation" in case_types
+
+        # Verifica que tem violações para diferentes campos
+        field_names = [c.field_name for c in cases]
+        assert "name" in field_names or "age" in field_names
+
+    def test_generates_enum_violation_cases(self) -> None:
+        """Gera casos de violação de enum."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "POST",
+                    "responses": {
+                        "200": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "status": {
+                                        "type": "string",
+                                        "enum": ["active", "inactive"],
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        cases = generate_schema_violation_cases(spec)
+
+        case_types = [c.case_type for c in cases]
+        assert "schema_enum_violation" in case_types
+
+    def test_generates_bound_violation_cases(self) -> None:
+        """Gera casos de violação de limites."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "POST",
+                    "responses": {
+                        "200": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "age": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        cases = generate_schema_violation_cases(spec)
+
+        case_types = [c.case_type for c in cases]
+        assert "schema_bound_violation" in case_types
+
+        # Valor deve ser abaixo do mínimo
+        bound_case = next(c for c in cases if c.case_type == "schema_bound_violation")
+        assert bound_case.invalid_value < 0
+
+    def test_respects_max_cases_per_endpoint(self) -> None:
+        """Respeita limite de casos por endpoint."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "POST",
+                    "responses": {
+                        "200": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "field1": {"type": "string"},
+                                    "field2": {"type": "integer"},
+                                    "field3": {"type": "boolean"},
+                                    "field4": {"type": "string"},
+                                    "field5": {"type": "integer"},
+                                    "field6": {"type": "string"},
+                                },
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        cases = generate_schema_violation_cases(spec, max_cases_per_endpoint=3)
+
+        assert len(cases) <= 3
+
+    def test_skips_endpoints_without_schema(self) -> None:
+        """Ignora endpoints sem schema."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/health",
+                    "method": "GET",
+                    "responses": {
+                        "200": {"description": "OK"},
+                    },
+                },
+            ],
+        }
+
+        cases = generate_schema_violation_cases(spec)
+
+        assert len(cases) == 0
+
+    def test_all_cases_expect_4xx(self) -> None:
+        """Todos os casos de violação esperam erro 4xx."""
+        spec = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "POST",
+                    "responses": {
+                        "200": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                },
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        cases = generate_schema_violation_cases(spec)
+
+        for case in cases:
+            assert case.expected_status_range == "4xx"
+            assert case.expected_status == 400

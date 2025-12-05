@@ -88,13 +88,13 @@ class NegativeTestResult:
 class RobustnessCase:
     """
     Representa um caso de teste de robustez.
-    
+
     Testes de robustez verificam como a API lida com:
     - Headers malformados ou inesperados
     - Campos extras não definidos no schema
     - Content-Types inválidos
     - Payloads muito grandes
-    
+
     ## Atributos:
         case_type: Tipo do caso (invalid_header, extra_field, wrong_content_type, etc.)
         description: Descrição legível do teste
@@ -104,7 +104,7 @@ class RobustnessCase:
         body: Body a ser enviado (opcional)
         expected_status_range: Range de status esperado (ex: "4xx")
     """
-    
+
     case_type: str
     description: str
     endpoint_path: str
@@ -503,7 +503,7 @@ def generate_negative_cases(
 
                 # Determina o status esperado baseado no tipo de caso
                 expected_status = 400 if case_type != "invalid_format" else 422
-                
+
                 # Para a maioria dos casos negativos, qualquer 4xx é válido
                 # pois diferentes APIs podem retornar 400, 422, ou outros códigos 4xx
                 status_range = "4xx"
@@ -536,23 +536,23 @@ def generate_robustness_cases(
 ) -> list[RobustnessCase]:
     """
     Gera casos de teste de robustez a partir de uma spec OpenAPI.
-    
+
     Testes de robustez verificam comportamentos edge-case da API:
     - Headers malformados
-    - Content-Types inválidos  
+    - Content-Types inválidos
     - Campos extras não definidos
     - Payloads vazios ou malformados
-    
+
     ## Parâmetros:
         spec: Especificação normalizada (output de parse_openapi)
         include_types: Tipos de casos a incluir (None = todos)
-            Opções: invalid_header, wrong_content_type, extra_field, 
+            Opções: invalid_header, wrong_content_type, extra_field,
                     empty_body, malformed_json, oversized_value
         exclude_endpoints: Paths de endpoints a ignorar
-    
+
     ## Retorna:
         Lista de RobustnessCase
-    
+
     ## Exemplo:
         >>> spec = parse_openapi("./api.yaml")
         >>> cases = generate_robustness_cases(spec)
@@ -563,27 +563,27 @@ def generate_robustness_cases(
     exclude_endpoints = exclude_endpoints or []
     include_types = include_types or [
         "invalid_header",
-        "wrong_content_type", 
+        "wrong_content_type",
         "extra_field",
         "empty_body",
         "malformed_json",
         "oversized_value",
     ]
-    
+
     endpoints = spec.get("endpoints", [])
-    
+
     for endpoint in endpoints:
         path = endpoint.get("path", "")
         method = endpoint.get("method", "")
-        
+
         # Pula endpoints excluídos
         if path in exclude_endpoints:
             continue
-            
+
         # Só analisa endpoints que aceitam body (POST, PUT, PATCH)
         if method not in ("POST", "PUT", "PATCH"):
             continue
-        
+
         # =====================================================================
         # CASO: Headers inválidos
         # =====================================================================
@@ -598,7 +598,7 @@ def generate_robustness_cases(
                 body='{"test": "data"}',
                 expected_status_range="4xx",
             ))
-            
+
             # Header Authorization malformado
             cases.append(RobustnessCase(
                 case_type="invalid_header",
@@ -612,7 +612,7 @@ def generate_robustness_cases(
                 body={},
                 expected_status_range="4xx",
             ))
-            
+
             # Accept header incompatível
             cases.append(RobustnessCase(
                 case_type="invalid_header",
@@ -626,7 +626,7 @@ def generate_robustness_cases(
                 body={},
                 expected_status_range="4xx",  # Pode retornar 406 Not Acceptable
             ))
-        
+
         # =====================================================================
         # CASO: Content-Type errado
         # =====================================================================
@@ -640,7 +640,7 @@ def generate_robustness_cases(
                 body='{"test": "data"}',
                 expected_status_range="4xx",
             ))
-            
+
             cases.append(RobustnessCase(
                 case_type="wrong_content_type",
                 description=f"{method} {path}: Content-Type multipart sem boundary",
@@ -650,7 +650,7 @@ def generate_robustness_cases(
                 body='{"test": "data"}',
                 expected_status_range="4xx",
             ))
-        
+
         # =====================================================================
         # CASO: Campos extras não definidos no schema
         # =====================================================================
@@ -667,7 +667,7 @@ def generate_robustness_cases(
                 },
                 expected_status_range="2xx",  # Deve aceitar ou ignorar campos extras
             ))
-            
+
             cases.append(RobustnessCase(
                 case_type="extra_field",
                 description=f"{method} {path}: Campo com nome especial (__proto__)",
@@ -679,7 +679,7 @@ def generate_robustness_cases(
                 },
                 expected_status_range="4xx",  # Deve rejeitar por segurança
             ))
-        
+
         # =====================================================================
         # CASO: Body vazio
         # =====================================================================
@@ -693,7 +693,7 @@ def generate_robustness_cases(
                 body=None,
                 expected_status_range="4xx",
             ))
-            
+
             cases.append(RobustnessCase(
                 case_type="empty_body",
                 description=f"{method} {path}: Body como objeto JSON vazio",
@@ -703,7 +703,7 @@ def generate_robustness_cases(
                 body={},
                 expected_status_range="4xx",  # Depende se há campos obrigatórios
             ))
-        
+
         # =====================================================================
         # CASO: JSON malformado
         # =====================================================================
@@ -717,7 +717,7 @@ def generate_robustness_cases(
                 body='{"invalid": json, missing quotes}',
                 expected_status_range="4xx",
             ))
-            
+
             cases.append(RobustnessCase(
                 case_type="malformed_json",
                 description=f"{method} {path}: JSON truncado",
@@ -727,7 +727,7 @@ def generate_robustness_cases(
                 body='{"name": "test", "age":',
                 expected_status_range="4xx",
             ))
-        
+
         # =====================================================================
         # CASO: Valores muito grandes
         # =====================================================================
@@ -743,7 +743,7 @@ def generate_robustness_cases(
                 body={"oversized_field": oversized_string},
                 expected_status_range="4xx",  # Deve rejeitar payload muito grande
             ))
-            
+
             # Array muito grande
             cases.append(RobustnessCase(
                 case_type="oversized_value",
@@ -754,7 +754,7 @@ def generate_robustness_cases(
                 body={"items": list(range(10000))},
                 expected_status_range="4xx",
             ))
-    
+
     return cases
 
 
@@ -763,18 +763,18 @@ def robustness_cases_to_utdl_steps(
 ) -> list[dict[str, Any]]:
     """
     Converte casos de robustez para steps UTDL.
-    
+
     ## Parâmetros:
         cases: Lista de RobustnessCase
-    
+
     ## Retorna:
         Lista de steps UTDL formatados
     """
     steps: list[dict[str, Any]] = []
-    
+
     for i, case in enumerate(cases, 1):
         step_id = f"robust-{i:03d}"
-        
+
         step: dict[str, Any] = {
             "id": step_id,
             "name": f"Robustness: {case.description}",
@@ -791,17 +791,17 @@ def robustness_cases_to_utdl_steps(
                 }
             ],
         }
-        
+
         # Adiciona headers se existirem
         if case.headers:
             step["action"]["headers"] = case.headers
-        
+
         # Adiciona body se existir
         if case.body is not None:
             step["action"]["body"] = case.body
-        
+
         steps.append(step)
-    
+
     return steps
 
 
@@ -814,7 +814,7 @@ def robustness_cases_to_utdl_steps(
 class LatencySLA:
     """
     Define SLAs de latência para diferentes tipos de endpoints.
-    
+
     ## Atributos:
         endpoint_pattern: Padrão regex para match de endpoints
         max_latency_ms: Latência máxima em milissegundos
@@ -863,16 +863,16 @@ def generate_latency_assertions(
 ) -> dict[str, dict[str, Any]]:
     """
     Gera assertions de latência para cada endpoint baseado em SLAs.
-    
+
     ## Parâmetros:
         spec: Especificação normalizada (output de parse_openapi)
         slas: Lista de SLAs customizados (None = usa defaults)
         default_max_latency_ms: Latência máxima padrão quando nenhum SLA match
-    
+
     ## Retorna:
         Dict mapping endpoint_key -> assertion config
         Onde endpoint_key é "METHOD /path"
-    
+
     ## Exemplo:
         >>> spec = parse_openapi("./api.yaml")
         >>> assertions = generate_latency_assertions(spec)
@@ -880,33 +880,33 @@ def generate_latency_assertions(
         {'type': 'latency', 'operator': 'lt', 'value': 200}
     """
     import re
-    
+
     slas = slas or DEFAULT_LATENCY_SLAS
     latency_assertions: dict[str, dict[str, Any]] = {}
-    
+
     endpoints = spec.get("endpoints", [])
-    
+
     for endpoint in endpoints:
         path = endpoint.get("path", "")
         method = endpoint.get("method", "")
         endpoint_key = f"{method} {path}"
-        
+
         # Encontra o SLA que corresponde a este endpoint
         matched_sla = None
         for sla in slas:
             if re.match(sla.endpoint_pattern, endpoint_key, re.IGNORECASE):
                 matched_sla = sla
                 break
-        
+
         # Define latência máxima
         max_latency = matched_sla.max_latency_ms if matched_sla else default_max_latency_ms
-        
+
         latency_assertions[endpoint_key] = {
             "type": "latency",
             "operator": "lt",
             "value": max_latency,
         }
-        
+
         # Se tem P99, adiciona como assertion secundária
         if matched_sla and matched_sla.p99_latency_ms:
             latency_assertions[f"{endpoint_key}_p99"] = {
@@ -915,7 +915,7 @@ def generate_latency_assertions(
                 "value": matched_sla.p99_latency_ms,
                 "description": f"P99 SLA for {endpoint_key}",
             }
-    
+
     return latency_assertions
 
 
@@ -926,15 +926,15 @@ def inject_latency_assertions(
 ) -> list[dict[str, Any]]:
     """
     Injeta assertions de latência em steps existentes.
-    
+
     ## Parâmetros:
         steps: Lista de steps UTDL
         spec: Especificação OpenAPI (opcional, para SLAs inteligentes)
         default_max_latency_ms: Latência máxima padrão
-    
+
     ## Retorna:
         Steps com assertions de latência adicionadas
-    
+
     ## Exemplo:
         >>> steps = [{"id": "step-1", "action": {"type": "http", "method": "GET", ...}}]
         >>> enriched_steps = inject_latency_assertions(steps)
@@ -942,31 +942,31 @@ def inject_latency_assertions(
         [{"type": "latency", "operator": "lt", "value": 200}]
     """
     import copy
-    
+
     # Gera SLAs se tiver spec
     latency_config = {}
     if spec:
         latency_config = generate_latency_assertions(spec, default_max_latency_ms=default_max_latency_ms)
-    
+
     enriched_steps = []
-    
+
     for step in steps:
         step_copy = copy.deepcopy(step)
-        
+
         # Só injeta em steps HTTP
         action = step_copy.get("action", {})
         if action.get("type") != "http":
             enriched_steps.append(step_copy)
             continue
-        
+
         method = action.get("method", "GET")
         endpoint = action.get("endpoint", "")
         endpoint_key = f"{method} {endpoint}"
-        
+
         # Inicializa assertions se não existir
         if "assertions" not in step_copy:
             step_copy["assertions"] = []
-        
+
         # Adiciona assertion de latência
         if endpoint_key in latency_config:
             latency_assertion = latency_config[endpoint_key]
@@ -978,25 +978,451 @@ def inject_latency_assertions(
                 max_latency = 500
             else:
                 max_latency = default_max_latency_ms
-            
+
             latency_assertion = {
                 "type": "latency",
                 "operator": "lt",
                 "value": max_latency,
             }
-        
+
         # Só adiciona se não existir assertion de latência
         existing_latency = any(
-            a.get("type") == "latency" 
+            a.get("type") == "latency"
             for a in step_copy["assertions"]
         )
-        
+
         if not existing_latency:
             step_copy["assertions"].append(latency_assertion)
-        
+
         enriched_steps.append(step_copy)
-    
+
     return enriched_steps
+
+
+# =============================================================================
+# GERAÇÃO DE ASSERTIONS JSON SCHEMA
+# =============================================================================
+
+
+@dataclass
+class SchemaAssertion:
+    """
+    Representa uma assertion de JSON Schema para validação de resposta.
+
+    ## Atributos:
+        endpoint_key: Chave do endpoint (ex: "GET /users")
+        schema: JSON Schema para validação
+        path: Path opcional dentro da resposta (ex: "data.user")
+        operator: "valid" ou "invalid"
+        description: Descrição legível
+    """
+
+    endpoint_key: str
+    schema: dict[str, Any]
+    path: str | None = None
+    operator: str = "valid"
+    description: str = ""
+
+
+def openapi_schema_to_json_schema(openapi_schema: dict[str, Any]) -> dict[str, Any]:
+    """
+    Converte um schema OpenAPI para JSON Schema compatível.
+
+    OpenAPI 3.0 usa um subconjunto de JSON Schema Draft 4/5 com extensões.
+    Esta função converte para um formato JSON Schema padrão.
+
+    ## Parâmetros:
+        openapi_schema: Schema no formato OpenAPI
+
+    ## Retorna:
+        Schema no formato JSON Schema
+
+    ## Exemplo:
+        >>> openapi_schema = {"type": "string", "nullable": True}
+        >>> json_schema = openapi_schema_to_json_schema(openapi_schema)
+        >>> json_schema
+        {'anyOf': [{'type': 'string'}, {'type': 'null'}]}
+    """
+    import copy
+
+    schema = copy.deepcopy(openapi_schema)
+
+    # Remove keywords específicas do OpenAPI que não existem em JSON Schema
+    openapi_keywords = [
+        "nullable", "discriminator", "readOnly", "writeOnly",
+        "xml", "externalDocs", "example", "deprecated"
+    ]
+
+    # Trata nullable -> anyOf com null
+    if schema.get("nullable"):
+        schema.pop("nullable", None)
+        # Cria anyOf com o tipo original e null
+        original_schema = {k: v for k, v in schema.items() if k not in openapi_keywords}
+        schema = {
+            "anyOf": [original_schema, {"type": "null"}]
+        }
+    else:
+        # Remove apenas as keywords OpenAPI
+        for kw in openapi_keywords:
+            schema.pop(kw, None)
+
+    # Processa properties recursivamente
+    if "properties" in schema:
+        for prop_name, prop_schema in schema["properties"].items():
+            schema["properties"][prop_name] = openapi_schema_to_json_schema(prop_schema)
+
+    # Processa items de array
+    if "items" in schema:
+        schema["items"] = openapi_schema_to_json_schema(schema["items"])
+
+    # Processa allOf, anyOf, oneOf
+    for keyword in ["allOf", "anyOf", "oneOf"]:
+        if keyword in schema:
+            schema[keyword] = [
+                openapi_schema_to_json_schema(s) for s in schema[keyword]
+            ]
+
+    # Processa additionalProperties
+    if isinstance(schema.get("additionalProperties"), dict):
+        schema["additionalProperties"] = openapi_schema_to_json_schema(
+            schema["additionalProperties"]
+        )
+
+    return schema
+
+
+def extract_response_schema(
+    endpoint: dict[str, Any],
+    status_code: str = "200",
+) -> dict[str, Any] | None:
+    """
+    Extrai o schema de resposta de um endpoint para um status code.
+
+    ## Parâmetros:
+        endpoint: Definição do endpoint normalizada
+        status_code: Código de status para extrair schema
+
+    ## Retorna:
+        Schema convertido para JSON Schema ou None se não existir
+
+    ## Exemplo:
+        >>> endpoint = {"responses": {"200": {"schema": {"type": "object"}}}}
+        >>> schema = extract_response_schema(endpoint)
+        >>> schema
+        {'type': 'object'}
+    """
+    responses = endpoint.get("responses", {})
+
+    # Tenta o status code específico
+    response = responses.get(status_code)
+
+    # Fallback para "2xx" ou "default"
+    if not response:
+        response = responses.get("2XX") or responses.get("default")
+
+    if not response:
+        return None
+
+    # Extrai schema (OpenAPI 3.0: content.application/json.schema)
+    schema = response.get("schema")
+
+    if not schema:
+        content = response.get("content", {})
+        json_content = content.get("application/json", {})
+        schema = json_content.get("schema")
+
+    if not schema:
+        return None
+
+    # Converte para JSON Schema padrão
+    return openapi_schema_to_json_schema(schema)
+
+
+def generate_schema_assertions(
+    spec: dict[str, Any],
+    *,
+    include_nested_paths: bool = True,
+    only_success_responses: bool = True,
+) -> list[SchemaAssertion]:
+    """
+    Gera assertions de JSON Schema para todos os endpoints de uma spec.
+
+    ## Parâmetros:
+        spec: Especificação normalizada (output de parse_openapi)
+        include_nested_paths: Se True, gera assertions para sub-paths também
+        only_success_responses: Se True, só gera para respostas 2xx
+
+    ## Retorna:
+        Lista de SchemaAssertion
+
+    ## Exemplo:
+        >>> spec = parse_openapi("./api.yaml")
+        >>> assertions = generate_schema_assertions(spec)
+        >>> assertions[0].endpoint_key
+        'GET /users'
+        >>> assertions[0].schema
+        {'type': 'array', 'items': {'type': 'object', ...}}
+    """
+    assertions: list[SchemaAssertion] = []
+    endpoints = spec.get("endpoints", [])
+
+    for endpoint in endpoints:
+        path = endpoint.get("path", "")
+        method = endpoint.get("method", "")
+        endpoint_key = f"{method} {path}"
+
+        # Extrai schema de resposta
+        schema = extract_response_schema(endpoint, "200")
+
+        if not schema:
+            # Tenta outros status 2xx
+            for status in ["201", "202", "204"]:
+                schema = extract_response_schema(endpoint, status)
+                if schema:
+                    break
+
+        if not schema:
+            continue
+
+        # Assertion principal para o body inteiro
+        assertions.append(SchemaAssertion(
+            endpoint_key=endpoint_key,
+            schema=schema,
+            path=None,
+            operator="valid",
+            description=f"Response body for {endpoint_key} should conform to schema",
+        ))
+
+        # Gera assertions para sub-paths se habilitado
+        if include_nested_paths and schema.get("type") == "object":
+            properties = schema.get("properties", {})
+
+            for prop_name, prop_schema in properties.items():
+                if prop_schema.get("type") in ("object", "array"):
+                    assertions.append(SchemaAssertion(
+                        endpoint_key=endpoint_key,
+                        schema=prop_schema,
+                        path=prop_name,
+                        operator="valid",
+                        description=f"Field '{prop_name}' in {endpoint_key} should conform to schema",
+                    ))
+
+    return assertions
+
+
+def schema_assertions_to_dict(
+    assertions: list[SchemaAssertion],
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Converte SchemaAssertions para formato de assertions Runner.
+
+    ## Parâmetros:
+        assertions: Lista de SchemaAssertion
+
+    ## Retorna:
+        Dict mapping endpoint_key -> list of assertions
+
+    ## Exemplo:
+        >>> assertions = [SchemaAssertion("GET /users", {"type": "array"}, None, "valid")]
+        >>> result = schema_assertions_to_dict(assertions)
+        >>> result["GET /users"]
+        [{"type": "json_schema", "operator": "valid", "value": {"type": "array"}}]
+    """
+    result: dict[str, list[dict[str, Any]]] = {}
+
+    for assertion in assertions:
+        if assertion.endpoint_key not in result:
+            result[assertion.endpoint_key] = []
+
+        assertion_dict: dict[str, Any] = {
+            "type": "json_schema",
+            "operator": assertion.operator,
+            "value": assertion.schema,
+        }
+
+        if assertion.path:
+            assertion_dict["path"] = assertion.path
+
+        result[assertion.endpoint_key].append(assertion_dict)
+
+    return result
+
+
+def inject_schema_assertions(
+    steps: list[dict[str, Any]],
+    spec: dict[str, Any],
+    *,
+    validate_nested: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Injeta assertions de JSON Schema em steps existentes.
+
+    ## Parâmetros:
+        steps: Lista de steps UTDL
+        spec: Especificação OpenAPI para extrair schemas
+        validate_nested: Se True, adiciona validação de sub-paths também
+
+    ## Retorna:
+        Steps com assertions de json_schema adicionadas
+
+    ## Exemplo:
+        >>> steps = [{"id": "get-users", "action": {"type": "http", "method": "GET", "endpoint": "/users"}}]
+        >>> spec = parse_openapi("./api.yaml")
+        >>> enriched = inject_schema_assertions(steps, spec)
+        >>> enriched[0]["assertions"]
+        [{"type": "json_schema", "operator": "valid", "value": {...}}]
+    """
+    import copy
+
+    # Gera assertions baseado na spec
+    schema_assertions = generate_schema_assertions(
+        spec,
+        include_nested_paths=validate_nested,
+    )
+    assertions_by_endpoint = schema_assertions_to_dict(schema_assertions)
+
+    enriched_steps = []
+
+    for step in steps:
+        step_copy = copy.deepcopy(step)
+
+        # Só injeta em steps HTTP
+        action = step_copy.get("action", {})
+        if action.get("type") != "http":
+            enriched_steps.append(step_copy)
+            continue
+
+        method = action.get("method", "GET")
+        endpoint = action.get("endpoint", "")
+        endpoint_key = f"{method} {endpoint}"
+
+        # Inicializa assertions se não existir
+        if "assertions" not in step_copy:
+            step_copy["assertions"] = []
+
+        # Adiciona schema assertions se existirem para este endpoint
+        if endpoint_key in assertions_by_endpoint:
+            # Só adiciona se não existir assertion de json_schema
+            existing_schema = any(
+                a.get("type") == "json_schema"
+                for a in step_copy["assertions"]
+            )
+
+            if not existing_schema:
+                # Adiciona apenas a assertion principal (body inteiro)
+                for assertion in assertions_by_endpoint[endpoint_key]:
+                    if assertion.get("path") is None or validate_nested:
+                        step_copy["assertions"].append(assertion)
+
+        enriched_steps.append(step_copy)
+
+    return enriched_steps
+
+
+def generate_schema_violation_cases(
+    spec: dict[str, Any],
+    *,
+    max_cases_per_endpoint: int = 5,
+) -> list[NegativeCase]:
+    """
+    Gera casos de teste que violam propositalmente o schema de resposta.
+
+    Útil para testar se a validação de schema está funcionando.
+
+    ## Parâmetros:
+        spec: Especificação normalizada
+        max_cases_per_endpoint: Número máximo de casos por endpoint
+
+    ## Retorna:
+        Lista de NegativeCase para violações de schema
+
+    ## Tipos de violação gerados:
+        - wrong_type: Campo com tipo errado
+        - missing_required: Campo obrigatório ausente
+        - extra_property: Campo não definido no schema (se additionalProperties=false)
+        - invalid_enum: Valor fora do enum
+        - bound_violation: Valor fora de min/max
+    """
+    cases: list[NegativeCase] = []
+    endpoints = spec.get("endpoints", [])
+
+    for endpoint in endpoints:
+        path = endpoint.get("path", "")
+        method = endpoint.get("method", "")
+
+        # Pega o schema de resposta
+        schema = extract_response_schema(endpoint, "200")
+        if not schema:
+            continue
+
+        endpoint_cases = 0
+
+        # Gera violações baseadas no schema
+        if schema.get("type") == "object":
+            properties = schema.get("properties", {})
+
+            for prop_name, prop_schema in properties.items():
+                if endpoint_cases >= max_cases_per_endpoint:
+                    break
+
+                prop_type = prop_schema.get("type", "string")
+
+                # Caso: tipo errado
+                if prop_type == "string":
+                    violation_value = 12345  # número em vez de string
+                elif prop_type == "integer":
+                    violation_value = "not_a_number"
+                elif prop_type == "boolean":
+                    violation_value = "not_bool"
+                elif prop_type == "array":
+                    violation_value = "not_array"
+                else:
+                    violation_value = None
+
+                if violation_value is not None:
+                    cases.append(NegativeCase(
+                        case_type="schema_type_violation",
+                        field_name=prop_name,
+                        description=f"Campo '{prop_name}' com tipo errado (espera {prop_type})",
+                        invalid_value=violation_value,
+                        expected_status=400,
+                        endpoint_path=path,
+                        endpoint_method=method,
+                        expected_status_range="4xx",
+                    ))
+                    endpoint_cases += 1
+
+                # Caso: violação de enum
+                if "enum" in prop_schema:
+                    cases.append(NegativeCase(
+                        case_type="schema_enum_violation",
+                        field_name=prop_name,
+                        description=f"Campo '{prop_name}' com valor fora do enum",
+                        invalid_value="__INVALID_ENUM_VALUE__",
+                        expected_status=400,
+                        endpoint_path=path,
+                        endpoint_method=method,
+                        expected_status_range="4xx",
+                    ))
+                    endpoint_cases += 1
+
+                # Caso: violação de limites numéricos
+                if prop_type in ("integer", "number"):
+                    if "minimum" in prop_schema:
+                        min_val = prop_schema["minimum"]
+                        cases.append(NegativeCase(
+                            case_type="schema_bound_violation",
+                            field_name=prop_name,
+                            description=f"Campo '{prop_name}' abaixo do mínimo ({min_val})",
+                            invalid_value=min_val - 1,
+                            expected_status=400,
+                            endpoint_path=path,
+                            endpoint_method=method,
+                            expected_status_range="4xx",
+                        ))
+                        endpoint_cases += 1
+
+    return cases
 
 
 def negative_cases_to_utdl_steps(
@@ -1027,7 +1453,7 @@ def negative_cases_to_utdl_steps(
                 "status_code": 400
             }
         }
-    
+
     O novo formato também pode gerar assertions Runner compatíveis:
         {
             "assertions": [
@@ -1046,7 +1472,7 @@ def negative_cases_to_utdl_steps(
 
         # Construir assertions no formato Runner
         assertions = []
-        
+
         # Usa status_range se disponível, senão usa status_code específico
         if case.expected_status_range:
             assertions.append({

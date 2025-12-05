@@ -53,7 +53,6 @@ main.py (este) -> cli.py -> generator/llm.py -> LLM (OpenAI/Claude)
 # Usamos importação explícita do arquivo cli.py via TYPE_CHECKING.
 from __future__ import annotations
 
-import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

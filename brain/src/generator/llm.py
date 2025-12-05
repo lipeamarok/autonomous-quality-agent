@@ -246,7 +246,7 @@ class UTDLGenerator:
 
             if cached_plan is not None:
                 if self.verbose:
-                    print(f"[Cache HIT] Retornando plano do cache")
+                    print("[Cache HIT] Retornando plano do cache")
                 # Converte dict para Plan
                 return Plan.model_validate(cached_plan)
 
@@ -287,7 +287,7 @@ class UTDLGenerator:
                         model=model_name,
                     )
                     if self.verbose:
-                        print(f"[Cache STORE] Plano armazenado no cache")
+                        print("[Cache STORE] Plano armazenado no cache")
 
                 return plan
 

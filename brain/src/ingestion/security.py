@@ -36,7 +36,6 @@ auth_steps = generate_auth_steps(security_info)
 from __future__ import annotations
 
 import copy
-import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -813,7 +812,6 @@ def inject_auth_into_steps(
         >>> steps = [{"action": "http_request", "params": {"path": "/users"}}]
         >>> inject_auth_into_steps(steps, {"Authorization": "Bearer ${token}"})
     """
-    import copy
 
     modified_steps: list[dict[str, Any]] = []
 

@@ -1,8 +1,6 @@
 
 import json
-from pathlib import Path
 import pytest
-import yaml
 from src.adapter.format_adapter import SmartFormatAdapter, normalize_plan
 
 class TestSmartFormatAdapter:

@@ -327,7 +327,7 @@ def generate(
                 if include_refresh:
                     refresh_steps = [s for s in auth_result.auth_steps if "refresh" in s.get("id", "").lower() or "refresh" in s.get("description", "").lower()]
                     if refresh_steps:
-                        console.print(f"[green]  ✓ Refresh token step incluído[/green]")
+                        console.print("[green]  ✓ Refresh token step incluído[/green]")
             else:
                 console.print("[yellow]  ⚠ Nenhum step de autenticação gerado[/yellow]")
         else:
