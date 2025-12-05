@@ -113,15 +113,18 @@ def load_commands() -> None:
     """
     # Importa cada módulo de comando
     # O simples ato de importar registra o comando via decorator
-    from .commands import (  # noqa: F401
-        init_cmd,
-        generate_cmd,
-        validate_cmd,
-        run_cmd,
-        explain_cmd,
-        demo_cmd,
-        plan_cmd,
-        history_cmd,
-        show_cmd,
-        plan_version_cmd,
-    )
+    # Os imports abaixo são propositalmente não utilizados (side-effect only)
+    from .commands import init_cmd as _init_cmd  # noqa: F401
+    from .commands import generate_cmd as _generate_cmd  # noqa: F401
+    from .commands import validate_cmd as _validate_cmd  # noqa: F401
+    from .commands import run_cmd as _run_cmd  # noqa: F401
+    from .commands import explain_cmd as _explain_cmd  # noqa: F401
+    from .commands import demo_cmd as _demo_cmd  # noqa: F401
+    from .commands import plan_cmd as _plan_cmd  # noqa: F401
+    from .commands import history_cmd as _history_cmd  # noqa: F401
+    from .commands import show_cmd as _show_cmd  # noqa: F401
+    from .commands import plan_version_cmd as _plan_version_cmd  # noqa: F401
+    
+    # Silencia warnings de imports não utilizados
+    del _init_cmd, _generate_cmd, _validate_cmd, _run_cmd, _explain_cmd
+    del _demo_cmd, _plan_cmd, _history_cmd, _show_cmd, _plan_version_cmd
