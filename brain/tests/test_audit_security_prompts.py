@@ -107,15 +107,15 @@ class TestPromptSanitization:
     """Verifica que prompts não contêm dados sensíveis."""
 
     def test_prompt_does_not_contain_real_api_key(
-        self, 
+        self,
         sensitive_credentials: dict[str, str]
     ) -> None:
         """Prompt gerado não contém valor real de API key."""
         # Gera prompt com contexto que inclui menção a API key
         user_requirement = "Testar endpoint /users que requer autenticação"
-        
+
         prompt = build_test_prompt(requirement=user_requirement)
-        
+
         # Verifica que nenhuma credencial real aparece no prompt
         for key, value in sensitive_credentials.items():
             assert value not in prompt, (
@@ -126,14 +126,14 @@ class TestPromptSanitization:
         """Template de prompt usa placeholders em vez de valores reais."""
         # O template não deve ter valores hardcoded
         full_template = SYSTEM_PROMPT + USER_PROMPT_TEMPLATE
-        
+
         # Não deve conter padrões de credenciais reais
         hardcoded_patterns = [
             r'sk-[a-zA-Z0-9]{20,}',  # OpenAI style keys
             r'eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+',  # JWT tokens
             r'[a-f0-9]{32,}',  # Hex tokens (MD5+)
         ]
-        
+
         for pattern in hardcoded_patterns:
             matches = re.findall(pattern, full_template)
             assert not matches, f"Template contém valor hardcoded: {matches}"
@@ -142,27 +142,27 @@ class TestPromptSanitization:
         """Mock LLM gera planos com placeholders, não valores reais."""
         provider = MockLLMProvider(latency_ms=0)
         response = provider.generate("Login com API key e senha")
-        
+
         plan = json.loads(response.content)
         plan_str = json.dumps(plan)
-        
+
         # Verifica que usa placeholders
         placeholder_patterns = [
             r'\$\{[a-z_]+\}',  # ${variable}
             r'\{\{[a-z_]+\}\}',  # {{variable}}
             r'env:[A-Z_]+',  # env:ENV_VAR
         ]
-        
+
         _has_placeholder = any(
             re.search(p, plan_str) for p in placeholder_patterns
         )
-        
+
         # Verifica que NÃO contém valores reais
         dangerous_patterns = [
             r'password["\s:]+["\'](?!.*\$\{)[^"\']{8,}',  # password: "realvalue"
             r'api_key["\s:]+["\'](?!.*\$\{)[^"\']{20,}',  # api_key: "realvalue"
         ]
-        
+
         for pattern in dangerous_patterns:
             assert not re.search(pattern, plan_str, re.IGNORECASE), (
                 f"Plano pode conter credencial real: {pattern}"
@@ -174,7 +174,7 @@ class TestPromptSanitization:
     ) -> None:
         """Mensagens de erro não vazam credenciais."""
         validator = UTDLValidator()
-        
+
         # Cria plano inválido COM credenciais (como se usuário errasse)
         invalid_plan: dict[str, Any] = {
             "spec_version": "0.1",
@@ -188,9 +188,9 @@ class TestPromptSanitization:
             },
             "steps": []  # Inválido: sem steps
         }
-        
+
         result = validator.validate(invalid_plan)
-        
+
         # Erros não devem conter os valores sensíveis
         error_str = str(result.errors)
         for key, value in sensitive_credentials.items():
@@ -212,17 +212,17 @@ class TestOpenAPISanitization:
     ) -> None:
         """detect_security não armazena valores de credenciais."""
         analysis = detect_security(openapi_with_secrets)
-        
+
         # Serializa a análise
         analysis_str = str(analysis)
-        
+
         # Não deve conter padrões de credenciais reais
         dangerous_patterns = [
             r'sk-[a-zA-Z0-9]{20,}',
             r'eyJ[a-zA-Z0-9_-]+\.',
             r'Bearer\s+[a-zA-Z0-9_-]{20,}',
         ]
-        
+
         for pattern in dangerous_patterns:
             assert not re.search(pattern, analysis_str), (
                 f"Análise contém credencial: {pattern}"
@@ -234,10 +234,10 @@ class TestOpenAPISanitization:
     ) -> None:
         """Detecção de esquema de segurança retorna apenas metadados."""
         analysis = detect_security(openapi_with_secrets)
-        
+
         if analysis.primary_scheme:
             scheme = analysis.primary_scheme
-            
+
             # Deve ter tipo de segurança válido
             assert scheme.security_type in [
                 SecurityType.API_KEY,
@@ -246,7 +246,7 @@ class TestOpenAPISanitization:
                 SecurityType.OAUTH2_PASSWORD,
                 SecurityType.OAUTH2_CLIENT_CREDENTIALS,
             ]
-            
+
             # Detalhes são metadados, não valores
             if "param_name" in scheme.details:
                 # Deve ser o NOME do parâmetro, não o valor
@@ -263,14 +263,14 @@ class TestLoggingSecurity:
     def test_llm_response_repr_shows_content_safely(self) -> None:
         """
         Representação de LLMResponse mostra conteúdo.
-        
+
         NOTA: Este é um teste de documentação do comportamento atual.
         LLMResponse.repr mostra o conteúdo completo por design,
         já que é útil para debugging. A responsabilidade de não
         armazenar segredos é do código que usa o LLMResponse.
         """
         from src.llm.base import LLMResponse
-        
+
         # Simula resposta com dados sensíveis
         response = LLMResponse(
             content='{"api_key": "sk-secret-key-12345"}',
@@ -279,22 +279,22 @@ class TestLoggingSecurity:
             tokens_used=100,
             latency_ms=50.0
         )
-        
+
         repr_str = repr(response)
-        
+
         # Verifica que repr é uma dataclass repr padrão
         # O conteúdo aparece, mas é responsabilidade do chamador
         # não logar respostas com dados sensíveis
         assert "LLMResponse" in repr_str
         assert "model='test'" in repr_str
-        
+
         # NOTA: O content aparece no repr por design (útil para debug)
         # A proteção está em não colocar segredos reais na resposta
 
     def test_validation_result_does_not_expose_plan_values(self) -> None:
         """ValidationResult não expõe valores do plano nos erros."""
         validator = UTDLValidator()
-        
+
         # Plano com dados sensíveis em locais errados
         plan: dict[str, Any] = {
             "spec_version": "0.1",
@@ -318,10 +318,10 @@ class TestLoggingSecurity:
                 }
             ]
         }
-        
+
         result = validator.validate(plan)
         result_str = str(result)
-        
+
         # Se houver erros, não devem conter os valores
         # Os valores podem aparecer em campos válidos do plano,
         # mas erros devem referenciar estrutura, não valores
@@ -340,14 +340,14 @@ class TestEndToEndWithMockLLM:
         """Fluxo completo gera plano sem credenciais reais."""
         provider = MockLLMProvider(latency_ms=0)
         validator = UTDLValidator()
-        
+
         # Simula prompt do usuário
         user_input = "Testar login com email admin@company.com e senha AdminPass123"
-        
+
         # Gera plano via mock
         response = provider.generate(user_input)
         plan = json.loads(response.content)
-        
+
         # Normaliza para formato UTDL completo
         utdl_plan: dict[str, Any] = {
             "spec_version": "0.1",
@@ -355,13 +355,13 @@ class TestEndToEndWithMockLLM:
             "config": plan.get("config", {}),
             "steps": plan.get("steps", [])
         }
-        
+
         # Valida
         result = validator.validate(utdl_plan)
-        
+
         # Deve ser válido
         assert result.is_valid, f"Plano inválido: {result.errors}"
-        
+
         # Plano não deve conter as credenciais literais do input
         plan_str = json.dumps(utdl_plan)
         assert "AdminPass123" not in plan_str
@@ -371,25 +371,25 @@ class TestEndToEndWithMockLLM:
         """Mock gera planos válidos para diferentes tipos de auth."""
         provider = MockLLMProvider(latency_ms=0)
         validator = UTDLValidator()
-        
+
         auth_prompts = [
             "API com autenticação via API key no header",
             "Endpoint que requer Bearer token JWT",
             "Login com usuário e senha (Basic Auth)",
             "OAuth2 com client credentials",
         ]
-        
+
         for prompt in auth_prompts:
             response = provider.generate(prompt)
             plan = json.loads(response.content)
-            
+
             utdl_plan: dict[str, Any] = {
                 "spec_version": "0.1",
                 "meta": plan.get("meta", {}),
                 "config": plan.get("config", {}),
                 "steps": plan.get("steps", [])
             }
-            
+
             result = validator.validate(utdl_plan)
             assert result.is_valid, f"Falhou para '{prompt}': {result.errors}"
 
@@ -405,30 +405,30 @@ class TestExternalAPIMocking:
         """Verifica que mock LLM não faz requisições reais."""
         import urllib.request
         from unittest.mock import patch
-        
+
         with patch.object(urllib.request, 'urlopen') as mock_urlopen:
             provider = MockLLMProvider(latency_ms=0)
-            
+
             # Gera múltiplos planos
             for _ in range(5):
                 provider.generate("qualquer prompt")
-            
+
             # Não deve ter feito nenhuma requisição HTTP
             mock_urlopen.assert_not_called()
 
     def test_mock_provider_is_deterministic_for_same_input(self) -> None:
         """Mock retorna resultados consistentes para mesmo input."""
         provider = MockLLMProvider(latency_ms=0)
-        
+
         prompt = "health check endpoint"
-        
+
         response1 = provider.generate(prompt)
         response2 = provider.generate(prompt)
-        
+
         # Deve retornar estrutura similar (pode haver variação em IDs)
         plan1 = json.loads(response1.content)
         plan2 = json.loads(response2.content)
-        
+
         assert plan1["meta"]["name"] == plan2["meta"]["name"]
         assert len(plan1["steps"]) == len(plan2["steps"])
 
@@ -440,16 +440,16 @@ class TestExternalAPIMocking:
             "OPENAI_API_KEY": "sk-openai-secret",
             "DATABASE_PASSWORD": "db-password-secret",
         }
-        
+
         original_env: dict[str, str | None] = {}
         for key, value in sensitive_env.items():
             original_env[key] = os.environ.get(key)
             os.environ[key] = value
-        
+
         try:
             provider = MockLLMProvider(latency_ms=0)
             response = provider.generate("test with secrets in env")
-            
+
             # Resposta não deve conter valores das env vars
             response_str = response.content
             for value in sensitive_env.values():

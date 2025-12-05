@@ -66,7 +66,7 @@ def register_command(cmd: T) -> T:
     Não modifica o comando, apenas o adiciona à lista de comandos.
 
     ## Exemplo:
-    
+
         @register_command
         @click.command()
         def my_command():
@@ -124,7 +124,7 @@ def load_commands() -> None:
     from .commands import history_cmd as _history_cmd  # noqa: F401
     from .commands import show_cmd as _show_cmd  # noqa: F401
     from .commands import plan_version_cmd as _plan_version_cmd  # noqa: F401
-    
+
     # Silencia warnings de imports não utilizados
     del _init_cmd, _generate_cmd, _validate_cmd, _run_cmd, _explain_cmd
     del _demo_cmd, _plan_cmd, _history_cmd, _show_cmd, _plan_version_cmd
