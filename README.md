@@ -4,7 +4,8 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.3.0-green.svg)](https://github.com/lipeamarok/autonomous-quality-agent/releases)
+[![Version](https://img.shields.io/badge/version-0.4.0-green.svg)](https://github.com/lipeamarok/autonomous-quality-agent/releases)
+[![Tests](https://img.shields.io/badge/tests-423%20passed-brightgreen.svg)](brain/tests/)
 
 > **Transformando requisitos em testes executáveis com IA e Alta Performance.**
 
@@ -16,9 +17,10 @@ O **Autonomous Quality Agent** é uma plataforma de engenharia de qualidade que 
 
 | Documento | Descrição |
 |-----------|-----------|
-| [**User Guide**](docs/user-guide.md) | Guia completo para usuários: instalação, CLI, exemplos |
+| [**User Guide**](docs/user-guide.md) | Guia completo para usuários: instalação, CLI, CI/CD |
 | [**Developer Guide**](docs/developer-guide.md) | Para contribuidores: estrutura, testes, padrões |
 | [**Architecture**](docs/architecture.md) | Decisões técnicas, C4 diagrams, spec UTDL |
+| [**Interface Spec**](docs/interface.md) | Especificação completa da UI (roadmap) |
 | [**Plugin Development**](docs/plugin_development.md) | Como criar executores customizados |
 | [**Error Codes**](docs/error_codes.md) | Referência de códigos de erro |
 | [**Environment Variables**](docs/environment_variables.md) | Variáveis de ambiente |
@@ -142,6 +144,20 @@ aqa [OPTIONS] COMMAND [ARGS]
 ---
 
 ## 📚 Comandos
+
+### Status de Estabilidade
+
+| Comando | Status | Descrição |
+|---------|--------|-----------|
+| `init` | ✅ Stable | Inicializa workspace |
+| `generate` | ✅ Stable | Gera planos via LLM |
+| `validate` | ✅ Stable | Valida planos UTDL |
+| `run` | ✅ Stable | Executa testes |
+| `plan-list` | ✅ Stable | Lista planos salvos |
+| `config` | ✅ Stable | Gerencia configuração |
+| `storage` | 🔶 Beta | Backend de storage |
+| `cache` | 🔶 Beta | Gerenciamento de cache |
+| `trace` | 🔬 Experimental | Tracing e telemetria |
 
 ### `aqa init`
 
@@ -387,18 +403,27 @@ Capturam valores de respostas para usar em steps seguintes:
 autonomous-quality-agent/
 ├── brain/                  # Componente Python
 │   ├── src/
-│   │   ├── cli/           # CLI aqa
+│   │   ├── cli/           # CLI aqa com registry pattern
+│   │   │   ├── registry.py    # @register_command decorator
+│   │   │   └── commands/      # Comandos modulares
 │   │   ├── generator/     # Geração via LLM
 │   │   ├── validator/     # Validação UTDL
-│   │   └── cache/         # Cache de planos
+│   │   ├── llm/           # Providers (OpenAI, Mock)
+│   │   ├── storage/       # Backends (JSON, SQLite, S3)
+│   │   └── telemetry/     # Métricas e tracing
 │   └── tests/
+│       ├── test_*.py              # Unit tests
+│       ├── test_integration*.py   # Integration tests
+│       ├── test_e2e_*.py          # End-to-end tests
+│       └── test_audit_*.py        # Security audit tests
 ├── runner/                 # Componente Rust
 │   └── src/
-│       ├── executors/     # HTTP, Wait
+│       ├── executors/     # HTTP, Wait, GraphQL
 │       ├── extractors/    # Extração de dados
+│       ├── planner/       # DAG execution planner
 │       └── validation/    # Validação de planos
 ├── schemas/               # JSON Schemas UTDL
-└── docs/                  # Documentação
+└── docs/                  # Documentação completa
 ```
 
 ### Rodando Testes
@@ -416,9 +441,19 @@ cd runner && cargo test
 
 ### Cobertura de Testes
 
-- **Python (Brain):** 186 testes
+- **Python (Brain):** 423 testes (unit, integration, e2e, security audit)
 - **Rust (Runner):** 95 testes
-- **Total:** 281 testes
+- **Total:** 518 testes
+
+### Categorias de Testes
+
+| Categoria | Descrição |
+|-----------|-----------|
+| Unit Tests | Testes unitários de componentes isolados |
+| Integration Tests | Testes de integração Brain ↔ Runner |
+| E2E Tests | Testes end-to-end com fluxos completos |
+| Extreme Tests | Testes de stress, paralelismo e edge cases |
+| Security Audit | Testes de segurança (credential leakage, prompt sanitization) |
 
 ---
 

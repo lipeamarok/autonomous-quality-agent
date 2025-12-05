@@ -11,7 +11,9 @@
 5. [Configuração](#5-configuração)
 6. [Exemplos Práticos](#6-exemplos-práticos)
 7. [Variáveis de Ambiente](#7-variáveis-de-ambiente)
-8. [Troubleshooting](#8-troubleshooting)
+8. [Integração CI/CD](#8-integração-cicd)
+9. [Exemplos Completos de UTDL](#9-exemplos-completos-de-utdl)
+10. [Troubleshooting](#10-troubleshooting)
 
 ---
 
@@ -131,14 +133,37 @@ aqa run plans/plan_001.json
 aqa [COMANDO] [OPÇÕES]
 
 Comandos:
-  init       Inicializa workspace .aqa/
-  generate   Gera plano UTDL usando IA
-  plan       Alias para generate
-  validate   Valida sintaxe de um plano UTDL
-  run        Executa plano via Runner
-  explain    Explica um plano em linguagem natural
-  demo       Demonstração interativa
+  init         Inicializa workspace .aqa/
+  generate     Gera plano UTDL usando IA
+  plan         Alias para generate
+  validate     Valida sintaxe de um plano UTDL
+  run          Executa plano via Runner
+  explain      Explica um plano em linguagem natural
+  demo         Demonstração interativa
+  history      Histórico de execuções
+  show         Visualiza plano em formato legível
+  planversion  Gerenciamento de versões de planos
 ```
+
+### Estabilidade dos Comandos
+
+| Comando | Status | Notas |
+|---------|--------|-------|
+| `init` | ✅ **Estável** | Pronto para produção |
+| `generate` | ✅ **Estável** | Pronto para produção |
+| `validate` | ✅ **Estável** | Pronto para produção |
+| `run` | ✅ **Estável** | Pronto para produção |
+| `explain` | ✅ **Estável** | Pronto para produção |
+| `demo` | ✅ **Estável** | Demonstração para onboarding |
+| `history` | ✅ **Estável** | Requer storage configurado |
+| `show` | ✅ **Estável** | Visualização de planos |
+| `plan` | ⚠️ **Alias** | Alias para `generate` |
+| `planversion` | 🧪 **Experimental** | API pode mudar em versões futuras |
+
+**Legenda:**
+- ✅ **Estável**: Pode ser usado em produção, API não mudará
+- ⚠️ **Alias**: Redirecionamento para outro comando
+- 🧪 **Experimental**: Funcional mas API pode sofrer alterações
 
 ### Flags Globais
 
@@ -484,7 +509,448 @@ aqa run plan.json
 
 ---
 
-## 8. Troubleshooting
+## 8. Integração CI/CD
+
+### 8.1 GitHub Actions
+
+```yaml
+# .github/workflows/api-tests.yml
+name: API Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install AQA
+        run: |
+          cd brain && pip install -e .
+          cd ../runner && cargo build --release
+      
+      - name: Validate Plans
+        run: aqa --json validate .aqa/plans/*.json
+      
+      - name: Run API Tests
+        env:
+          API_USERNAME: ${{ secrets.API_USERNAME }}
+          API_PASSWORD: ${{ secrets.API_PASSWORD }}
+        run: |
+          aqa --json run .aqa/plans/smoke-tests.json > results.json
+          
+      - name: Check Results
+        run: |
+          if ! jq -e '.success' results.json; then
+            echo "Tests failed!"
+            cat results.json | jq '.steps[] | select(.status == "failed")'
+            exit 1
+          fi
+      
+      - name: Upload Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: results.json
+```
+
+### 8.2 GitLab CI
+
+```yaml
+# .gitlab-ci.yml
+stages:
+  - validate
+  - test
+
+validate-plans:
+  stage: validate
+  image: python:3.11
+  script:
+    - pip install -e brain/
+    - aqa --json validate .aqa/plans/*.json
+  artifacts:
+    when: on_failure
+    paths:
+      - .aqa/plans/
+
+run-api-tests:
+  stage: test
+  image: python:3.11
+  variables:
+    API_USERNAME: $API_USERNAME
+    API_PASSWORD: $API_PASSWORD
+  before_script:
+    - pip install -e brain/
+    - apt-get update && apt-get install -y cargo
+    - cd runner && cargo build --release
+  script:
+    - aqa --json run .aqa/plans/smoke-tests.json > results.json
+    - "[ $(jq '.success' results.json) = 'true' ]"
+  artifacts:
+    paths:
+      - results.json
+    reports:
+      junit: results.xml  # se exportar como JUnit
+```
+
+### 8.3 Jenkins Pipeline
+
+```groovy
+// Jenkinsfile
+pipeline {
+    agent any
+    
+    environment {
+        API_USERNAME = credentials('api-username')
+        API_PASSWORD = credentials('api-password')
+    }
+    
+    stages {
+        stage('Setup') {
+            steps {
+                sh 'pip install -e brain/'
+                sh 'cd runner && cargo build --release'
+            }
+        }
+        
+        stage('Validate') {
+            steps {
+                sh 'aqa --json validate .aqa/plans/*.json'
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                sh 'aqa --json run .aqa/plans/smoke-tests.json > results.json'
+                script {
+                    def results = readJSON file: 'results.json'
+                    if (!results.success) {
+                        error "API tests failed: ${results.failed} failures"
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            archiveArtifacts artifacts: 'results.json', fingerprint: true
+        }
+    }
+}
+```
+
+### 8.4 Azure DevOps
+
+```yaml
+# azure-pipelines.yml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+  
+  - script: pip install -e brain/
+    displayName: 'Install AQA'
+  
+  - script: |
+      cd runner && cargo build --release
+    displayName: 'Build Runner'
+  
+  - script: aqa --json validate .aqa/plans/*.json
+    displayName: 'Validate Plans'
+  
+  - script: |
+      aqa --json run .aqa/plans/smoke-tests.json > results.json
+    displayName: 'Run API Tests'
+    env:
+      API_USERNAME: $(API_USERNAME)
+      API_PASSWORD: $(API_PASSWORD)
+  
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '**/results.xml'
+```
+
+---
+
+## 9. Exemplos Completos de UTDL
+
+### 9.1 Fluxo de Autenticação OAuth2
+
+```json
+{
+  "spec_version": "0.1",
+  "meta": {
+    "id": "oauth2-flow-001",
+    "name": "OAuth2 Complete Flow",
+    "description": "Testa login, uso do token e refresh",
+    "tags": ["auth", "oauth2", "security"]
+  },
+  "config": {
+    "base_url": "https://api.example.com",
+    "timeout_ms": 30000,
+    "variables": {
+      "client_id": "${env:OAUTH_CLIENT_ID}",
+      "client_secret": "${env:OAUTH_CLIENT_SECRET}"
+    }
+  },
+  "steps": [
+    {
+      "id": "obtain_token",
+      "action": "http_request",
+      "description": "Obtém access token via client credentials",
+      "params": {
+        "method": "POST",
+        "url": "{{base_url}}/oauth/token",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": "grant_type=client_credentials&client_id={{client_id}}&client_secret={{client_secret}}"
+      },
+      "assertions": [
+        {"type": "status_code", "operator": "eq", "value": 200},
+        {"type": "json_body", "path": "$.access_token", "operator": "exists"},
+        {"type": "json_body", "path": "$.token_type", "operator": "eq", "value": "Bearer"}
+      ],
+      "extract": [
+        {"source": "body", "path": "$.access_token", "target": "access_token"},
+        {"source": "body", "path": "$.refresh_token", "target": "refresh_token"},
+        {"source": "body", "path": "$.expires_in", "target": "expires_in"}
+      ]
+    },
+    {
+      "id": "use_protected_endpoint",
+      "action": "http_request",
+      "description": "Acessa recurso protegido com token",
+      "depends_on": ["obtain_token"],
+      "params": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/me",
+        "headers": {
+          "Authorization": "Bearer ${access_token}"
+        }
+      },
+      "assertions": [
+        {"type": "status_code", "operator": "eq", "value": 200},
+        {"type": "json_body", "path": "$.id", "operator": "exists"}
+      ]
+    },
+    {
+      "id": "refresh_token_flow",
+      "action": "http_request",
+      "description": "Renova token usando refresh token",
+      "depends_on": ["use_protected_endpoint"],
+      "params": {
+        "method": "POST",
+        "url": "{{base_url}}/oauth/token",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": "grant_type=refresh_token&refresh_token=${refresh_token}&client_id={{client_id}}"
+      },
+      "assertions": [
+        {"type": "status_code", "operator": "eq", "value": 200},
+        {"type": "json_body", "path": "$.access_token", "operator": "exists"}
+      ]
+    }
+  ]
+}
+```
+
+### 9.2 Casos Negativos (Teste de Erros)
+
+```json
+{
+  "spec_version": "0.1",
+  "meta": {
+    "id": "negative-cases-001",
+    "name": "API Error Handling Tests",
+    "description": "Valida que a API retorna erros apropriados",
+    "tags": ["negative", "errors", "validation"]
+  },
+  "config": {
+    "base_url": "https://api.example.com",
+    "timeout_ms": 10000
+  },
+  "steps": [
+    {
+      "id": "test_401_no_auth",
+      "action": "http_request",
+      "description": "Acesso sem autenticação deve retornar 401",
+      "params": {
+        "method": "GET",
+        "url": "{{base_url}}/api/protected/resource"
+      },
+      "assertions": [
+        {"type": "status_code", "operator": "eq", "value": 401},
+        {"type": "json_body", "path": "$.error", "operator": "eq", "value": "unauthorized"}
+      ]
+    },
+    {
+      "id": "test_403_forbidden",
+      "action": "http_request",
+      "description": "Acesso a recurso proibido deve retornar 403",
+      "params": {
+        "method": "GET",
+        "url": "{{base_url}}/api/admin/users",
+        "headers": {
+          "Authorization": "Bearer ${user_token}"
+        }
+      },
+      "assertions": [
+        {"type": "status_code", "operator": "eq", "value": 403},
+        {"type": "json_body", "path": "$.error", "operator": "eq", "value": "forbidden"}
+      ]
+    },
+    {
+      "id": "test_400_invalid_input",
+      "action": "http_request",
+      "description": "Payload inválido deve retornar 400",
+      "params": {
+        "method": "POST",
+        "url": "{{base_url}}/api/users",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "email": "invalid-email",
+          "password": "123"
+        }
+      },
+      "assertions": [
+        {"type": "status_code", "operator": "eq", "value": 400},
+        {"type": "json_body", "path": "$.errors", "operator": "exists"},
+        {"type": "json_body", "path": "$.errors[0].field", "operator": "eq", "value": "email"}
+      ]
+    },
+    {
+      "id": "test_404_not_found",
+      "action": "http_request",
+      "description": "Recurso inexistente deve retornar 404",
+      "params": {
+        "method": "GET",
+        "url": "{{base_url}}/api/users/99999999"
+      },
+      "assertions": [
+        {"type": "status_code", "operator": "eq", "value": 404},
+        {"type": "json_body", "path": "$.error", "operator": "eq", "value": "not_found"}
+      ]
+    },
+    {
+      "id": "test_429_rate_limit",
+      "action": "http_request",
+      "description": "Exceder rate limit deve retornar 429",
+      "params": {
+        "method": "GET",
+        "url": "{{base_url}}/api/expensive-operation"
+      },
+      "assertions": [
+        {"type": "status_code", "operator": "eq", "value": 429},
+        {"type": "header", "path": "Retry-After", "operator": "exists"}
+      ]
+    },
+    {
+      "id": "test_422_validation_error",
+      "action": "http_request",
+      "description": "Validação de negócio falha deve retornar 422",
+      "params": {
+        "method": "POST",
+        "url": "{{base_url}}/api/orders",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "quantity": -1,
+          "product_id": "abc123"
+        }
+      },
+      "assertions": [
+        {"type": "status_code", "operator": "eq", "value": 422},
+        {"type": "json_body", "path": "$.message", "operator": "contains", "value": "quantity"}
+      ]
+    }
+  ]
+}
+```
+
+### 9.3 Plano com Paralelismo Máximo
+
+```json
+{
+  "spec_version": "0.1",
+  "meta": {
+    "id": "parallel-smoke-001",
+    "name": "Parallel Smoke Tests",
+    "description": "Testes de smoke em paralelo para rapidez"
+  },
+  "config": {
+    "base_url": "https://api.example.com",
+    "timeout_ms": 5000
+  },
+  "steps": [
+    {
+      "id": "check_health",
+      "action": "http_request",
+      "params": {"method": "GET", "url": "{{base_url}}/health"},
+      "assertions": [{"type": "status_code", "operator": "eq", "value": 200}]
+    },
+    {
+      "id": "check_users_api",
+      "action": "http_request",
+      "depends_on": ["check_health"],
+      "params": {"method": "GET", "url": "{{base_url}}/api/users"},
+      "assertions": [{"type": "status_code", "operator": "lt", "value": 500}]
+    },
+    {
+      "id": "check_products_api",
+      "action": "http_request",
+      "depends_on": ["check_health"],
+      "params": {"method": "GET", "url": "{{base_url}}/api/products"},
+      "assertions": [{"type": "status_code", "operator": "lt", "value": 500}]
+    },
+    {
+      "id": "check_orders_api",
+      "action": "http_request",
+      "depends_on": ["check_health"],
+      "params": {"method": "GET", "url": "{{base_url}}/api/orders"},
+      "assertions": [{"type": "status_code", "operator": "lt", "value": 500}]
+    },
+    {
+      "id": "aggregate_results",
+      "action": "http_request",
+      "description": "Todos endpoints verificados, busca stats",
+      "depends_on": ["check_users_api", "check_products_api", "check_orders_api"],
+      "params": {"method": "GET", "url": "{{base_url}}/api/stats"},
+      "assertions": [{"type": "status_code", "operator": "eq", "value": 200}]
+    }
+  ]
+}
+```
+
+---
+
+## 10. Troubleshooting
 
 ### Problema: "Runner não encontrado"
 

@@ -2,9 +2,61 @@
 
 > **Objetivo**: Mapear todos os pontos de conexão entre o sistema CLI atual e a futura interface de usuário, facilitando a transição de comandos técnicos para componentes visuais intuitivos.
 
-**Versão:** 1.2.0
+**Versão:** 1.3.0
 **Última atualização:** 2024-12-05
 **Status:** Enterprise-ready
+
+---
+
+## Quick Reference — Resumo Executivo
+
+### Estabilidade dos Comandos CLI
+
+| Comando | Status | Prioridade UI | Complexidade |
+|---------|--------|---------------|--------------|
+| `init` | ✅ Estável | P0 | Baixa |
+| `generate` | ✅ Estável | P0 | Alta |
+| `validate` | ✅ Estável | P0 | Baixa |
+| `run` | ✅ Estável | P0 | Alta |
+| `explain` | ✅ Estável | P2 | Baixa |
+| `demo` | ✅ Estável | P3 | Baixa |
+| `history` | ✅ Estável | P1 | Média |
+| `show` | ✅ Estável | P1 | Média |
+| `planversion` | 🧪 Experimental | P2 | Alta |
+
+### Funções Core para Expor via API
+
+| Módulo | Função/Classe | Endpoint Sugerido | Status |
+|--------|--------------|-------------------|--------|
+| `cli/commands/init_cmd.py` | `init()` | `POST /api/v1/workspace/init` | ✅ Estável |
+| `generator/llm.py` | `UTDLGenerator.generate()` | `POST /api/v1/plans/generate` | ✅ Estável |
+| `validator/utdl_validator.py` | `UTDLValidator.validate()` | `POST /api/v1/plans/validate` | ✅ Estável |
+| `runner/execute.py` | `run_plan()` | `POST /api/v1/execute` | ✅ Estável |
+| `cache.py` | `ExecutionHistory` | `GET /api/v1/history` | ✅ Estável |
+| `cache.py` | `PlanVersionStore` | `GET /api/v1/planversions` | 🧪 Experimental |
+| `ingestion/security.py` | `detect_security()` | `POST /api/v1/openapi/security` | ✅ Estável |
+| `ingestion/swagger.py` | `parse_openapi()` | `POST /api/v1/openapi/parse` | ✅ Estável |
+| `llm/providers.py` | `get_llm_provider()` | `GET /api/v1/llm/status` | ✅ Estável |
+| `adapter/format_adapter.py` | `SmartFormatAdapter` | Interno | ✅ Estável |
+
+### Checklist para Implementação de UI
+
+- [ ] **Fase 1 (MVP)**: init, generate, validate, run
+- [ ] **Fase 2**: history, show, explain, WebSocket para execução real-time
+- [ ] **Fase 3**: planversion, diff, editor visual de planos
+- [ ] **Fase 4**: Dashboard com métricas, OTEL integration
+
+### Dependências Externas Requeridas
+
+| Componente | Dependência | Versão | Uso |
+|------------|-------------|--------|-----|
+| Brain | Python | 3.11+ | Core |
+| Brain | Click | 8.x | CLI |
+| Brain | Pydantic | 2.x | Validação |
+| Brain | Rich | 13.x | Terminal UI |
+| Runner | Rust | 1.75+ | Execução |
+| Runner | Tokio | 1.x | Async runtime |
+| Runner | Reqwest | 0.11+ | HTTP client |
 
 ---
 
@@ -40,6 +92,8 @@
 19. [Glossário Oficial](#19-glossário-oficial)
 20. [Mapa de Estados Globais da UI](#20-mapa-de-estados-globais-da-ui)
 21. [Casos de Erro Críticos e Recuperação](#21-casos-de-erro-críticos-e-recuperação)
+22. [Exemplos UTDL para Implementação UI](#22-exemplos-utdl-para-implementação-ui)
+23. [Checklist de Implementação UI](#23-checklist-de-implementação-ui)
 
 ---
 
@@ -2644,6 +2698,450 @@ interface RecoveryAction {
             │   Original  │           │   Alternativo│           │   Continue  │
             └─────────────┘           └─────────────┘           └─────────────┘
 ```
+
+---
+
+## 22. Exemplos UTDL para Implementação UI
+
+Esta seção fornece exemplos prontos para uso durante o desenvolvimento da UI.
+
+### 22.1 Fluxo de Autenticação OAuth2
+
+```json
+{
+  "name": "OAuth2 Authentication Flow",
+  "description": "Testa login OAuth2 com refresh token",
+  "base_url": "https://api.example.com",
+  "global_headers": {
+    "Content-Type": "application/json",
+    "X-Client-Version": "1.0.0"
+  },
+  "variables": {
+    "client_id": "{{env:OAUTH_CLIENT_ID}}",
+    "client_secret": "{{env:OAUTH_CLIENT_SECRET}}"
+  },
+  "steps": [
+    {
+      "id": "authorize",
+      "method": "POST",
+      "path": "/oauth/token",
+      "body": {
+        "grant_type": "client_credentials",
+        "client_id": "{{client_id}}",
+        "client_secret": "{{client_secret}}",
+        "scope": "read write"
+      },
+      "expect": {
+        "status": 200,
+        "body_contains": ["access_token", "refresh_token"]
+      },
+      "extract": {
+        "access_token": "$.access_token",
+        "refresh_token": "$.refresh_token",
+        "expires_in": "$.expires_in"
+      }
+    },
+    {
+      "id": "use_token",
+      "depends_on": ["authorize"],
+      "method": "GET",
+      "path": "/api/v1/user/profile",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "expect": {
+        "status": 200,
+        "json_schema": {
+          "type": "object",
+          "required": ["id", "email"]
+        }
+      },
+      "extract": {
+        "user_id": "$.id",
+        "user_email": "$.email"
+      }
+    },
+    {
+      "id": "refresh_flow",
+      "depends_on": ["authorize"],
+      "method": "POST",
+      "path": "/oauth/token",
+      "body": {
+        "grant_type": "refresh_token",
+        "refresh_token": "{{refresh_token}}"
+      },
+      "expect": {
+        "status": 200,
+        "body_contains": ["access_token"]
+      }
+    }
+  ]
+}
+```
+
+### 22.2 API CRUD Completa
+
+```json
+{
+  "name": "CRUD Operations",
+  "description": "Teste completo de operações CRUD",
+  "base_url": "https://api.example.com/v1",
+  "steps": [
+    {
+      "id": "create",
+      "method": "POST",
+      "path": "/resources",
+      "body": {
+        "name": "Test Resource",
+        "type": "example"
+      },
+      "expect": {
+        "status": 201,
+        "headers": {
+          "Location": "regex:^/resources/\\d+$"
+        }
+      },
+      "extract": {
+        "resource_id": "$.id"
+      }
+    },
+    {
+      "id": "read",
+      "depends_on": ["create"],
+      "method": "GET",
+      "path": "/resources/{{resource_id}}",
+      "expect": {
+        "status": 200,
+        "body": {
+          "id": "{{resource_id}}",
+          "name": "Test Resource"
+        }
+      }
+    },
+    {
+      "id": "update",
+      "depends_on": ["read"],
+      "method": "PUT",
+      "path": "/resources/{{resource_id}}",
+      "body": {
+        "name": "Updated Resource"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "id": "verify_update",
+      "depends_on": ["update"],
+      "method": "GET",
+      "path": "/resources/{{resource_id}}",
+      "expect": {
+        "status": 200,
+        "body": {
+          "name": "Updated Resource"
+        }
+      }
+    },
+    {
+      "id": "delete",
+      "depends_on": ["verify_update"],
+      "method": "DELETE",
+      "path": "/resources/{{resource_id}}",
+      "expect": {
+        "status": 204
+      }
+    },
+    {
+      "id": "verify_delete",
+      "depends_on": ["delete"],
+      "method": "GET",
+      "path": "/resources/{{resource_id}}",
+      "expect": {
+        "status": 404
+      }
+    }
+  ]
+}
+```
+
+### 22.3 Testes Negativos e Edge Cases
+
+```json
+{
+  "name": "Negative Test Cases",
+  "description": "Valida tratamento de erros da API",
+  "base_url": "https://api.example.com",
+  "steps": [
+    {
+      "id": "invalid_auth",
+      "method": "GET",
+      "path": "/api/protected",
+      "headers": {
+        "Authorization": "Bearer invalid_token"
+      },
+      "expect": {
+        "status": 401,
+        "body": {
+          "error": "unauthorized"
+        }
+      }
+    },
+    {
+      "id": "forbidden_resource",
+      "method": "DELETE",
+      "path": "/api/admin/users/1",
+      "headers": {
+        "Authorization": "Bearer {{user_token}}"
+      },
+      "expect": {
+        "status": 403
+      }
+    },
+    {
+      "id": "validation_error",
+      "method": "POST",
+      "path": "/api/users",
+      "body": {
+        "email": "invalid-email",
+        "password": "123"
+      },
+      "expect": {
+        "status": 400,
+        "body_contains": ["validation", "error"]
+      }
+    },
+    {
+      "id": "not_found",
+      "method": "GET",
+      "path": "/api/resources/nonexistent-id",
+      "expect": {
+        "status": 404
+      }
+    },
+    {
+      "id": "rate_limit",
+      "method": "GET",
+      "path": "/api/expensive-operation",
+      "repeat": 100,
+      "expect": {
+        "status_one_of": [200, 429],
+        "if_status_429": {
+          "headers": {
+            "Retry-After": "exists"
+          }
+        }
+      }
+    },
+    {
+      "id": "large_payload",
+      "method": "POST",
+      "path": "/api/upload",
+      "body": {
+        "data": "{{generate:random_string:10000000}}"
+      },
+      "expect": {
+        "status": 413
+      }
+    }
+  ]
+}
+```
+
+### 22.4 Execução Paralela com DAG Complexo
+
+```json
+{
+  "name": "Complex DAG Execution",
+  "description": "Demonstra execução paralela com dependências",
+  "base_url": "https://api.example.com",
+  "config": {
+    "max_parallel": 5,
+    "timeout_per_step": 30
+  },
+  "steps": [
+    {
+      "id": "setup",
+      "method": "POST",
+      "path": "/api/test/setup",
+      "expect": { "status": 200 }
+    },
+    {
+      "id": "branch_a1",
+      "depends_on": ["setup"],
+      "method": "GET",
+      "path": "/api/data/a",
+      "expect": { "status": 200 }
+    },
+    {
+      "id": "branch_a2",
+      "depends_on": ["setup"],
+      "method": "GET",
+      "path": "/api/data/b",
+      "expect": { "status": 200 }
+    },
+    {
+      "id": "branch_a3",
+      "depends_on": ["setup"],
+      "method": "GET",
+      "path": "/api/data/c",
+      "expect": { "status": 200 }
+    },
+    {
+      "id": "merge_a",
+      "depends_on": ["branch_a1", "branch_a2", "branch_a3"],
+      "method": "POST",
+      "path": "/api/aggregate",
+      "body": {
+        "sources": ["a", "b", "c"]
+      },
+      "expect": { "status": 200 }
+    },
+    {
+      "id": "branch_b1",
+      "depends_on": ["setup"],
+      "method": "GET",
+      "path": "/api/external/service1",
+      "expect": { "status": 200 }
+    },
+    {
+      "id": "branch_b2",
+      "depends_on": ["setup"],
+      "method": "GET",
+      "path": "/api/external/service2",
+      "expect": { "status": 200 }
+    },
+    {
+      "id": "final_merge",
+      "depends_on": ["merge_a", "branch_b1", "branch_b2"],
+      "method": "POST",
+      "path": "/api/finalize",
+      "expect": { "status": 200 }
+    }
+  ]
+}
+```
+
+### 22.5 Visualização DAG na UI
+
+A UI deve renderizar o DAG acima como:
+
+```
+                    ┌──────────────┐
+                    │    setup     │
+                    └──────────────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│  branch_a1   │  │  branch_a2   │  │  branch_a3   │
+│  /data/a     │  │  /data/b     │  │  /data/c     │
+└──────────────┘  └──────────────┘  └──────────────┘
+        │                  │                  │
+        └──────────────────┼──────────────────┘
+                           │
+                    ┌──────────────┐
+                    │   merge_a    │
+                    │  /aggregate  │
+                    └──────────────┘
+                           │
+                           ├──────────────────────┐
+                           │                      │
+┌──────────────┐  ┌──────────────┐               │
+│  branch_b1   │  │  branch_b2   │               │
+│  /service1   │  │  /service2   │               │
+└──────────────┘  └──────────────┘               │
+        │                  │                      │
+        └──────────────────┼──────────────────────┘
+                           │
+                    ┌──────────────┐
+                    │ final_merge  │
+                    │  /finalize   │
+                    └──────────────┘
+```
+
+### 22.6 Componentes UI para UTDL
+
+#### Step Editor Component
+
+```typescript
+interface StepEditorProps {
+  step: UTDLStep;
+  availableVariables: string[];
+  onUpdate: (step: UTDLStep) => void;
+  onValidate: () => ValidationResult;
+}
+
+// Features:
+// - Autocomplete para variáveis {{...}}
+// - Syntax highlighting para JSONPath
+// - Validação em tempo real
+// - Preview de substituição de variáveis
+```
+
+#### DAG Visualizer Component
+
+```typescript
+interface DAGVisualizerProps {
+  steps: UTDLStep[];
+  executionState?: ExecutionState;
+  onStepClick: (stepId: string) => void;
+  layout: 'horizontal' | 'vertical' | 'auto';
+}
+
+// Features:
+// - Zoom e pan
+// - Status colorido por step (pending/running/success/failed)
+// - Tooltips com detalhes
+// - Highlight de caminho crítico
+```
+
+#### Variable Inspector Component
+
+```typescript
+interface VariableInspectorProps {
+  plan: UTDLPlan;
+  executionContext?: ExecutionContext;
+}
+
+// Features:
+// - Lista todas as variáveis definidas
+// - Mostra onde cada variável é usada
+// - Valores atuais durante execução
+// - Alerta para variáveis não definidas
+```
+
+---
+
+## 23. Checklist de Implementação UI
+
+### Fase 1: Core (MVP)
+- [ ] CLI wrapper (spawn + IPC)
+- [ ] Plan editor básico
+- [ ] Execution view simples
+- [ ] Status em tempo real
+- [ ] Log viewer
+
+### Fase 2: Enhanced
+- [ ] DAG visualizer
+- [ ] Variable inspector
+- [ ] Syntax highlighting UTDL
+- [ ] Autocomplete
+- [ ] Undo/Redo
+
+### Fase 3: Professional
+- [ ] Plan versioning
+- [ ] Diff viewer
+- [ ] Export relatórios
+- [ ] Histórico de execuções
+- [ ] Filtros avançados
+
+### Fase 4: Enterprise
+- [ ] Multi-user (opcional)
+- [ ] API layer completo
+- [ ] Rate limiting
+- [ ] Métricas OTEL
+- [ ] CI/CD integration
 
 ---
 
