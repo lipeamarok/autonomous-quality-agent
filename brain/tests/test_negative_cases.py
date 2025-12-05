@@ -12,18 +12,25 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Adiciona o diretÃ³rio brain ao path para imports
+# Adiciona o diretório brain ao path para imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.ingestion.negative_cases import (
     NegativeCase,
     NegativeTestResult,
+    RobustnessCase,
+    LatencySLA,
+    DEFAULT_LATENCY_SLAS,
     analyze_and_generate,
     generate_negative_cases,
+    generate_robustness_cases,
+    generate_latency_assertions,
+    inject_latency_assertions,
     negative_cases_to_utdl_steps,
+    robustness_cases_to_utdl_steps,
 )
 
-# FunÃ§Ãµes auxiliares pÃºblicas para testes detalhados
+# Funções auxiliares públicas para testes detalhados
 from src.ingestion.negative_cases import (
     build_invalid_body,
     extract_fields_from_schema,
@@ -139,6 +146,58 @@ class TestGenerateInvalidValues:
 
         assert "null_value" not in types_nullable
         assert "null_value" in types_not_nullable
+
+    def test_enum_invalid_values(self) -> None:
+        """Gera valores inválidos para campos com enum."""
+        values = generate_invalid_values_for_type(
+            "string",
+            constraints={"enum": ["active", "inactive", "pending"]},
+        )
+
+        case_types = [v[0] for v in values]
+        assert "invalid_enum" in case_types
+
+        # Verifica que inclui valor fora do enum
+        invalid_enums = [v for v in values if v[0] == "invalid_enum"]
+        invalid_vals = [v[1] for v in invalid_enums]
+
+        assert "__INVALID_ENUM_VALUE__" in invalid_vals
+        assert "" in invalid_vals  # String vazia
+        assert 99999 in invalid_vals  # Número (tipo errado)
+
+    def test_enum_case_sensitivity(self) -> None:
+        """Gera variações de case para valores enum."""
+        values = generate_invalid_values_for_type(
+            "string",
+            constraints={"enum": ["Active", "Inactive"]},
+        )
+
+        invalid_enums = [v for v in values if v[0] == "invalid_enum"]
+        invalid_vals = [v[1] for v in invalid_enums]
+
+        # Deve incluir lowercase do primeiro valor
+        assert "active" in invalid_vals
+
+    def test_boundary_violation_exclusive(self) -> None:
+        """Gera violações de boundary para exclusiveMinimum/Maximum."""
+        values = generate_invalid_values_for_type(
+            "integer",
+            constraints={
+                "minimum": 0,
+                "maximum": 100,
+                "exclusiveMinimum": True,
+                "exclusiveMaximum": True,
+            },
+        )
+
+        case_types = [v[0] for v in values]
+        assert "boundary_violation" in case_types
+
+        # Valores exatamente nos limites exclusivos
+        boundary_vals = [v for v in values if v[0] == "boundary_violation"]
+        vals = [v[1] for v in boundary_vals]
+        assert 0 in vals  # Igual ao mínimo exclusivo
+        assert 100 in vals  # Igual ao máximo exclusivo
 
 
 class TestExtractFieldsFromSchema:
@@ -449,6 +508,66 @@ class TestNegativeCasesToUtdlSteps:
         assert steps[0]["action"]["body"]["name"] == "Test User"
         assert steps[0]["action"]["body"]["email"] == 12345
 
+    def test_generates_status_range_assertions(self) -> None:
+        """Gera assertions com status_range quando especificado."""
+        cases = [
+            NegativeCase(
+                case_type="missing_required",
+                field_name="email",
+                description="campo obrigatório 'email' ausente",
+                invalid_value="__OMIT__",
+                expected_status=400,
+                endpoint_path="/users",
+                endpoint_method="POST",
+                expected_status_range="4xx",  # Range de status 4xx
+            ),
+        ]
+
+        steps = negative_cases_to_utdl_steps(cases)
+
+        assert len(steps) == 1
+        step = steps[0]
+        
+        # Deve ter assertions no novo formato
+        assert "assertions" in step
+        assertions = step["assertions"]
+        assert len(assertions) == 1
+        
+        # Assertion deve ser status_range
+        assertion = assertions[0]
+        assert assertion["type"] == "status_range"
+        assert assertion["operator"] == "eq"
+        assert assertion["value"] == "4xx"
+        
+        # Também deve manter expected para backwards compatibility
+        assert step["expected"]["status_code"] == 400
+
+    def test_fallback_to_status_code_when_no_range(self) -> None:
+        """Usa status_code específico quando range não especificado."""
+        cases = [
+            NegativeCase(
+                case_type="invalid_type",
+                field_name="age",
+                description="age: string em vez de integer",
+                invalid_value="not_a_number",
+                expected_status=422,
+                endpoint_path="/users",
+                endpoint_method="POST",
+                # Sem expected_status_range
+            ),
+        ]
+
+        steps = negative_cases_to_utdl_steps(cases)
+
+        step = steps[0]
+        assertions = step["assertions"]
+        
+        # Deve usar status_code específico
+        assertion = assertions[0]
+        assert assertion["type"] == "status_code"
+        assert assertion["operator"] == "eq"
+        assert assertion["value"] == 422
+
 
 class TestBuildInvalidBody:
     """Testes para build_invalid_body."""
@@ -566,3 +685,331 @@ class TestAnalyzeAndGenerate:
         assert isinstance(result, NegativeTestResult)
         assert hasattr(result, "cases")
         assert hasattr(result, "endpoints_analyzed")
+
+
+class TestRobustnessCases:
+    """Testes para geração de casos de robustez."""
+
+    def test_generates_invalid_header_cases(self) -> None:
+        """Gera casos com headers inválidos."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "POST",
+                    "request_body": {
+                        "schema": {"type": "object"},
+                    },
+                },
+            ],
+        }
+
+        cases = generate_robustness_cases(spec, include_types=["invalid_header"])
+
+        assert len(cases) >= 1
+        assert all(c.case_type == "invalid_header" for c in cases)
+        # Deve ter Content-Type inválido
+        assert any("Content-Type" in str(c.headers) for c in cases)
+
+    def test_generates_extra_field_cases(self) -> None:
+        """Gera casos com campos extras não definidos."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {
+                    "path": "/users",
+                    "method": "POST",
+                    "request_body": {
+                        "schema": {"type": "object"},
+                    },
+                },
+            ],
+        }
+
+        cases = generate_robustness_cases(spec, include_types=["extra_field"])
+
+        assert len(cases) >= 1
+        assert all(c.case_type == "extra_field" for c in cases)
+        # Deve ter __proto__ para teste de prototype pollution
+        assert any("__proto__" in str(c.body) for c in cases)
+
+    def test_generates_malformed_json_cases(self) -> None:
+        """Gera casos com JSON malformado."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {
+                    "path": "/data",
+                    "method": "PUT",
+                    "request_body": {
+                        "schema": {"type": "object"},
+                    },
+                },
+            ],
+        }
+
+        cases = generate_robustness_cases(spec, include_types=["malformed_json"])
+
+        assert len(cases) >= 1
+        assert all(c.case_type == "malformed_json" for c in cases)
+        # JSON truncado deve estar nos casos
+        assert any("truncado" in c.description.lower() for c in cases)
+
+    def test_generates_oversized_value_cases(self) -> None:
+        """Gera casos com valores muito grandes."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {
+                    "path": "/upload",
+                    "method": "POST",
+                    "request_body": {
+                        "schema": {"type": "object"},
+                    },
+                },
+            ],
+        }
+
+        cases = generate_robustness_cases(spec, include_types=["oversized_value"])
+
+        assert len(cases) >= 1
+        assert all(c.case_type == "oversized_value" for c in cases)
+        # Deve ter string de 100KB
+        assert any("100KB" in c.description for c in cases)
+
+    def test_skips_get_endpoints(self) -> None:
+        """Não gera casos para endpoints GET."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {"path": "/users", "method": "GET"},
+                {"path": "/users/{id}", "method": "GET"},
+            ],
+        }
+
+        cases = generate_robustness_cases(spec)
+
+        assert len(cases) == 0
+
+    def test_robustness_to_utdl_steps(self) -> None:
+        """Converte casos de robustez para steps UTDL."""
+        cases = [
+            RobustnessCase(
+                case_type="invalid_header",
+                description="POST /users: Content-Type inválido",
+                endpoint_path="/users",
+                endpoint_method="POST",
+                headers={"Content-Type": "text/plain"},
+                body='{"test": "data"}',
+                expected_status_range="4xx",
+            ),
+        ]
+
+        steps = robustness_cases_to_utdl_steps(cases)
+
+        assert len(steps) == 1
+        step = steps[0]
+        assert step["id"] == "robust-001"
+        assert "Robustness:" in step["name"]
+        assert step["action"]["method"] == "POST"
+        assert step["action"]["endpoint"] == "/users"
+        assert step["action"]["headers"]["Content-Type"] == "text/plain"
+        # Deve ter assertion de status_range
+        assert step["assertions"][0]["type"] == "status_range"
+        assert step["assertions"][0]["value"] == "4xx"
+
+    def test_respects_exclude_endpoints(self) -> None:
+        """Respeita lista de endpoints excluídos."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {
+                    "path": "/internal/health",
+                    "method": "POST",
+                    "request_body": {"schema": {"type": "object"}},
+                },
+                {
+                    "path": "/api/users",
+                    "method": "POST",
+                    "request_body": {"schema": {"type": "object"}},
+                },
+            ],
+        }
+
+        cases = generate_robustness_cases(
+            spec, 
+            exclude_endpoints=["/internal/health"],
+            include_types=["empty_body"],
+        )
+
+        # Só deve ter casos do /api/users
+        assert all(c.endpoint_path == "/api/users" for c in cases)
+
+
+class TestLatencyAssertions:
+    """Testes para geração de assertions de latência."""
+
+    def test_generate_latency_assertions_for_get(self) -> None:
+        """Gera assertions de latência para endpoints GET."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {"path": "/users", "method": "GET"},
+                {"path": "/users/{id}", "method": "GET"},
+            ],
+        }
+
+        assertions = generate_latency_assertions(spec)
+
+        # GET deve ter latência mais baixa (200ms)
+        assert "GET /users" in assertions
+        assert assertions["GET /users"]["type"] == "latency"
+        assert assertions["GET /users"]["operator"] == "lt"
+        assert assertions["GET /users"]["value"] == 200
+
+    def test_generate_latency_assertions_for_post(self) -> None:
+        """Gera assertions de latência para endpoints POST."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {"path": "/users", "method": "POST"},
+            ],
+        }
+
+        assertions = generate_latency_assertions(spec)
+
+        # POST deve ter latência moderada (500ms)
+        assert "POST /users" in assertions
+        assert assertions["POST /users"]["value"] == 500
+
+    def test_auth_endpoints_have_higher_latency(self) -> None:
+        """Endpoints de autenticação têm latência mais alta permitida."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {"path": "/auth/login", "method": "POST"},
+                {"path": "/auth/token", "method": "POST"},
+            ],
+        }
+
+        assertions = generate_latency_assertions(spec)
+
+        # Auth deve permitir 1000ms
+        assert "POST /auth/login" in assertions
+        assert assertions["POST /auth/login"]["value"] == 1000
+
+    def test_custom_slas(self) -> None:
+        """Usa SLAs customizados."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {"path": "/fast", "method": "GET"},
+            ],
+        }
+
+        custom_slas = [
+            LatencySLA(
+                endpoint_pattern=r"^GET /fast$",
+                max_latency_ms=50,
+                description="Endpoint muito rápido",
+            ),
+        ]
+
+        assertions = generate_latency_assertions(spec, slas=custom_slas)
+
+        assert assertions["GET /fast"]["value"] == 50
+
+    def test_default_latency_when_no_match(self) -> None:
+        """Usa latência padrão quando nenhum SLA corresponde."""
+        spec: dict[str, Any] = {
+            "endpoints": [
+                {"path": "/custom", "method": "OPTIONS"},
+            ],
+        }
+
+        assertions = generate_latency_assertions(
+            spec, 
+            slas=[],  # Sem SLAs
+            default_max_latency_ms=300,
+        )
+
+        assert assertions["OPTIONS /custom"]["value"] == 300
+
+    def test_inject_latency_into_steps(self) -> None:
+        """Injeta assertions de latência em steps existentes."""
+        steps = [
+            {
+                "id": "step-1",
+                "name": "Get users",
+                "action": {
+                    "type": "http",
+                    "method": "GET",
+                    "endpoint": "/users",
+                },
+            },
+        ]
+
+        enriched = inject_latency_assertions(steps)
+
+        assert len(enriched) == 1
+        assert "assertions" in enriched[0]
+        latency_assertions = [
+            a for a in enriched[0]["assertions"] if a["type"] == "latency"
+        ]
+        assert len(latency_assertions) == 1
+        assert latency_assertions[0]["operator"] == "lt"
+        assert latency_assertions[0]["value"] == 200  # GET default
+
+    def test_inject_preserves_existing_assertions(self) -> None:
+        """Mantém assertions existentes ao injetar latência."""
+        steps = [
+            {
+                "id": "step-1",
+                "action": {
+                    "type": "http",
+                    "method": "POST",
+                    "endpoint": "/users",
+                },
+                "assertions": [
+                    {"type": "status_code", "operator": "eq", "value": 201},
+                ],
+            },
+        ]
+
+        enriched = inject_latency_assertions(steps)
+
+        # Deve ter 2 assertions: status_code original + latency
+        assert len(enriched[0]["assertions"]) == 2
+        types = [a["type"] for a in enriched[0]["assertions"]]
+        assert "status_code" in types
+        assert "latency" in types
+
+    def test_does_not_duplicate_latency(self) -> None:
+        """Não duplica assertion de latência se já existir."""
+        steps = [
+            {
+                "id": "step-1",
+                "action": {
+                    "type": "http",
+                    "method": "GET",
+                    "endpoint": "/users",
+                },
+                "assertions": [
+                    {"type": "latency", "operator": "lt", "value": 100},
+                ],
+            },
+        ]
+
+        enriched = inject_latency_assertions(steps)
+
+        # Deve manter apenas 1 assertion de latência
+        latency_assertions = [
+            a for a in enriched[0]["assertions"] if a["type"] == "latency"
+        ]
+        assert len(latency_assertions) == 1
+        assert latency_assertions[0]["value"] == 100  # Original, não sobrescrito
+
+    def test_skips_non_http_steps(self) -> None:
+        """Ignora steps que não são HTTP."""
+        steps = [
+            {
+                "id": "wait-1",
+                "action": {"type": "wait", "duration_ms": 1000},
+            },
+        ]
+
+        enriched = inject_latency_assertions(steps)
+
+        # Não deve adicionar assertions
+        assert "assertions" not in enriched[0]

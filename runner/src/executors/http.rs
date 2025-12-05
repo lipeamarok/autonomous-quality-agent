@@ -39,6 +39,7 @@ use crate::extractors::{ExtractionResult, Extractor};
 use crate::protocol::{Assertion, Extraction, Step, StepResult, StepStatus};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use regex::Regex;
 use reqwest::{header::HeaderMap, Client, Method};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -176,6 +177,49 @@ impl HttpExecutor {
                 }
 
                 // ============================================================
+                // ASSERTION: STATUS_RANGE
+                // ============================================================
+                // Valida que o status HTTP está em um range (2xx, 3xx, 4xx, 5xx).
+                // Exemplo: { "type": "status_range", "operator": "eq", "value": "2xx" }
+                // Também suporta ranges customizados: "4xx", "5xx", etc.
+                "status_range" => {
+                    let range_str = assertion.value.as_str().unwrap_or("");
+                    
+                    // Determina o range esperado
+                    let (min_status, max_status) = match range_str.to_lowercase().as_str() {
+                        "1xx" => (100, 199),
+                        "2xx" | "success" => (200, 299),
+                        "3xx" | "redirect" => (300, 399),
+                        "4xx" | "client_error" => (400, 499),
+                        "5xx" | "server_error" => (500, 599),
+                        _ => {
+                            // Tenta parsear como range customizado "NNN-NNN"
+                            if let Some((min_str, max_str)) = range_str.split_once('-') {
+                                let min = min_str.trim().parse::<u16>().unwrap_or(0);
+                                let max = max_str.trim().parse::<u16>().unwrap_or(0);
+                                (min, max)
+                            } else {
+                                (0, 0) // Range inválido
+                            }
+                        }
+                    };
+
+                    let in_range = ctx.status >= min_status && ctx.status <= max_status;
+                    let passed = match assertion.operator.as_str() {
+                        "eq" | "in" => in_range,
+                        "neq" | "not_in" => !in_range,
+                        _ => in_range, // Default: eq
+                    };
+
+                    if !passed {
+                        return Some(format!(
+                            "Assertion failed: status_range {} '{}' ({}-{}) (got {})",
+                            assertion.operator, range_str, min_status, max_status, ctx.status
+                        ));
+                    }
+                }
+
+                // ============================================================
                 // ASSERTION: JSON_BODY
                 // ============================================================
                 // Valida um campo específico do body JSON.
@@ -208,6 +252,29 @@ impl HttpExecutor {
                                             .unwrap_or(false)
                                     })
                                     .unwrap_or(false),
+                                // ========================================================
+                                // OPERADOR: MATCHES_REGEX
+                                // ========================================================
+                                // Valida que o valor corresponde a uma expressão regular.
+                                // Exemplo: { "operator": "matches_regex", "value": "^[A-Z]{2}\\d{4}$" }
+                                "matches_regex" | "regex" => {
+                                    if let (Some(actual_str), Some(pattern)) = 
+                                        (actual.as_str(), assertion.value.as_str()) 
+                                    {
+                                        match Regex::new(pattern) {
+                                            Ok(re) => re.is_match(actual_str),
+                                            Err(_) => {
+                                                tracing::warn!(
+                                                    pattern = %pattern,
+                                                    "Invalid regex pattern in assertion"
+                                                );
+                                                false
+                                            }
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                }
                                 "exists" => true,      // Se chegou aqui, existe
                                 "not_exists" => false, // Se chegou aqui, existe → falha
                                 "gt" => compare_values(actual, &assertion.value, |a, b| a > b),
@@ -601,5 +668,451 @@ impl StepExecutor for HttpExecutor {
                 })
             }
         }
+    }
+}
+
+// ============================================================================
+// TESTES UNITÁRIOS
+// ============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::Assertion;
+    use serde_json::json;
+
+    /// Cria um HttpExecutor para testes
+    fn create_test_executor() -> HttpExecutor {
+        HttpExecutor::new()
+    }
+
+    // ========================================================================
+    // Testes: status_code assertions
+    // ========================================================================
+
+    #[test]
+    fn test_status_code_eq_pass() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_code".to_string(),
+            operator: "eq".to_string(),
+            value: json!(200),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Assertion should pass");
+    }
+
+    #[test]
+    fn test_status_code_eq_fail() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 404,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_code".to_string(),
+            operator: "eq".to_string(),
+            value: json!(200),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_some(), "Assertion should fail");
+        assert!(result.unwrap().contains("404"));
+    }
+
+    // ========================================================================
+    // Testes: status_range assertions
+    // ========================================================================
+
+    #[test]
+    fn test_status_range_2xx_pass() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "eq".to_string(),
+            value: json!("2xx"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Status 200 should be in 2xx range");
+    }
+
+    #[test]
+    fn test_status_range_2xx_with_201() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 201,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "eq".to_string(),
+            value: json!("2xx"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Status 201 should be in 2xx range");
+    }
+
+    #[test]
+    fn test_status_range_2xx_fail() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 404,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "eq".to_string(),
+            value: json!("2xx"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_some(), "Status 404 should NOT be in 2xx range");
+    }
+
+    #[test]
+    fn test_status_range_4xx_pass() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 404,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "eq".to_string(),
+            value: json!("4xx"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Status 404 should be in 4xx range");
+    }
+
+    #[test]
+    fn test_status_range_5xx_pass() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 500,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "eq".to_string(),
+            value: json!("5xx"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Status 500 should be in 5xx range");
+    }
+
+    #[test]
+    fn test_status_range_success_alias() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 204,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "eq".to_string(),
+            value: json!("success"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Status 204 should match 'success' alias");
+    }
+
+    #[test]
+    fn test_status_range_client_error_alias() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 422,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "eq".to_string(),
+            value: json!("client_error"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Status 422 should match 'client_error' alias");
+    }
+
+    #[test]
+    fn test_status_range_not_in() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "not_in".to_string(),
+            value: json!("4xx"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Status 200 should NOT be in 4xx range");
+    }
+
+    #[test]
+    fn test_status_range_custom_range() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 250,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "eq".to_string(),
+            value: json!("200-299"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Status 250 should be in custom range 200-299");
+    }
+
+    #[test]
+    fn test_status_range_boundary_lower() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 400,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "eq".to_string(),
+            value: json!("4xx"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Status 400 (lower boundary) should be in 4xx range");
+    }
+
+    #[test]
+    fn test_status_range_boundary_upper() {
+        let executor = create_test_executor();
+        let body = json!({});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 499,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "status_range".to_string(),
+            operator: "eq".to_string(),
+            value: json!("4xx"),
+            path: None,
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Status 499 (upper boundary) should be in 4xx range");
+    }
+
+    // ========================================================================
+    // Testes: matches_regex assertions
+    // ========================================================================
+
+    #[test]
+    fn test_matches_regex_simple() {
+        let executor = create_test_executor();
+        let body = json!({"code": "AB1234"});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "json_body".to_string(),
+            operator: "matches_regex".to_string(),
+            value: json!("^[A-Z]{2}\\d{4}$"),
+            path: Some("code".to_string()),
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Code 'AB1234' should match pattern ^[A-Z]{{2}}\\d{{4}}$");
+    }
+
+    #[test]
+    fn test_matches_regex_fail() {
+        let executor = create_test_executor();
+        let body = json!({"code": "abc123"});  // Lowercase, invalid
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "json_body".to_string(),
+            operator: "matches_regex".to_string(),
+            value: json!("^[A-Z]{2}\\d{4}$"),
+            path: Some("code".to_string()),
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_some(), "Code 'abc123' should NOT match pattern");
+    }
+
+    #[test]
+    fn test_matches_regex_email() {
+        let executor = create_test_executor();
+        let body = json!({"email": "user@example.com"});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "json_body".to_string(),
+            operator: "matches_regex".to_string(),
+            value: json!(r"^[\w.-]+@[\w.-]+\.\w+$"),
+            path: Some("email".to_string()),
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "Email should match basic email pattern");
+    }
+
+    #[test]
+    fn test_matches_regex_uuid() {
+        let executor = create_test_executor();
+        let body = json!({"id": "550e8400-e29b-41d4-a716-446655440000"});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "json_body".to_string(),
+            operator: "regex".to_string(),  // Test alias
+            value: json!("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
+            path: Some("id".to_string()),
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_none(), "UUID should match UUID pattern");
+    }
+
+    #[test]
+    fn test_matches_regex_invalid_pattern() {
+        let executor = create_test_executor();
+        let body = json!({"code": "test"});
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "json_body".to_string(),
+            operator: "matches_regex".to_string(),
+            value: json!("([invalid"),  // Invalid regex
+            path: Some("code".to_string()),
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_some(), "Invalid regex should fail assertion");
+    }
+
+    #[test]
+    fn test_matches_regex_on_non_string() {
+        let executor = create_test_executor();
+        let body = json!({"count": 42});  // Number, not string
+        let headers = HeaderMap::new();
+        let ctx = ResponseContext {
+            status: 200,
+            body: &body,
+            headers: &headers,
+            duration_ms: 100,
+        };
+        let assertions = vec![Assertion {
+            assertion_type: "json_body".to_string(),
+            operator: "matches_regex".to_string(),
+            value: json!("\\d+"),
+            path: Some("count".to_string()),
+        }];
+        
+        let result = executor.validate_assertions(&assertions, &ctx);
+        assert!(result.is_some(), "Regex on non-string should fail");
     }
 }

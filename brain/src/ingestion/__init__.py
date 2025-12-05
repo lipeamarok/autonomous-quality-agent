@@ -2,8 +2,15 @@ from .swagger import parse_openapi, spec_to_requirement_text
 from .negative_cases import (
     NegativeCase,
     NegativeTestResult,
+    RobustnessCase,
+    LatencySLA,
+    DEFAULT_LATENCY_SLAS,
     generate_negative_cases,
+    generate_robustness_cases,
+    generate_latency_assertions,
+    inject_latency_assertions,
     negative_cases_to_utdl_steps,
+    robustness_cases_to_utdl_steps,
     analyze_and_generate,
 )
 from .security import (
@@ -37,8 +44,15 @@ __all__ = [
     # negative_cases
     "NegativeCase",
     "NegativeTestResult",
+    "RobustnessCase",
+    "LatencySLA",
+    "DEFAULT_LATENCY_SLAS",
     "generate_negative_cases",
+    "generate_robustness_cases",
+    "generate_latency_assertions",
+    "inject_latency_assertions",
     "negative_cases_to_utdl_steps",
+    "robustness_cases_to_utdl_steps",
     "analyze_and_generate",
     # security
     "SecurityType",
