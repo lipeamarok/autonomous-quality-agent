@@ -15,6 +15,7 @@ import pytest
 from typing import Any
 
 from src.validator.utdl_validator import UTDLValidator #type: ignore
+from src.errors import ExecutionLimits  # type: ignore
 
 
 # Type aliases for UTDL structures
@@ -24,9 +25,18 @@ UTDLAssertion = dict[str, Any]
 UTDLExtraction = dict[str, Any]
 
 
-def validate_plan(plan: UTDLPlan) -> Any:
-    """Helper to validate a plan using UTDLValidator."""
-    validator = UTDLValidator()
+def validate_plan(plan: UTDLPlan, relaxed_limits: bool = False) -> Any:
+    """Helper to validate a plan using UTDLValidator.
+    
+    Args:
+        plan: The plan to validate
+        relaxed_limits: If True, use relaxed limits for extreme tests
+    """
+    if relaxed_limits:
+        limits = ExecutionLimits.relaxed()
+        validator = UTDLValidator(validate_limits=True, execution_limits=limits)
+    else:
+        validator = UTDLValidator()
     return validator.validate(plan)
 
 
@@ -131,11 +141,16 @@ class TestLargePlans:
             steps.append(step)
 
         plan = create_base_plan("large_plan_100", "Large Plan Test", steps)
-        result = validate_plan(plan)
+        result = validate_plan(plan, relaxed_limits=True)
         assert result.is_valid, f"Validation failed: {result.errors}"
 
     def test_validate_plan_with_500_steps(self) -> None:
-        """Validate a plan with 500 steps."""
+        """Validate a plan with 500 steps.
+        
+        Note: This test disables limit validation since 500 steps exceeds
+        even relaxed limits. The goal is to test validator performance,
+        not limit validation.
+        """
         steps: list[UTDLStep] = []
         for i in range(500):
             # Create a tree structure, not a chain (better for parallel execution)
@@ -153,7 +168,9 @@ class TestLargePlans:
             steps.append(step)
 
         plan = create_base_plan("large_plan_500", "Large Plan Test 500 Steps", steps)
-        result = validate_plan(plan)
+        # Disable limits for extreme scale test
+        validator = UTDLValidator(validate_limits=False)
+        result = validator.validate(plan)
         assert result.is_valid, f"Validation failed: {result.errors}"
 
     def test_plan_with_deep_dependency_chain(self) -> None:
@@ -219,7 +236,7 @@ class TestParallelExecution:
         ))
 
         plan = create_base_plan("parallel_branches", "Parallel Branches Test", steps)
-        result = validate_plan(plan)
+        result = validate_plan(plan, relaxed_limits=True)
         assert result.is_valid, f"Validation failed: {result.errors}"
         assert len(plan["steps"]) == 52  # 1 init + 50 branch steps + 1 aggregate
 

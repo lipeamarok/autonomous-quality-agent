@@ -49,6 +49,20 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+# Importa sistema de erros estruturados (opcional, para compatibilidade)
+try:
+    from ..errors import (
+        StructuredError,
+        ValidationError as StructuredValidationError,
+        ErrorCodes,
+        ExecutionLimits,
+        validate_plan_limits,
+        Severity,
+    )
+    HAS_STRUCTURED_ERRORS = True
+except ImportError:
+    HAS_STRUCTURED_ERRORS = False
+
 from pydantic import ValidationError
 
 from .models import Plan, Step
@@ -99,6 +113,7 @@ class ValidationResult:
     - `errors`: Lista de erros encontrados (strings descritivas)
     - `warnings`: Lista de avisos (não impedem uso, mas merecem atenção)
     - `plan`: O plano validado (se válido, None se inválido)
+    - `structured_errors`: Lista de erros estruturados (com path e sugestões)
 
     ## Exemplo:
 
@@ -110,6 +125,21 @@ class ValidationResult:
     errors: list[str] = field(default_factory=lambda: [])
     warnings: list[str] = field(default_factory=lambda: [])
     plan: Plan | None = None
+    structured_errors: list[Any] = field(default_factory=lambda: [])
+
+    def get_errors_with_paths(self) -> list[dict[str, Any]]:
+        """
+        Retorna erros com paths JSON para localização exata.
+
+        ## Retorno:
+
+        Lista de dicts com 'message', 'path', 'suggestion'.
+        """
+        if self.structured_errors:
+            return [e.to_dict() for e in self.structured_errors]
+
+        # Fallback para erros legados (sem path)
+        return [{"message": e, "path": None, "suggestion": None} for e in self.errors]
 
 
 class UTDLValidator:
@@ -146,6 +176,8 @@ class UTDLValidator:
         self,
         mode: ValidationMode = ValidationMode.DEFAULT,
         strict: bool | None = None,
+        validate_limits: bool = True,
+        execution_limits: Any | None = None,
     ):
         """
         Inicializa o validador.
@@ -154,6 +186,8 @@ class UTDLValidator:
 
         - `mode`: Modo de validação (STRICT, DEFAULT, ou LENIENT)
         - `strict`: DEPRECATED - use mode=ValidationMode.STRICT
+        - `validate_limits`: Se True, valida limites do Runner
+        - `execution_limits`: Limites personalizados (None = carrega do env)
 
         ## Exemplo:
 
@@ -162,12 +196,18 @@ class UTDLValidator:
             >>>
             >>> # Estilo legado (ainda funciona)
             >>> validator = UTDLValidator(strict=True)
+            >>>
+            >>> # Com validação de limites
+            >>> validator = UTDLValidator(validate_limits=True)
         """
         # Suporte ao parâmetro legado 'strict'
         if strict is not None:
             self.mode = ValidationMode.STRICT if strict else ValidationMode.DEFAULT
         else:
             self.mode = mode
+
+        self.validate_limits = validate_limits
+        self._execution_limits = execution_limits
 
         # Mantém atributo para compatibilidade
         self.strict = self.mode == ValidationMode.STRICT
@@ -323,6 +363,27 @@ class UTDLValidator:
                     lenient_errors.append(err)
             errors = lenient_errors
 
+        # =====================================================================
+        # VALIDAÇÃO DE LIMITES (se habilitada)
+        # =====================================================================
+
+        structured_errors: list[Any] = []
+
+        if self.validate_limits and HAS_STRUCTURED_ERRORS:
+            limits = self._execution_limits or ExecutionLimits.from_env()
+            violations = validate_plan_limits(data, limits)
+
+            for violation in violations:
+                structured_err = violation.to_structured_error()
+                structured_errors.append(structured_err)
+
+                # Adiciona aos erros/warnings baseado em severidade
+                msg = f"{violation.limit_name}: {violation.actual_value} > {violation.limit_value}"
+                if violation.severity == Severity.ERROR:
+                    errors.append(msg)
+                else:
+                    warnings.append(msg)
+
         is_valid = len(errors) == 0
 
         return ValidationResult(
@@ -330,6 +391,7 @@ class UTDLValidator:
             errors=errors,
             warnings=warnings,
             plan=plan if is_valid else None,
+            structured_errors=structured_errors,
         )
 
     def _detect_cycles(self, steps: list[Step]) -> list[str]:

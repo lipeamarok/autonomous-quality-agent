@@ -1,6 +1,6 @@
-# Códigos de Erro do Runner
+# Códigos de Erro do AQA
 
-Este documento descreve todos os códigos de erro estruturados do Runner.
+Este documento descreve todos os códigos de erro estruturados do AQA (Brain + Runner).
 Os códigos permitem automação, pesquisa e internacionalização.
 
 ## Formato
@@ -8,7 +8,7 @@ Os códigos permitem automação, pesquisa e internacionalização.
 Todos os códigos seguem o padrão `E{categoria}{número}`:
 
 - **E** = Prefixo de erro
-- **{categoria}** = Dígito 1-5 indicando categoria
+- **{categoria}** = Dígito 1-6 indicando categoria
 - **{número}** = Três dígitos identificando erro específico
 
 ## Categorias
@@ -20,6 +20,7 @@ Todos os códigos seguem o padrão `E{categoria}{número}`:
 | E3xxx  | Assertion        | Teste não passou na validação    |
 | E4xxx  | Configuração     | Problema de setup/ambiente       |
 | E5xxx  | Interno          | Bug no próprio Runner            |
+| E6xxx  | Brain            | Erros específicos do Brain       |
 
 ---
 
@@ -142,6 +143,32 @@ Estes são bugs no Runner. Por favor:
 1. Anote o código de erro e a mensagem completa
 2. Guarde o plano UTDL que causou o erro
 3. Abra uma issue no repositório com essas informações
+
+---
+
+## E6xxx - Erros do Brain
+
+Erros específicos do Brain (Python), ocorrem na geração e validação prévia.
+
+| Código | Nome                    | Descrição                                    |
+|--------|-------------------------|----------------------------------------------|
+| E6001  | PLAN_EXCEEDS_MAX_STEPS  | Plano gerado excede limite de steps          |
+| E6002  | PLAN_EXCEEDS_MAX_PARALLEL| Plano excede limite de paralelismo          |
+| E6003  | PLAN_EXCEEDS_MAX_RETRIES | Plano excede limite total de retries        |
+| E6004  | PLAN_EXCEEDS_TIMEOUT    | Tempo estimado excede timeout de execução    |
+| E6005  | NORMALIZATION_FAILED    | Falha ao normalizar formato do plano         |
+| E6006  | GENERATION_FAILED       | Falha ao gerar plano via LLM                 |
+| E6007  | VERSION_NOT_FOUND       | Versão do plano não encontrada no histórico  |
+
+### Como resolver E6xxx
+
+1. **E6001**: Reduza o escopo do teste ou aumente `RUNNER_MAX_STEPS`
+2. **E6002**: Adicione dependências para serializar steps ou aumente `RUNNER_MAX_PARALLEL`
+3. **E6003**: Reduza retry.max_attempts nos steps ou aumente `RUNNER_MAX_RETRIES`
+4. **E6004**: Reduza timeouts ou aumente `RUNNER_MAX_EXECUTION_SECS`
+5. **E6005**: Verifique formato do plano retornado pelo LLM
+6. **E6006**: Verifique API key do LLM e tente novamente
+7. **E6007**: Liste versões disponíveis com `aqa planversion list`
 
 ---
 

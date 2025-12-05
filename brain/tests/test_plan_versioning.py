@@ -671,11 +671,11 @@ class TestEdgeCases:
     ) -> None:
         """Nomes de plano são normalizados para slug."""
         version_store.save("My API Tests", sample_plan)
-        
+
         # Busca pelo nome original deve funcionar
         version = version_store.get_version("My API Tests")
         assert version is not None
-        
+
         # Busca pelo slug também
         version2 = version_store.get_version("my-api-tests")
         assert version2 is not None
