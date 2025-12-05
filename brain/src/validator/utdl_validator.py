@@ -378,7 +378,7 @@ class UTDLValidator:
             assert ExecutionLimits is not None
             assert validate_plan_limits is not None
             assert Severity is not None
-            
+
             limits = self._execution_limits or ExecutionLimits.from_env()
             violations = validate_plan_limits(data, limits)
 

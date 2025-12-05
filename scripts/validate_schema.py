@@ -54,44 +54,44 @@ def load_canonical_schema() -> dict[str, Any]:
 def extract_pydantic_fields() -> dict[str, list[str]]:
     """Extrai campos definidos nos modelos Pydantic."""
     content = PYDANTIC_MODELS.read_text(encoding="utf-8")
-    
+
     # Regex para encontrar classes e seus campos
     class_pattern = r"class (\w+)\(BaseModel\):"
     field_pattern = r"^\s+(\w+):\s+.*(?:Field|=|#)"
-    
+
     models: dict[str, list[str]] = {}
     current_class = None
-    
+
     for line in content.split("\n"):
         class_match = re.match(class_pattern, line)
         if class_match:
             current_class = class_match.group(1)
             models[current_class] = []
             continue
-        
+
         if current_class:
             field_match = re.match(field_pattern, line)
             if field_match:
                 field_name = field_match.group(1)
                 if not field_name.startswith("_"):
                     models[current_class].append(field_name)
-    
+
     return models
 
 
 def extract_rust_fields() -> dict[str, list[str]]:
     """Extrai campos definidos nas structs Rust."""
     content = RUST_PROTOCOL.read_text(encoding="utf-8")
-    
+
     # Regex para encontrar structs e seus campos
     struct_pattern = r"pub struct (\w+) \{"
     field_pattern = r"^\s+pub (\w+):"
-    
+
     structs: dict[str, list[str]] = {}
     current_struct = None
     in_struct = False
     brace_count = 0
-    
+
     for line in content.split("\n"):
         struct_match = re.match(struct_pattern, line)
         if struct_match:
@@ -100,19 +100,19 @@ def extract_rust_fields() -> dict[str, list[str]]:
             in_struct = True
             brace_count = 1
             continue
-        
+
         if in_struct:
             brace_count += line.count("{") - line.count("}")
-            
+
             if brace_count <= 0:
                 in_struct = False
                 current_struct = None
                 continue
-            
+
             field_match = re.match(field_pattern, line)
             if field_match and current_struct is not None:
                 structs[current_struct].append(field_match.group(1))
-    
+
     return structs
 
 
@@ -124,52 +124,52 @@ def compare_fields(
 ) -> list[str]:
     """Compara campos entre as três fontes."""
     issues: list[str] = []
-    
+
     # Campos no schema mas não em Pydantic
     missing_pydantic = schema_fields - pydantic_fields
     if missing_pydantic:
         issues.append(f"  {model_name}: Campos no schema faltando em Pydantic: {missing_pydantic}")
-    
+
     # Campos no schema mas não em Rust
     missing_rust = schema_fields - rust_fields
     if missing_rust:
         issues.append(f"  {model_name}: Campos no schema faltando em Rust: {missing_rust}")
-    
+
     # Campos extras em Pydantic
     extra_pydantic = pydantic_fields - schema_fields
     if extra_pydantic:
         issues.append(f"  {model_name}: Campos extras em Pydantic: {extra_pydantic}")
-    
+
     # Campos extras em Rust
     extra_rust = rust_fields - schema_fields
     if extra_rust:
         issues.append(f"  {model_name}: Campos extras em Rust: {extra_rust}")
-    
+
     return issues
 
 
 def validate_schema_consistency() -> tuple[bool, list[str]]:
     """Valida consistência entre schema, Pydantic e Rust.
-    
+
     Nota: Esta é uma validação heurística baseada em regex.
     A validação real acontece nos testes de conformidade.
     """
     issues: list[str] = []
-    
+
     # Por enquanto, apenas verifica se os arquivos existem e são válidos
     try:
         schema = load_canonical_schema()
         if "definitions" not in schema:
             issues.append("Schema não tem definitions")
-        
+
         pydantic_models = extract_pydantic_fields()
         if not pydantic_models:
             issues.append("Nenhum modelo Pydantic encontrado")
-        
+
         rust_structs = extract_rust_fields()
         if not rust_structs:
             issues.append("Nenhuma struct Rust encontrada")
-        
+
         # Verifica modelos essenciais existem
         essential_models = ["Plan", "Meta", "Config", "Step"]
         for model in essential_models:
@@ -177,28 +177,28 @@ def validate_schema_consistency() -> tuple[bool, list[str]]:
                 issues.append(f"Modelo Pydantic '{model}' não encontrado")
             if model not in rust_structs:
                 issues.append(f"Struct Rust '{model}' não encontrada")
-        
+
     except Exception as e:
         issues.append(f"Erro ao validar: {e}")
-    
+
     return len(issues) == 0, issues
 
 
 def run_conformance_tests() -> bool:
     """Executa testes de conformidade."""
     print("\n📋 Executando testes de conformidade...")
-    
+
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "tests/test_conformance.py", "-v", "--tb=short"],
         cwd=ROOT / "brain",
         capture_output=True,
         text=True,
     )
-    
+
     if result.returncode != 0:
         print(f"❌ Testes falharam:\n{result.stdout}\n{result.stderr}")
         return False
-    
+
     print("✓ Testes de conformidade passaram")
     return True
 
@@ -208,7 +208,7 @@ def main() -> int:
     print("=" * 60)
     print("Validação de Consistência de Schema UTDL")
     print("=" * 60)
-    
+
     # Verifica arquivos
     print("\n📁 Verificando arquivos...")
     files_ok = all([
@@ -216,24 +216,24 @@ def main() -> int:
         check_file_exists(PYDANTIC_MODELS, "Modelos Pydantic"),
         check_file_exists(RUST_PROTOCOL, "Structs Rust"),
     ])
-    
+
     if not files_ok:
         return 2
-    
+
     # Valida consistência
     print("\n🔍 Validando consistência entre schemas...")
     is_consistent, issues = validate_schema_consistency()
-    
+
     if not is_consistent:
         print("❌ Inconsistências encontradas:")
         for issue in issues:
             print(issue)
     else:
         print("✓ Schemas estão consistentes")
-    
+
     # Executa testes
     tests_ok = run_conformance_tests()
-    
+
     # Resultado final
     print("\n" + "=" * 60)
     if is_consistent and tests_ok:
