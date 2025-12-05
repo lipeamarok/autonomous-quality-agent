@@ -62,6 +62,10 @@ try:
     HAS_STRUCTURED_ERRORS = True
 except ImportError:
     HAS_STRUCTURED_ERRORS = False
+    # Placeholders para type checker
+    ExecutionLimits = None  # type: ignore[misc, assignment]
+    validate_plan_limits = None  # type: ignore[misc, assignment]
+    Severity = None  # type: ignore[misc, assignment]
 
 from pydantic import ValidationError
 
@@ -370,6 +374,11 @@ class UTDLValidator:
         structured_errors: list[Any] = []
 
         if self.validate_limits and HAS_STRUCTURED_ERRORS:
+            # Se HAS_STRUCTURED_ERRORS é True, estes imports existem
+            assert ExecutionLimits is not None
+            assert validate_plan_limits is not None
+            assert Severity is not None
+            
             limits = self._execution_limits or ExecutionLimits.from_env()
             violations = validate_plan_limits(data, limits)
 

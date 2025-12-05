@@ -1044,8 +1044,9 @@ def openapi_schema_to_json_schema(openapi_schema: dict[str, Any]) -> dict[str, A
         {'anyOf': [{'type': 'string'}, {'type': 'null'}]}
     """
     import copy
+    from typing import cast
 
-    schema = copy.deepcopy(openapi_schema)
+    schema: dict[str, Any] = copy.deepcopy(openapi_schema)
 
     # Remove keywords específicas do OpenAPI que não existem em JSON Schema
     openapi_keywords = [
@@ -1067,26 +1068,36 @@ def openapi_schema_to_json_schema(openapi_schema: dict[str, Any]) -> dict[str, A
             schema.pop(kw, None)
 
     # Processa properties recursivamente
-    if "properties" in schema:
-        for prop_name, prop_schema in schema["properties"].items():
-            schema["properties"][prop_name] = openapi_schema_to_json_schema(prop_schema)
+    props = schema.get("properties")
+    if isinstance(props, dict):
+        new_props: dict[str, Any] = {}
+        for prop_name, prop_schema in props.items():
+            if isinstance(prop_schema, dict):
+                new_props[prop_name] = openapi_schema_to_json_schema(prop_schema)
+            else:
+                new_props[prop_name] = prop_schema
+        schema["properties"] = new_props
 
     # Processa items de array
-    if "items" in schema:
-        schema["items"] = openapi_schema_to_json_schema(schema["items"])
+    items = schema.get("items")
+    if isinstance(items, dict):
+        schema["items"] = openapi_schema_to_json_schema(items)
+    elif isinstance(items, list):
+        # Tuple validation em OpenAPI - items é array de schemas
+        schema["items"] = [openapi_schema_to_json_schema(cast(dict[str, Any], item)) for item in items if isinstance(item, dict)]
 
     # Processa allOf, anyOf, oneOf
     for keyword in ["allOf", "anyOf", "oneOf"]:
-        if keyword in schema:
+        kw_value = schema.get(keyword)
+        if isinstance(kw_value, list):
             schema[keyword] = [
-                openapi_schema_to_json_schema(s) for s in schema[keyword]
+                openapi_schema_to_json_schema(cast(dict[str, Any], s)) for s in kw_value if isinstance(s, dict)
             ]
 
     # Processa additionalProperties
-    if isinstance(schema.get("additionalProperties"), dict):
-        schema["additionalProperties"] = openapi_schema_to_json_schema(
-            schema["additionalProperties"]
-        )
+    add_props = schema.get("additionalProperties")
+    if isinstance(add_props, dict):
+        schema["additionalProperties"] = openapi_schema_to_json_schema(add_props)
 
     return schema
 

@@ -8,10 +8,11 @@
 2. [Estrutura do Projeto](#2-estrutura-do-projeto)
 3. [Brain (Python)](#3-brain-python)
 4. [Runner (Rust)](#4-runner-rust)
-5. [Testes](#5-testes)
-6. [Padrões de Código](#6-padrões-de-código)
-7. [Fluxo de Contribuição](#7-fluxo-de-contribuição)
-8. [CI/CD](#8-cicd)
+5. [Schema UTDL e Conformidade](#5-schema-utdl-e-conformidade)
+6. [Testes](#6-testes)
+7. [Padrões de Código](#7-padrões-de-código)
+8. [Fluxo de Contribuição](#8-fluxo-de-contribuição)
+9. [CI/CD](#9-cicd)
 
 ---
 
@@ -99,8 +100,12 @@ autonomous-quality-agent/
 │   └── Cargo.toml            # Dependências Rust
 │
 ├── schemas/                  # JSON Schemas
+│   ├── utdl.schema.json      # Schema canônico UTDL (fonte de verdade)
 │   ├── context.schema.json
 │   └── runner_report.schema.json
+│
+├── scripts/                  # Scripts de CI/CD
+│   └── validate_schema.py    # Validação de consistência
 │
 ├── docs/                     # Documentação
 │   ├── user-guide.md         # Para usuários
@@ -342,7 +347,94 @@ pub fn get_executors() -> Vec<Box<dyn StepExecutor>> {
 
 ---
 
-## 5. Testes
+## 5. Schema UTDL e Conformidade
+
+O projeto mantém um **schema canônico** em `schemas/utdl.schema.json` que serve como fonte de verdade para o formato UTDL. Este schema é sincronizado com:
+
+- **Pydantic (Python)**: `brain/src/validator/models.py`
+- **Serde (Rust)**: `runner/src/protocol/mod.rs`
+
+### Arquitetura do Schema
+
+```
+schemas/utdl.schema.json     ← Schema canônico (JSON Schema Draft-07)
+        ↓
+brain/src/schema/            ← Módulo de geração e comparação
+├── generator.py             ← Gera schema Pydantic, compara com canônico
+└── __init__.py
+        ↓
+brain/tests/test_conformance.py  ← Testes de cross-validation
+```
+
+### Testes de Conformidade
+
+Os testes de conformidade geram **planos aleatórios** e validam em múltiplas camadas:
+
+```python
+# brain/tests/test_conformance.py
+class TestCrossValidation:
+    def test_random_plan_validates_in_pydantic(self):
+        """Plano aleatório valida em Pydantic"""
+        plan = PlanGenerator().generate_random_plan()
+        Plan.model_validate(plan)  # Deve passar
+    
+    def test_random_plan_validates_in_rust(self):
+        """Plano aleatório valida no Runner Rust"""
+        plan = PlanGenerator().generate_random_plan()
+        result = run_rust_validation(plan)
+        assert result.returncode == 0
+```
+
+### Validação de CI
+
+Execute o script de validação para verificar consistência:
+
+```bash
+python scripts/validate_schema.py
+```
+
+Este script:
+1. Verifica se arquivos de schema existem
+2. Valida que modelos essenciais existem em Pydantic e Rust
+3. Executa testes de conformidade
+
+### Adicionando Novos Campos ao UTDL
+
+1. **Atualize o schema canônico**:
+   ```json
+   // schemas/utdl.schema.json
+   "Step": {
+     "properties": {
+       "new_field": { "type": "string" }
+     }
+   }
+   ```
+
+2. **Atualize Pydantic**:
+   ```python
+   # brain/src/validator/models.py
+   class Step(BaseModel):
+       new_field: str | None = None
+   ```
+
+3. **Atualize Rust**:
+   ```rust
+   // runner/src/protocol/mod.rs
+   #[derive(Deserialize)]
+   pub struct Step {
+       pub new_field: Option<String>,
+   }
+   ```
+
+4. **Execute validação**:
+   ```bash
+   python scripts/validate_schema.py
+   pytest brain/tests/test_conformance.py -v
+   ```
+
+---
+
+## 6. Testes
 
 ### Estrutura de Testes
 
@@ -461,7 +553,7 @@ def mock_llm_provider():
 
 ---
 
-## 6. Padrões de Código
+## 7. Padrões de Código
 
 ### Python
 
@@ -549,7 +641,7 @@ chore: update dependencies
 
 ---
 
-## 7. Fluxo de Contribuição
+## 8. Fluxo de Contribuição
 
 ### 1. Fork e Clone
 
@@ -600,7 +692,7 @@ git push origin feat/my-feature
 
 ---
 
-## 8. CI/CD
+## 9. CI/CD
 
 ### GitHub Actions
 

@@ -82,6 +82,18 @@ def compiled_runner() -> Path:
         if not needs_rebuild:
             return binary_path
 
+    # Verifica se cargo está disponível
+    try:
+        cargo_check = subprocess.run(
+            ["cargo", "--version"],
+            capture_output=True,
+            text=True,
+        )
+        if cargo_check.returncode != 0:
+            pytest.skip("Cargo não está disponível")
+    except FileNotFoundError:
+        pytest.skip("Cargo não está instalado")
+
     # Compila o Runner
     result = subprocess.run(
         ["cargo", "build", "--release"],

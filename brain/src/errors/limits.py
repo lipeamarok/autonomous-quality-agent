@@ -28,10 +28,24 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from .codes import ErrorCodes, Severity
 from .structured import StructuredError
+
+
+def _get_max_attempts(step: dict[str, Any]) -> int:
+    """Extrai max_attempts de um step de forma type-safe."""
+    retry_config = step.get("retry")
+    if not isinstance(retry_config, dict):
+        return 1
+    retry_dict = cast(dict[str, Any], retry_config)
+    attempts_raw = retry_dict.get("max_attempts", 1)
+    if isinstance(attempts_raw, (int, float)):
+        return int(attempts_raw)
+    if isinstance(attempts_raw, str) and attempts_raw.isdigit():
+        return int(attempts_raw)
+    return 1
 
 
 # =============================================================================
@@ -242,8 +256,7 @@ def validate_plan_limits(
 
     total_retries: int = 0
     for step in steps:
-        retry_config = step.get("retry", {})
-        max_attempts: int = int(retry_config.get("max_attempts", 1)) if isinstance(retry_config, dict) else 1
+        max_attempts = _get_max_attempts(step)
         total_retries += max_attempts
 
     if total_retries > limits.max_retries_total:
@@ -287,8 +300,7 @@ def validate_plan_limits(
         step_timeout: float = float(timeout_ms) / 1000 if timeout_ms else limits.max_step_timeout_secs
 
         # Retries
-        retry_config = step.get("retry", {})
-        step_max_attempts: int = int(retry_config.get("max_attempts", 1)) if isinstance(retry_config, dict) else 1
+        step_max_attempts = _get_max_attempts(step)
 
         # Wait/Sleep
         action_type = action_raw if isinstance(action_raw, str) else action.get("type")

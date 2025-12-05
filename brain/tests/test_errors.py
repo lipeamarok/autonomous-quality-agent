@@ -15,14 +15,11 @@ import pytest
 from typing import Any
 
 from src.errors import (
-    ErrorCode,
     ErrorCodes,
     ErrorCategory,
     Severity,
     StructuredError,
     ValidationError,
-    ConfigurationError,
-    GenerationError,
     ExecutionLimits,
     LimitViolation,
     validate_plan_limits,
@@ -153,7 +150,7 @@ class TestValidationErrorHelpers:
         )
 
         assert error.code == ErrorCodes.UNKNOWN_DEPENDENCY
-        assert "step1" in error.suggestion  # Sugestão similar
+        assert error.suggestion is not None and "step1" in error.suggestion  # Sugestão similar
 
     def test_circular_dependency(self) -> None:
         """Erro de ciclo inclui os steps envolvidos."""

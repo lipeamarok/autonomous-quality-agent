@@ -4,10 +4,13 @@
   "exclude": [".venv", "__pycache__"],
   "pythonVersion": "3.11",
   "typeCheckingMode": "standard",
+  "extraPaths": ["."],
+  "stubPath": "typings",
   "reportUnknownMemberType": false,
   "reportUnknownArgumentType": false,
   "reportUnknownVariableType": false,
   "reportMissingTypeStubs": false,
+  "reportMissingModuleSource": false,
   "reportUnknownParameterType": false,
   "reportUnusedVariable": "warning",
   "reportPartialStubPackages": false

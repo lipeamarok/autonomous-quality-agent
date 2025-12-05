@@ -1,0 +1,399 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/lipeamarok/autonomous-quality-agent/schemas/utdl.schema.json",
+  "title": "UTDL Plan Schema",
+  "description": "Universal Test Definition Language (UTDL) - Schema for API test plans. This is the canonical schema used by both Brain (Python/Pydantic) and Runner (Rust/serde).",
+  "type": "object",
+  "required": ["spec_version", "meta", "config", "steps"],
+  "properties": {
+    "spec_version": {
+      "type": "string",
+      "enum": ["0.1"],
+      "description": "UTDL specification version. Currently only '0.1' is supported."
+    },
+    "meta": {
+      "$ref": "#/definitions/Meta"
+    },
+    "config": {
+      "$ref": "#/definitions/Config"
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Step"
+      },
+      "minItems": 1,
+      "description": "List of test steps to execute. Order matters for dependency resolution."
+    }
+  },
+  "definitions": {
+    "Meta": {
+      "type": "object",
+      "description": "Plan metadata for identification and organization.",
+      "required": ["name"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique plan identifier (UUID v4 recommended). Auto-generated if not provided.",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable plan name.",
+          "examples": ["Login Flow Test", "User CRUD Operations"]
+        },
+        "description": {
+          "type": ["string", "null"],
+          "description": "Detailed description of what this test plan validates."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Tags for categorization and filtering.",
+          "examples": [["api", "auth", "critical"]]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of plan creation. Auto-generated if not provided."
+        }
+      }
+    },
+    "Config": {
+      "type": "object",
+      "description": "Global configuration applied to all steps.",
+      "required": ["base_url"],
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Base URL for all HTTP requests. Step paths are appended to this.",
+          "examples": ["https://api.example.com", "http://localhost:8080"]
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 5000,
+          "description": "Default timeout for HTTP requests in milliseconds."
+        },
+        "global_headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Headers sent with every HTTP request.",
+          "examples": [{"Content-Type": "application/json", "Accept": "application/json"}]
+        },
+        "variables": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {},
+          "description": "Initial variables available via ${variable_name} interpolation."
+        }
+      }
+    },
+    "Step": {
+      "type": "object",
+      "description": "A single test step (atomic action).",
+      "required": ["id", "action", "params"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique step identifier within the plan. Used for dependencies and reporting."
+        },
+        "action": {
+          "type": "string",
+          "enum": ["http_request", "wait", "sleep"],
+          "description": "Type of action to execute."
+        },
+        "description": {
+          "type": ["string", "null"],
+          "description": "Human-readable description for logs and debugging."
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "IDs of steps that must complete before this step. Creates a DAG."
+        },
+        "params": {
+          "type": "object",
+          "description": "Action-specific parameters. Structure depends on action type."
+        },
+        "assertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Assertion"
+          },
+          "default": [],
+          "description": "Validations to perform after step execution."
+        },
+        "extract": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Extraction"
+          },
+          "default": [],
+          "description": "Data to extract from the response for use in later steps."
+        },
+        "recovery_policy": {
+          "$ref": "#/definitions/RecoveryPolicy",
+          "description": "Retry and failure handling configuration."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "action": { "const": "http_request" } }
+          },
+          "then": {
+            "properties": {
+              "params": { "$ref": "#/definitions/HttpRequestParams" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["wait", "sleep"] } }
+          },
+          "then": {
+            "properties": {
+              "params": { "$ref": "#/definitions/WaitParams" }
+            }
+          }
+        }
+      ]
+    },
+    "HttpRequestParams": {
+      "type": "object",
+      "description": "Parameters for http_request action.",
+      "required": ["method", "path"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+          "description": "HTTP method."
+        },
+        "path": {
+          "type": "string",
+          "description": "URL path appended to config.base_url. Supports ${variable} interpolation.",
+          "examples": ["/users", "/auth/login", "/items/${item_id}"]
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Request headers (merged with global_headers)."
+        },
+        "query": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Query parameters appended to the URL."
+        },
+        "body": {
+          "description": "Request body. Can be any JSON value. Supports ${variable} interpolation in strings."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "description": "Request-specific timeout (overrides config.timeout_ms)."
+        }
+      }
+    },
+    "WaitParams": {
+      "type": "object",
+      "description": "Parameters for wait/sleep action.",
+      "properties": {
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Time to wait in milliseconds."
+        },
+        "ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Alias for duration_ms."
+        }
+      }
+    },
+    "Assertion": {
+      "type": "object",
+      "description": "Validation rule for response.",
+      "required": ["type", "operator", "value"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["status_code", "json_body", "header", "latency"],
+          "description": "What to assert on."
+        },
+        "operator": {
+          "type": "string",
+          "enum": ["eq", "neq", "lt", "gt", "lte", "gte", "contains", "matches"],
+          "description": "Comparison operator."
+        },
+        "value": {
+          "description": "Expected value. Type depends on assertion type."
+        },
+        "path": {
+          "type": ["string", "null"],
+          "description": "JSONPath for json_body assertions, header name for header assertions.",
+          "examples": ["$.data.id", "$.users[0].name", "Content-Type"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "enum": ["json_body", "header"] } }
+          },
+          "then": {
+            "required": ["path"]
+          }
+        }
+      ]
+    },
+    "Extraction": {
+      "type": "object",
+      "description": "Rule for extracting data from response into context variables.",
+      "required": ["source", "target"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["body", "header", "status_code"],
+          "description": "Where to extract from."
+        },
+        "path": {
+          "type": ["string", "null"],
+          "description": "JSONPath for body, header name for header. Not required for status_code.",
+          "examples": ["$.auth.token", "$.data[*].id", "X-Request-Id"]
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          "description": "Variable name to store extracted value. Available as ${target} in later steps."
+        },
+        "all_values": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, extract all matching values as an array."
+        },
+        "critical": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, step fails when extraction returns no value."
+        },
+        "regex": {
+          "type": ["string", "null"],
+          "description": "Optional regex to apply to extracted value. First capture group is used."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "source": { "enum": ["body", "header"] } }
+          },
+          "then": {
+            "required": ["path"]
+          }
+        }
+      ]
+    },
+    "RecoveryPolicy": {
+      "type": "object",
+      "description": "Retry and failure handling configuration.",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["retry", "fail_fast", "ignore"],
+          "default": "fail_fast",
+          "description": "What to do on failure: retry, fail immediately, or ignore."
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3,
+          "description": "Maximum retry attempts (including first try)."
+        },
+        "backoff_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 500,
+          "description": "Initial backoff time between retries in milliseconds."
+        },
+        "backoff_factor": {
+          "type": "number",
+          "minimum": 1.0,
+          "default": 2.0,
+          "description": "Multiplier for exponential backoff."
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "spec_version": "0.1",
+      "meta": {
+        "name": "Login Flow Test",
+        "description": "Tests user authentication flow",
+        "tags": ["auth", "smoke"]
+      },
+      "config": {
+        "base_url": "https://api.example.com",
+        "timeout_ms": 5000,
+        "global_headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "steps": [
+        {
+          "id": "login",
+          "action": "http_request",
+          "description": "Authenticate user",
+          "params": {
+            "method": "POST",
+            "path": "/auth/login",
+            "body": {
+              "email": "test@example.com",
+              "password": "secret123"
+            }
+          },
+          "assertions": [
+            { "type": "status_code", "operator": "eq", "value": 200 },
+            { "type": "json_body", "path": "$.token", "operator": "neq", "value": null }
+          ],
+          "extract": [
+            { "source": "body", "path": "$.token", "target": "auth_token" }
+          ]
+        },
+        {
+          "id": "get_profile",
+          "action": "http_request",
+          "description": "Get user profile with token",
+          "depends_on": ["login"],
+          "params": {
+            "method": "GET",
+            "path": "/users/me",
+            "headers": {
+              "Authorization": "Bearer ${auth_token}"
+            }
+          },
+          "assertions": [
+            { "type": "status_code", "operator": "eq", "value": 200 }
+          ]
+        }
+      ]
+    }
+  ]
+}

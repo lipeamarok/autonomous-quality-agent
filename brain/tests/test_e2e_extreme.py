@@ -27,7 +27,7 @@ UTDLExtraction = dict[str, Any]
 
 def validate_plan(plan: UTDLPlan, relaxed_limits: bool = False) -> Any:
     """Helper to validate a plan using UTDLValidator.
-    
+
     Args:
         plan: The plan to validate
         relaxed_limits: If True, use relaxed limits for extreme tests
@@ -146,7 +146,7 @@ class TestLargePlans:
 
     def test_validate_plan_with_500_steps(self) -> None:
         """Validate a plan with 500 steps.
-        
+
         Note: This test disables limit validation since 500 steps exceeds
         even relaxed limits. The goal is to test validator performance,
         not limit validation.
