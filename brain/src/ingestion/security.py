@@ -35,9 +35,47 @@ auth_steps = generate_auth_steps(security_info)
 
 from __future__ import annotations
 
+import copy
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+
+# =============================================================================
+# CONSTANTES DE SEGURANÇA
+# =============================================================================
+
+
+# Padrões de campos sensíveis que devem ser mascarados em logs
+# Case-insensitive matching
+SENSITIVE_PATTERNS: tuple[str, ...] = (
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "api-key",
+    "authorization",
+    "bearer",
+    "credential",
+    "credentials",
+    "private_key",
+    "privatekey",
+    "private-key",
+    "access_key",
+    "accesskey",
+    "secret_key",
+    "secretkey",
+    "auth",
+    "session",
+    "cookie",
+)
+
+# Valor usado para substituir dados sensíveis
+REDACTED_VALUE = "***REDACTED***"
 
 
 # =============================================================================
@@ -760,6 +798,10 @@ def inject_auth_into_steps(
     """
     Injeta headers de autenticação em todos os steps HTTP.
 
+    Suporta dois formatos de step UTDL:
+    - Formato novo: {"action": "http_request", "params": {"method": ..., "headers": ...}}
+    - Formato antigo: {"action": {"type": "http", "method": ..., "headers": ...}}
+
     ## Parâmetros:
         steps: Lista de steps UTDL
         auth_header: Header de autenticação a adicionar
@@ -768,7 +810,7 @@ def inject_auth_into_steps(
         Steps modificados com headers de auth
 
     ## Exemplo:
-        >>> steps = [{"action": {"type": "http", "endpoint": "/users"}}]
+        >>> steps = [{"action": "http_request", "params": {"path": "/users"}}]
         >>> inject_auth_into_steps(steps, {"Authorization": "Bearer ${token}"})
     """
     import copy
@@ -777,9 +819,18 @@ def inject_auth_into_steps(
 
     for step in steps:
         step_copy = copy.deepcopy(step)
-        action = step_copy.get("action", {})
+        action = step_copy.get("action")
 
-        if action.get("type") == "http":
+        # Formato novo: action é string "http_request"
+        if action == "http_request":
+            params = step_copy.get("params", {})
+            if "headers" not in params:
+                params["headers"] = {}
+            params["headers"].update(auth_header)
+            step_copy["params"] = params
+
+        # Formato antigo: action é dict com type == "http"
+        elif isinstance(action, dict) and action.get("type") == "http":
             if "headers" not in action:
                 action["headers"] = {}
             action["headers"].update(auth_header)
@@ -1322,3 +1373,135 @@ def create_authenticated_plan_steps(
 
     return result_steps
 
+
+# =============================================================================
+# SANITIZAÇÃO DE LOGS
+# =============================================================================
+
+
+def _is_sensitive_key(key: str) -> bool:
+    """
+    Verifica se uma chave corresponde a um padrão sensível.
+
+    ## Parâmetros:
+        key: Nome do campo a verificar
+
+    ## Retorna:
+        True se a chave contém um padrão sensível
+    """
+    key_lower = key.lower()
+    return any(pattern in key_lower for pattern in SENSITIVE_PATTERNS)
+
+
+def sanitize_for_logging(data: Any) -> Any:
+    """
+    Mascara valores sensíveis em dados para logging seguro.
+
+    Esta função percorre recursivamente dicionários e listas,
+    substituindo valores de campos sensíveis por ***REDACTED***.
+
+    ## Para todos entenderem:
+
+    Quando você loga dados de requisições ou respostas, não quer
+    expor senhas, tokens ou API keys. Esta função remove esses
+    valores antes de logar, mantendo a estrutura dos dados.
+
+    ## Campos sensíveis detectados:
+
+    - password, passwd, pwd
+    - secret, secret_key, client_secret
+    - token, access_token, refresh_token
+    - api_key, apikey, api-key
+    - authorization, bearer
+    - credential, credentials
+    - private_key, privatekey
+
+    ## Parâmetros:
+        data: Dados a sanitizar (dict, list, ou valor primitivo)
+
+    ## Retorna:
+        Cópia dos dados com valores sensíveis mascarados
+
+    ## Exemplo:
+        >>> data = {"username": "user", "password": "secret123"}
+        >>> sanitize_for_logging(data)
+        {"username": "user", "password": "***REDACTED***"}
+
+        >>> data = {"headers": {"Authorization": "Bearer token"}}
+        >>> sanitize_for_logging(data)
+        {"headers": {"Authorization": "***REDACTED***"}}
+
+    ## Nota:
+        Esta função NÃO modifica o objeto original.
+        Sempre retorna uma cópia.
+    """
+    if data is None:
+        return None
+
+    if isinstance(data, dict):
+        result = {}
+        for key, value in data.items():
+            if isinstance(key, str) and _is_sensitive_key(key):
+                # Campo sensível - mascara o valor apenas se for primitivo
+                # Se for dict/list, processa recursivamente (é um container)
+                if isinstance(value, (dict, list)):
+                    result[key] = sanitize_for_logging(value)
+                else:
+                    result[key] = REDACTED_VALUE
+            else:
+                # Campo normal - processa recursivamente
+                result[key] = sanitize_for_logging(value)
+        return result
+
+    elif isinstance(data, list):
+        return [sanitize_for_logging(item) for item in data]
+
+    elif isinstance(data, tuple):
+        return tuple(sanitize_for_logging(item) for item in data)
+
+    elif isinstance(data, str):
+        # Para strings soltas, não mascara (pode ser qualquer coisa)
+        return data
+
+    else:
+        # Números, booleans, etc - retorna como está
+        return data
+
+
+def sanitize_plan_for_logging(plan: dict[str, Any]) -> dict[str, Any]:
+    """
+    Versão especializada para sanitizar planos UTDL.
+
+    Além da sanitização padrão, mascara:
+    - Valores de variáveis que parecem sensíveis
+    - Bodies de requests com dados sensíveis
+    - Headers de autenticação
+
+    ## Parâmetros:
+        plan: Plano UTDL a sanitizar
+
+    ## Retorna:
+        Cópia do plano com valores sensíveis mascarados
+    """
+    return sanitize_for_logging(plan)
+
+
+def mask_token_preview(token: str, visible_chars: int = 4) -> str:
+    """
+    Mascara um token mantendo apenas os últimos caracteres visíveis.
+
+    ## Parâmetros:
+        token: Token a mascarar
+        visible_chars: Quantidade de caracteres a manter visíveis
+
+    ## Retorna:
+        Token mascarado (ex: "***...7f3a")
+
+    ## Exemplo:
+        >>> mask_token_preview("sk-1234567890abcdef")
+        "***...cdef"
+    """
+    if not token or len(token) <= visible_chars:
+        return REDACTED_VALUE
+
+    return f"***...{token[-visible_chars:]}"

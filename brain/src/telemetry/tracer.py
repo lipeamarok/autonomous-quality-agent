@@ -14,6 +14,11 @@ importante cria um "span" (segmento) que registra:
 - Status (sucesso/erro)
 - Relacionamento com outros spans (parent/child)
 
+## Segurança:
+
+Todos os spans são automaticamente sanitizados antes de serem exportados.
+Campos sensíveis (password, token, api_key, etc.) são mascarados.
+
 ## Configuração via Environment:
 
 ```bash
@@ -54,6 +59,9 @@ from typing import Any, Generator, Callable, TypeVar
 from functools import wraps
 import time
 import uuid
+
+# Import sanitização de dados sensíveis
+from ..ingestion.security import sanitize_for_logging
 
 logger = logging.getLogger(__name__)
 
@@ -196,9 +204,18 @@ class Span:
         end = self.end_time or time.time()
         return (end - self.start_time) * 1000
 
-    def to_dict(self) -> dict[str, Any]:
-        """Converte para dicionário (para exportação)."""
-        return {
+    def to_dict(self, sanitize: bool = True) -> dict[str, Any]:
+        """
+        Converte para dicionário (para exportação).
+
+        ## Parâmetros:
+            sanitize: Se True, aplica sanitização em atributos e eventos
+
+        ## Nota:
+            Por padrão, dados sensíveis são mascarados para evitar
+            vazamento de credenciais em logs e exportadores.
+        """
+        data = {
             "name": self.name,
             "trace_id": self.context.trace_id,
             "span_id": self.context.span_id,
@@ -211,6 +228,13 @@ class Span:
             "attributes": self.attributes,
             "events": self.events,
         }
+
+        if sanitize:
+            # Aplica sanitização em atributos e eventos
+            data["attributes"] = sanitize_for_logging(data["attributes"])
+            data["events"] = sanitize_for_logging(data["events"])
+
+        return data
 
 
 # =============================================================================
@@ -375,9 +399,16 @@ class NoopTracer:
 
 
 def console_exporter(span: Span) -> None:
-    """Exporta spans para console (desenvolvimento)."""
+    """
+    Exporta spans para console (desenvolvimento).
+
+    ## Nota:
+        Os dados são automaticamente sanitizados antes de serem logados.
+        Campos sensíveis como password, token, api_key são mascarados.
+    """
     import json
-    data = span.to_dict()
+    # to_dict já aplica sanitização por padrão
+    data = span.to_dict(sanitize=True)
     logger.info(f"[SPAN] {json.dumps(data, indent=2, default=str)}")
 
 
@@ -388,10 +419,13 @@ def otlp_exporter_factory(endpoint: str) -> Callable[[Span], None]:
     ## Nota:
     Esta é uma implementação simplificada. Para produção,
     use opentelemetry-exporter-otlp oficial.
+
+    Os dados são sanitizados antes do envio.
     """
     import requests
 
     def exporter(span: Span) -> None:
+        # to_dict já aplica sanitização por padrão
         # Formato simplificado para OTLP
         payload: dict[str, list[dict[str, object]]] = {
             "resourceSpans": [{

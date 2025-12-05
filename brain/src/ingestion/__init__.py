@@ -13,6 +13,8 @@ from .security import (
     AuthStep,
     AuthFlowResult,
     LoginEndpointInfo,
+    SENSITIVE_PATTERNS,
+    REDACTED_VALUE,
     detect_security,
     generate_auth_steps,
     generate_refresh_token_step,
@@ -23,6 +25,9 @@ from .security import (
     generate_complete_auth_flow,
     generate_complete_auth_flow_multi,
     create_authenticated_plan_steps,
+    sanitize_for_logging,
+    sanitize_plan_for_logging,
+    mask_token_preview,
 )
 
 __all__ = [
@@ -42,6 +47,8 @@ __all__ = [
     "AuthStep",
     "AuthFlowResult",
     "LoginEndpointInfo",
+    "SENSITIVE_PATTERNS",
+    "REDACTED_VALUE",
     "detect_security",
     "generate_auth_steps",
     "generate_refresh_token_step",
@@ -52,5 +59,9 @@ __all__ = [
     "generate_complete_auth_flow",
     "generate_complete_auth_flow_multi",
     "create_authenticated_plan_steps",
+    "sanitize_for_logging",
+    "sanitize_plan_for_logging",
+    "mask_token_preview",
 ]
+
 
