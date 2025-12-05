@@ -35,6 +35,7 @@ from rich.table import Table
 
 from ...cache import ExecutionHistory
 from ...config import BrainConfig
+from ..registry import register_command
 
 
 def _get_history() -> ExecutionHistory:
@@ -64,6 +65,7 @@ def _format_duration(ms: int) -> str:
         return f"{minutes}m{seconds:.0f}s"
 
 
+@register_command
 @click.group(invoke_without_command=True)
 @click.option(
     "--limit", "-n",

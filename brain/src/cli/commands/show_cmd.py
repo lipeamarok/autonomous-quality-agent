@@ -40,6 +40,7 @@ from rich.tree import Tree
 
 from ...adapter import SmartFormatAdapter
 from ...validator import UTDLValidator, Plan
+from ..registry import register_command
 
 
 def _load_plan(path: Path, normalize: bool = True) -> tuple[Plan, dict[str, Any]]:
@@ -89,6 +90,7 @@ def _is_critical_method(method: str) -> bool:
     return method.upper() in ("POST", "PUT", "DELETE", "PATCH")
 
 
+@register_command
 @click.command()
 @click.argument(
     "plan_file",

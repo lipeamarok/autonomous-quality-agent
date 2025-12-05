@@ -46,6 +46,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
+from ..registry import register_command
+
 
 def _generate_plan_from_spec(
     spec: dict[str, Any],
@@ -228,6 +230,7 @@ def _generate_sample_body(schema: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
+@register_command
 @click.command()
 @click.option(
     "--swagger", "-s",

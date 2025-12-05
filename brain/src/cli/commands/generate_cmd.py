@@ -40,9 +40,11 @@ from rich.prompt import Prompt, Confirm
 from ...generator import UTDLGenerator
 from ...ingestion import parse_openapi
 from ...ingestion.swagger import spec_to_requirement_text
+from ..registry import register_command
 from ..utils import load_config, get_default_model
 
 
+@register_command
 @click.command()
 @click.option(
     "--swagger", "-s",

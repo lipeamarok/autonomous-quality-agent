@@ -123,29 +123,14 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool, json_output: bool) -> No
 # IMPORTA E REGISTRA SUBCOMANDOS
 # =============================================================================
 
-# Importamos os comandos aqui para evitar imports circulares
-from .commands.init_cmd import init
-from .commands.generate_cmd import generate
-from .commands.validate_cmd import validate
-from .commands.run_cmd import run
-from .commands.explain_cmd import explain
-from .commands.demo_cmd import demo
-from .commands.plan_cmd import plan
-from .commands.history_cmd import history
-from .commands.show_cmd import show
-from .commands.plan_version_cmd import planversion
+# Usa o sistema de registry para carregar e registrar comandos
+from .registry import load_commands, register_all_commands
 
-# Registra os comandos no grupo principal
-cli.add_command(init)
-cli.add_command(generate)
-cli.add_command(validate)
-cli.add_command(run)
-cli.add_command(explain)
-cli.add_command(demo)
-cli.add_command(plan)
-cli.add_command(history)
-cli.add_command(show)
-cli.add_command(planversion)
+# Carrega todos os comandos (dispara os imports e registra via decorator)
+load_commands()
+
+# Registra os comandos carregados no grupo principal
+register_all_commands(cli)
 
 
 # =============================================================================

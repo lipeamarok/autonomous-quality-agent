@@ -203,12 +203,33 @@ storage = create_storage("sqlite")
 
 ### Adicionando um Novo Comando CLI
 
+O AQA usa um sistema de **registry** para gerenciar comandos CLI, evitando imports circulares e facilitando a extensibilidade.
+
+#### Sistema de Registry
+
+```python
+# brain/src/cli/registry.py
+from typing import TypeVar
+import click
+
+T = TypeVar("T", bound=click.Command)
+
+def register_command(cmd: T) -> T:
+    """Decorator que registra um comando automaticamente."""
+    _registered_commands.append(cmd)
+    return cmd
+```
+
+#### Adicionando um Comando Simples
+
 1. Crie o arquivo em `brain/src/cli/commands/`:
 
 ```python
 # brain/src/cli/commands/my_cmd.py
 import click
+from ..registry import register_command
 
+@register_command
 @click.command("mycommand")
 @click.option("--param", "-p", help="Descrição")
 def my_command(param: str) -> None:
@@ -216,7 +237,7 @@ def my_command(param: str) -> None:
     click.echo(f"Executando com {param}")
 ```
 
-2. Registre em `brain/src/cli/commands/__init__.py`:
+2. Adicione à lista de imports em `brain/src/cli/commands/__init__.py`:
 
 ```python
 from .my_cmd import my_command
@@ -224,12 +245,42 @@ from .my_cmd import my_command
 __all__ = [..., "my_command"]
 ```
 
-3. Adicione ao grupo principal em `brain/src/cli/main.py`:
+**Pronto!** O comando será registrado automaticamente.
+
+#### Adicionando um Grupo de Comandos
+
+Para comandos com subcomandos, use `@click.group()`:
 
 ```python
-from .commands import my_command
-cli.add_command(my_command)
+# brain/src/cli/commands/mygroup_cmd.py
+import click
+from ..registry import register_command
+
+@register_command
+@click.group()
+def mygroup() -> None:
+    """Grupo de comandos relacionados."""
+    pass
+
+@mygroup.command()
+def sub1() -> None:
+    """Primeiro subcomando."""
+    click.echo("sub1")
+
+@mygroup.command()
+def sub2() -> None:
+    """Segundo subcomando."""
+    click.echo("sub2")
 ```
+
+#### Por que usar o Registry?
+
+| Antes (imports diretos) | Depois (registry) |
+|-------------------------|-------------------|
+| Imports no final de `main.py` | Decorator `@register_command` |
+| Risco de imports circulares | Sem dependências circulares |
+| Difícil testar isoladamente | Fácil testar |
+| Acoplamento alto | Baixo acoplamento |
 
 ---
 
@@ -283,7 +334,7 @@ impl Context {
     pub fn interpolate(&self, template: &str) -> String {
         // Substitui ${var} pelos valores
     }
-    
+
     pub fn set(&mut self, key: &str, value: Value) {
         self.variables.insert(key.to_string(), value);
     }
@@ -323,7 +374,7 @@ impl StepExecutor for GrpcExecutor {
     fn can_handle(&self, action: &str) -> bool {
         action == "grpc_call"
     }
-    
+
     async fn execute(&self, step: &Step, ctx: &mut Context) -> Result<StepResult> {
         // Implementação
     }
@@ -377,7 +428,7 @@ class TestCrossValidation:
         """Plano aleatório valida em Pydantic"""
         plan = PlanGenerator().generate_random_plan()
         Plan.model_validate(plan)  # Deve passar
-    
+
     def test_random_plan_validates_in_rust(self):
         """Plano aleatório valida no Runner Rust"""
         plan = PlanGenerator().generate_random_plan()
@@ -490,17 +541,17 @@ from src.validator import UTDLValidator
 
 class TestMyFeature:
     """Testes para minha feature"""
-    
+
     @pytest.fixture
     def validator(self) -> UTDLValidator:
         return UTDLValidator()
-    
+
     def test_valid_plan(self, validator: UTDLValidator) -> None:
         """Plano válido deve passar"""
         plan = {"spec_version": "0.1", "meta": {...}, ...}
         result = validator.validate(plan)
         assert result.is_valid
-    
+
     def test_invalid_plan_raises(self, validator: UTDLValidator) -> None:
         """Plano inválido deve falhar"""
         with pytest.raises(ValueError):
@@ -514,13 +565,13 @@ class TestMyFeature:
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_basic() {
         let result = my_function();
         assert_eq!(result, expected);
     }
-    
+
     #[tokio::test]
     async fn test_async() {
         let result = my_async_function().await;
@@ -574,13 +625,13 @@ def process(data):
 ```python
 def validate(self, data: dict[str, Any]) -> ValidationResult:
     """Valida um plano UTDL.
-    
+
     Args:
         data: Dicionário com o plano UTDL
-        
+
     Returns:
         ValidationResult com is_valid e errors
-        
+
     Raises:
         ValueError: Se estrutura básica inválida
     """
@@ -714,7 +765,7 @@ jobs:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
       - run: pytest tests/ -v
-      
+
   test-rust:
     runs-on: ubuntu-latest
     steps:

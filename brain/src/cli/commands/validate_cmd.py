@@ -41,6 +41,7 @@ from rich.panel import Panel
 
 from ...adapter import SmartFormatAdapter
 from ...validator import UTDLValidator
+from ..registry import register_command
 
 
 # Console para saída JSON (não silenciável)
@@ -61,6 +62,7 @@ def _print_json_validation_result(results: list[dict[str, Any]], all_valid: bool
     _json_console.print_json(data=output)
 
 
+@register_command
 @click.command()
 @click.argument(
     "files",

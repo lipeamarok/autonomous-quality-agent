@@ -30,6 +30,8 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 
+from ..registry import register_command
+
 
 # Plano de demonstração usando httpbin.org (API pública de teste)
 DEMO_PLAN: dict[str, Any] = {
@@ -156,6 +158,7 @@ DEMO_PLAN: dict[str, Any] = {
 }
 
 
+@register_command
 @click.command()
 @click.option(
     "--url",

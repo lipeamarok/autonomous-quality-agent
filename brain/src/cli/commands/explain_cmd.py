@@ -30,6 +30,8 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 
+from ..registry import register_command
+
 
 def _explain_step(step: dict[str, Any], index: int) -> str:
     """Gera explicação textual de um step."""
@@ -115,6 +117,7 @@ def _explain_plan_json(plan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@register_command
 @click.command()
 @click.argument(
     "file",

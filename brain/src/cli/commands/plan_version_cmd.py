@@ -43,6 +43,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from ...cache import PlanVersionStore, PlanDiff
+from ..registry import register_command
 
 
 def _get_store() -> PlanVersionStore:
@@ -525,6 +526,7 @@ def plan_show_version(
 # =============================================================================
 
 
+@register_command
 @click.group()
 @click.pass_context
 def planversion(ctx: click.Context) -> None:

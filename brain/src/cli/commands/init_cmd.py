@@ -37,6 +37,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.tree import Tree
 
+from ..registry import register_command
+
 # Template do arquivo de configuração
 CONFIG_TEMPLATE = """\
 # =============================================================================
@@ -74,6 +76,7 @@ variables:
 """
 
 
+@register_command
 @click.command()
 @click.argument(
     "directory",

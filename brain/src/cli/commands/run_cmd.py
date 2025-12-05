@@ -46,6 +46,7 @@ from ...ingestion import parse_openapi
 from ...ingestion.swagger import spec_to_requirement_text
 from ...runner import run_plan, RunnerResult
 from ...validator import UTDLValidator, Plan
+from ..registry import register_command
 from ..utils import load_config, get_default_model, get_runner_path, get_runner_search_paths
 
 
@@ -93,6 +94,7 @@ def _print_json_result(console: Console, result: RunnerResult) -> None:
     console.print_json(data=output)
 
 
+@register_command
 @click.command()
 @click.argument(
     "plan_file",
