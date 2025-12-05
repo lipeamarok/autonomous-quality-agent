@@ -740,5 +740,392 @@ class TestGraphQLPlans:
         assert result.is_valid, f"Validation failed: {result.errors}"
 
 
+# =============================================================================
+# ITEM 7: CENÁRIOS EXTREMOS ADICIONAIS
+# =============================================================================
+
+class TestNetworkErrors:
+    """Tests for network error handling scenarios."""
+
+    def test_plan_with_timeout_retry(self) -> None:
+        """Test plan that handles timeout with retry."""
+        steps: list[UTDLStep] = [
+            {
+                "id": "slow_endpoint",
+                "action": "http_request",
+                "description": "Request to potentially slow endpoint with retry",
+                "params": {
+                    "method": "GET",
+                    "url": "{{base_url}}/slow-endpoint"
+                },
+                "retry": {
+                    "max_attempts": 3,
+                    "delay_ms": 1000,
+                    "backoff": "exponential"
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 200),
+                    create_assertion("latency", "lt", 30000)
+                ]
+            }
+        ]
+        plan = create_base_plan("timeout_retry", "Timeout with Retry", steps)
+        result = validate_plan(plan)
+        assert result.is_valid, f"Validation failed: {result.errors}"
+
+    def test_plan_with_circuit_breaker_pattern(self) -> None:
+        """Test plan implementing circuit breaker pattern."""
+        steps: list[UTDLStep] = [
+            # Check health first
+            {
+                "id": "health_check",
+                "action": "http_request",
+                "description": "Health check before main request",
+                "params": {
+                    "method": "GET",
+                    "url": "{{base_url}}/health"
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 200)
+                ]
+            },
+            # Main request depends on health
+            {
+                "id": "main_request",
+                "action": "http_request",
+                "description": "Main request (circuit open if health fails)",
+                "depends_on": ["health_check"],
+                "params": {
+                    "method": "POST",
+                    "url": "{{base_url}}/api/heavy-operation"
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 200)
+                ]
+            },
+            # Fallback path
+            {
+                "id": "fallback",
+                "action": "http_request",
+                "description": "Fallback endpoint",
+                "params": {
+                    "method": "GET",
+                    "url": "{{base_url}}/api/cached-response"
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 200)
+                ]
+            }
+        ]
+        plan = create_base_plan("circuit_breaker", "Circuit Breaker Pattern", steps)
+        result = validate_plan(plan)
+        assert result.is_valid, f"Validation failed: {result.errors}"
+
+    def test_plan_with_multiple_retry_policies(self) -> None:
+        """Test plan with different retry policies per step."""
+        steps: list[UTDLStep] = [
+            {
+                "id": "idempotent_get",
+                "action": "http_request",
+                "description": "GET request - safe to retry many times",
+                "params": {
+                    "method": "GET",
+                    "url": "{{base_url}}/data"
+                },
+                "retry": {
+                    "max_attempts": 5,
+                    "delay_ms": 500,
+                    "backoff": "linear"
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 200)
+                ]
+            },
+            {
+                "id": "non_idempotent_post",
+                "action": "http_request",
+                "description": "POST request - limited retry",
+                "depends_on": ["idempotent_get"],
+                "params": {
+                    "method": "POST",
+                    "url": "{{base_url}}/submit"
+                },
+                "retry": {
+                    "max_attempts": 1,  # No retry for non-idempotent
+                    "delay_ms": 0
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 201)
+                ]
+            }
+        ]
+        plan = create_base_plan("multi_retry", "Multiple Retry Policies", steps)
+        result = validate_plan(plan)
+        assert result.is_valid, f"Validation failed: {result.errors}"
+
+
+class TestAuthenticationFailureScenarios:
+    """Tests for authentication failure scenarios."""
+
+    def test_plan_with_auth_failure_expected(self) -> None:
+        """Test plan that expects authentication failure (401)."""
+        steps: list[UTDLStep] = [
+            {
+                "id": "access_without_auth",
+                "action": "http_request",
+                "description": "Access protected endpoint without auth (expect 401)",
+                "params": {
+                    "method": "GET",
+                    "url": "{{base_url}}/api/protected"
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 401),
+                    create_assertion("json_body", "eq", "unauthorized", "$.error")
+                ]
+            }
+        ]
+        plan = create_base_plan("auth_failure", "Expected Auth Failure", steps)
+        result = validate_plan(plan)
+        assert result.is_valid, f"Validation failed: {result.errors}"
+
+    def test_plan_with_invalid_token_handling(self) -> None:
+        """Test plan handling invalid/expired token."""
+        steps: list[UTDLStep] = [
+            {
+                "id": "request_with_bad_token",
+                "action": "http_request",
+                "description": "Request with invalid token",
+                "params": {
+                    "method": "GET",
+                    "url": "{{base_url}}/api/resource",
+                    "headers": {
+                        "Authorization": "Bearer invalid-token-12345"
+                    }
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 401)
+                ]
+            },
+            {
+                "id": "request_with_expired_token",
+                "action": "http_request",
+                "description": "Request with expired token",
+                "params": {
+                    "method": "GET",
+                    "url": "{{base_url}}/api/resource",
+                    "headers": {
+                        "Authorization": "Bearer ${expired_token}"
+                    }
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 401),
+                    create_assertion("json_body", "contains", "expired", "$.message")
+                ]
+            }
+        ]
+        plan = create_base_plan("invalid_token", "Invalid Token Handling", steps)
+        result = validate_plan(plan)
+        assert result.is_valid, f"Validation failed: {result.errors}"
+
+    def test_plan_with_permission_denied_handling(self) -> None:
+        """Test plan handling permission denied (403)."""
+        steps: list[UTDLStep] = [
+            {
+                "id": "login_as_user",
+                "action": "http_request",
+                "description": "Login as regular user",
+                "params": {
+                    "method": "POST",
+                    "url": "{{base_url}}/auth/login"
+                },
+                "extract": [
+                    create_extraction("user_token", "body", "$.token")
+                ],
+                "assertions": [
+                    create_assertion("status_code", "eq", 200)
+                ]
+            },
+            {
+                "id": "access_admin_only",
+                "action": "http_request",
+                "description": "Try to access admin-only endpoint",
+                "depends_on": ["login_as_user"],
+                "params": {
+                    "method": "GET",
+                    "url": "{{base_url}}/api/admin/users",
+                    "headers": {
+                        "Authorization": "Bearer ${user_token}"
+                    }
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 403),
+                    create_assertion("json_body", "eq", "forbidden", "$.error")
+                ]
+            }
+        ]
+        plan = create_base_plan("permission_denied", "Permission Denied", steps)
+        result = validate_plan(plan)
+        assert result.is_valid, f"Validation failed: {result.errors}"
+
+
+class TestMaximumParallelism:
+    """Tests for maximum parallelism scenarios."""
+
+    def test_plan_with_20_parallel_branches(self) -> None:
+        """Test plan with 20 parallel independent branches."""
+        steps: list[UTDLStep] = []
+
+        # Common setup step
+        steps.append({
+            "id": "setup",
+            "action": "http_request",
+            "description": "Setup step",
+            "params": {
+                "method": "GET",
+                "url": "{{base_url}}/init"
+            },
+            "assertions": [
+                create_assertion("status_code", "eq", 200)
+            ]
+        })
+
+        # 20 parallel branches
+        for i in range(20):
+            steps.append({
+                "id": f"parallel_{i}",
+                "action": "http_request",
+                "description": f"Parallel branch {i}",
+                "depends_on": ["setup"],
+                "params": {
+                    "method": "GET",
+                    "url": f"{{{{base_url}}}}/resource/{i}"
+                },
+                "extract": [
+                    create_extraction(f"result_{i}", "body", "$.data")
+                ],
+                "assertions": [
+                    create_assertion("status_code", "eq", 200)
+                ]
+            })
+
+        # Aggregation step that depends on all parallel branches
+        steps.append({
+            "id": "aggregate",
+            "action": "http_request",
+            "description": "Aggregate all parallel results",
+            "depends_on": [f"parallel_{i}" for i in range(20)],
+            "params": {
+                "method": "POST",
+                "url": "{{base_url}}/aggregate"
+            },
+            "assertions": [
+                create_assertion("status_code", "eq", 200)
+            ]
+        })
+
+        plan = create_base_plan("max_parallel", "Maximum Parallelism Test", steps)
+        result = validate_plan(plan, relaxed_limits=True)
+        assert result.is_valid, f"Validation failed: {result.errors}"
+
+    def test_plan_with_complex_dag(self) -> None:
+        """Test plan with complex DAG (multiple diamonds and joins)."""
+        steps: list[UTDLStep] = [
+            # Root
+            create_http_step("root", "GET", "{{base_url}}/start"),
+
+            # First level - 3 parallel
+            create_http_step("l1_a", depends_on=["root"]),
+            create_http_step("l1_b", depends_on=["root"]),
+            create_http_step("l1_c", depends_on=["root"]),
+
+            # Second level - different dependencies
+            create_http_step("l2_a", depends_on=["l1_a", "l1_b"]),
+            create_http_step("l2_b", depends_on=["l1_b", "l1_c"]),
+            create_http_step("l2_c", depends_on=["l1_a"]),
+
+            # Third level - more joins
+            create_http_step("l3_a", depends_on=["l2_a", "l2_b", "l2_c"]),
+            create_http_step("l3_b", depends_on=["l2_b"]),
+
+            # Final aggregation
+            create_http_step("final", depends_on=["l3_a", "l3_b"])
+        ]
+
+        plan = create_base_plan("complex_dag", "Complex DAG Test", steps)
+        result = validate_plan(plan)
+        assert result.is_valid, f"Validation failed: {result.errors}"
+
+
+class TestTimeoutScenarios:
+    """Tests for timeout-related scenarios."""
+
+    def test_plan_with_aggressive_timeout(self) -> None:
+        """Test plan with very short timeout expectations."""
+        steps: list[UTDLStep] = [
+            {
+                "id": "fast_endpoint",
+                "action": "http_request",
+                "description": "Endpoint that must respond quickly",
+                "params": {
+                    "method": "GET",
+                    "url": "{{base_url}}/health"
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 200),
+                    create_assertion("latency", "lt", 100)  # < 100ms
+                ]
+            }
+        ]
+        plan = create_base_plan("fast_timeout", "Aggressive Timeout", steps)
+        result = validate_plan(plan)
+        assert result.is_valid, f"Validation failed: {result.errors}"
+
+    def test_plan_with_long_running_operation(self) -> None:
+        """Test plan for long-running async operation."""
+        steps: list[UTDLStep] = [
+            {
+                "id": "start_job",
+                "action": "http_request",
+                "description": "Start long-running job",
+                "params": {
+                    "method": "POST",
+                    "url": "{{base_url}}/jobs"
+                },
+                "extract": [
+                    create_extraction("job_id", "body", "$.job_id")
+                ],
+                "assertions": [
+                    create_assertion("status_code", "eq", 202)
+                ]
+            },
+            {
+                "id": "wait_for_job",
+                "action": "wait",
+                "description": "Wait for job processing",
+                "depends_on": ["start_job"],
+                "params": {
+                    "duration_ms": 5000
+                }
+            },
+            {
+                "id": "check_job_status",
+                "action": "http_request",
+                "description": "Check if job completed",
+                "depends_on": ["wait_for_job"],
+                "params": {
+                    "method": "GET",
+                    "url": "{{base_url}}/jobs/${job_id}"
+                },
+                "assertions": [
+                    create_assertion("status_code", "eq", 200),
+                    create_assertion("json_body", "eq", "completed", "$.status")
+                ]
+            }
+        ]
+        plan = create_base_plan("long_running", "Long Running Operation", steps)
+        result = validate_plan(plan)
+        assert result.is_valid, f"Validation failed: {result.errors}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
