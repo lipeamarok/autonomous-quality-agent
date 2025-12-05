@@ -2,7 +2,7 @@
 
 > **Objetivo**: Mapear todos os pontos de conexão entre o sistema CLI atual e a futura interface de usuário, facilitando a transição de comandos técnicos para componentes visuais intuitivos.
 
-**Versão:** 1.1.0
+**Versão:** 1.2.0
 **Última atualização:** 2024-12-05
 **Status:** Enterprise-ready
 
@@ -30,7 +30,7 @@
 13. [Editor de Planos (Features Avançadas)](#13-editor-de-planos-features-avançadas)
 14. [Execução Real-Time (WebSocket Avançado)](#14-execução-real-time-websocket-avançado)
 15. [Histórico de Execução (Avançado)](#15-histórico-de-execução-avançado)
-16. [Diff de Planos](#16-diff-de-planos)
+16. [Diff e Versionamento de Planos](#16-diff-e-versionamento-de-planos)
 
 ### Parte IV — Extensibilidade Futura
 17. [Módulos Futuros (Placeholders)](#17-módulos-futuros-placeholders)
@@ -57,12 +57,14 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           CLI (Click + Rich)                                 │
 │  aqa init | generate | validate | run | explain | history | demo | show     │
+│  aqa plan | planversion (list | versions | diff | save | show | rollback)   │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          BRAIN (Python Core)                                 │
 │  Config │ Generator │ Validator │ Cache │ Storage │ LLM Providers           │
+│  PlanVersionStore │ PlanCache │ ExecutionHistory                            │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -1704,102 +1706,460 @@ GET /api/v1/history/{id}/export?format=json|html|md|pdf
 
 ---
 
-### 16. Diff de Planos
+### 16. Diff e Versionamento de Planos
 
-#### 16.1 Algoritmo Recomendado
+Esta seção documenta o sistema completo de versionamento de planos implementado, incluindo
+armazenamento versionado, comparação (diff), e operações de rollback.
 
-```python
-# Usar deepdiff para comparação semântica
-from deepdiff import DeepDiff
+#### 16.1 Visão Geral da Arquitetura de Versionamento
 
-def diff_plans(plan_a: dict, plan_b: dict) -> PlanDiff:
-    """
-    Compara dois planos e retorna diferenças estruturadas.
-    """
-    diff = DeepDiff(
-        plan_a,
-        plan_b,
-        ignore_order=True,              # Arrays podem mudar ordem
-        report_repetition=True,         # Detecta duplicatas
-        view='tree',                    # Estrutura hierárquica
-        exclude_paths=["root['meta']['created_at']"]  # Ignora timestamps
-    )
-
-    return PlanDiff(
-        added=diff.get('dictionary_item_added', {}),
-        removed=diff.get('dictionary_item_removed', {}),
-        changed=diff.get('values_changed', {}),
-        type_changed=diff.get('type_changes', {}),
-    )
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          PLAN VERSION STORE                                  │
+│                    ~/.aqa/plans/{plan_name}/                                 │
+│                                                                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │  v1.json.gz │  │  v2.json.gz │  │  v3.json.gz │  │  v4.json.gz │        │
+│  │  (initial)  │  │  (parent:1) │  │  (parent:2) │  │  (parent:2) │        │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
+│                                                                             │
+│  index.json: { "latest": 4, "versions": [1,2,3,4], "branches": {...} }     │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 16.2 Estrutura de Diff
+#### 16.2 Modelo de Dados (Implementado)
 
 ```python
+# brain/src/cache.py
+
+@dataclass
+class PlanVersion:
+    """Representa uma versão específica de um plano."""
+    version: int                          # Número da versão (auto-incremento)
+    plan_hash: str                        # Hash SHA-256 do conteúdo
+    plan: dict[str, Any]                  # Conteúdo do plano
+    created_at: str                       # ISO 8601 timestamp
+    metadata: dict[str, Any]              # Metadados para auditoria
+    parent_version: int | None = None     # Versão anterior (para branching)
+
 @dataclass
 class PlanDiff:
-    added: dict[str, Any]           # Campos/steps adicionados
-    removed: dict[str, Any]         # Campos/steps removidos
-    changed: dict[str, Change]      # Valores alterados
-    type_changed: dict[str, Change] # Tipos alterados
+    """Resultado da comparação entre duas versões."""
+    version_a: int
+    version_b: int
+    added_lines: list[str]                # Linhas adicionadas
+    removed_lines: list[str]              # Linhas removidas
+    changed_paths: list[str]              # Paths JSON que mudaram
 
     @property
     def has_changes(self) -> bool:
-        return bool(self.added or self.removed or self.changed)
+        return bool(self.added_lines or self.removed_lines)
 
     @property
     def summary(self) -> str:
         parts = []
-        if self.added:
-            parts.append(f"+{len(self.added)} adicionados")
-        if self.removed:
-            parts.append(f"-{len(self.removed)} removidos")
-        if self.changed:
-            parts.append(f"~{len(self.changed)} alterados")
+        if self.added_lines:
+            parts.append(f"+{len(self.added_lines)} linhas")
+        if self.removed_lines:
+            parts.append(f"-{len(self.removed_lines)} linhas")
         return ", ".join(parts) or "Sem alterações"
-
-@dataclass
-class Change:
-    path: str           # "steps[2].assertions[0].value"
-    old_value: Any
-    new_value: Any
 ```
 
-### 16.3 UI de Diff Visual
+#### 16.3 API do PlanVersionStore
+
+```python
+# brain/src/cache.py
+
+class PlanVersionStore:
+    """Armazena versões de planos com suporte a diff e rollback."""
+
+    def __init__(self, plans_dir: str | None = None):
+        """
+        Args:
+            plans_dir: Diretório para armazenar planos. Default: ~/.aqa/plans
+        """
+
+    @classmethod
+    def global_store(cls) -> "PlanVersionStore":
+        """Retorna instância singleton do store."""
+
+    def save(
+        self,
+        plan_name: str,
+        plan: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+    ) -> PlanVersion:
+        """
+        Salva nova versão de um plano.
+
+        Args:
+            plan_name: Identificador único do plano
+            plan: Conteúdo do plano (dict serializável)
+            metadata: Metadados opcionais (modelo LLM, contexto, etc.)
+
+        Returns:
+            PlanVersion com número de versão atribuído
+
+        Metadata sugerido para UI:
+            - llm_model: str - Modelo usado na geração
+            - llm_provider: str - Provider (openai, grok, mock)
+            - swagger_hash: str - Hash do OpenAPI de origem
+            - user_id: str - Identificador do usuário
+            - description: str - Descrição da mudança
+            - tags: list[str] - Tags para categorização
+        """
+
+    def get(
+        self,
+        plan_name: str,
+        version: int | None = None,
+    ) -> PlanVersion | None:
+        """
+        Obtém versão específica ou latest de um plano.
+
+        Args:
+            plan_name: Identificador do plano
+            version: Número da versão (None = latest)
+
+        Returns:
+            PlanVersion ou None se não existir
+        """
+
+    def list_versions(self, plan_name: str) -> list[PlanVersion]:
+        """Lista todas as versões de um plano, ordenadas por data."""
+
+    def list_plans(self) -> list[str]:
+        """Lista todos os nomes de planos armazenados."""
+
+    def diff(
+        self,
+        plan_name: str,
+        version_a: int,
+        version_b: int,
+    ) -> PlanDiff | None:
+        """
+        Compara duas versões de um plano.
+
+        Args:
+            plan_name: Identificador do plano
+            version_a: Primeira versão (geralmente a mais antiga)
+            version_b: Segunda versão (geralmente a mais nova)
+
+        Returns:
+            PlanDiff com linhas adicionadas/removidas ou None se versões não existem
+        """
+
+    def rollback(
+        self,
+        plan_name: str,
+        to_version: int,
+        metadata: dict[str, Any] | None = None,
+    ) -> PlanVersion | None:
+        """
+        Cria nova versão restaurando conteúdo de versão anterior.
+
+        Args:
+            plan_name: Identificador do plano
+            to_version: Versão a ser restaurada
+            metadata: Metadados opcionais (inclui rollback_from automaticamente)
+
+        Returns:
+            Nova PlanVersion ou None se versão não existe
+
+        Nota: O rollback NÃO apaga versões, apenas cria nova versão
+        com o conteúdo da versão especificada.
+        """
+```
+
+#### 16.4 Comandos CLI Implementados
+
+| Comando | Descrição | UI Equivalente |
+|---------|-----------|----------------|
+| `aqa planversion list` | Lista todos os planos versionados | Grid/tabela de planos |
+| `aqa planversion versions <plan>` | Lista versões de um plano | Timeline de versões |
+| `aqa planversion show <plan> [--version N]` | Mostra conteúdo do plano | Editor readonly |
+| `aqa planversion diff <plan> <v1> <v2>` | Compara duas versões | Split view com highlight |
+| `aqa planversion save <file> --name <plan>` | Salva plano como nova versão | Botão "Salvar Versão" |
+| `aqa planversion rollback <plan> --to-version N` | Restaura versão anterior | Botão "Restaurar" |
+
+**Exemplos de uso:**
+
+```bash
+# Listar planos
+$ aqa planversion list
+╭─────────────────────────────────────────────────────────────────╮
+│                     📋 Planos Versionados                        │
+├─────────────────────────────────────────────────────────────────┤
+│  Nome          │ Versões │ Última Atualização │ Modelo LLM      │
+├─────────────────────────────────────────────────────────────────┤
+│  api-tests     │ 5       │ 2024-12-05 14:30   │ gpt-4           │
+│  auth-flow     │ 3       │ 2024-12-04 10:15   │ grok-beta       │
+│  smoke-tests   │ 1       │ 2024-12-03 09:00   │ mock            │
+╰─────────────────────────────────────────────────────────────────╯
+
+# Comparar versões
+$ aqa planversion diff api-tests 1 2
+╭─────────────────────────────────────────────────────────────────╮
+│  📊 Diff: api-tests                                              │
+│  v1 → v2                                                         │
+├─────────────────────────────────────────────────────────────────┤
+│  - "timeout": 5000                                               │
+│  + "timeout": 10000                                              │
+│                                                                  │
+│  + "steps": [                                                    │
+│  +   { "id": "new-step", "action": "http_request" }             │
+│  + ]                                                             │
+╰─────────────────────────────────────────────────────────────────╯
+
+# Rollback para versão anterior
+$ aqa planversion rollback api-tests --to-version 1
+✅ Plano 'api-tests' restaurado para v1 (nova versão: v6)
+```
+
+#### 16.5 Endpoints REST para UI
+
+```yaml
+# Planos versionados
+GET    /api/v1/plans                     # Lista todos os planos
+GET    /api/v1/plans/{name}              # Obtém última versão
+GET    /api/v1/plans/{name}/versions     # Lista versões de um plano
+GET    /api/v1/plans/{name}/versions/{v} # Obtém versão específica
+POST   /api/v1/plans/{name}              # Salva nova versão
+GET    /api/v1/plans/{name}/diff         # ?v1=1&v2=2 - Compara versões
+POST   /api/v1/plans/{name}/rollback     # Body: { "to_version": 3 }
+DELETE /api/v1/plans/{name}              # Remove plano (todas versões)
+DELETE /api/v1/plans/{name}/versions/{v} # Remove versão específica
+```
+
+**Request/Response Examples:**
+
+```json
+// POST /api/v1/plans/my-api-tests
+// Request:
+{
+    "plan": {
+        "name": "my-api-tests",
+        "steps": [...]
+    },
+    "metadata": {
+        "llm_model": "gpt-4",
+        "llm_provider": "openai",
+        "description": "Added new endpoints",
+        "tags": ["api", "smoke"]
+    }
+}
+
+// Response:
+{
+    "version": 3,
+    "plan_hash": "sha256:abc123...",
+    "created_at": "2024-12-05T14:30:00Z",
+    "parent_version": 2
+}
+```
+
+```json
+// GET /api/v1/plans/my-api-tests/diff?v1=1&v2=2
+// Response:
+{
+    "version_a": 1,
+    "version_b": 2,
+    "has_changes": true,
+    "summary": "+5 linhas, -2 linhas",
+    "added_lines": [
+        "  \"timeout\": 10000,",
+        "  { \"id\": \"new-step\" }"
+    ],
+    "removed_lines": [
+        "  \"timeout\": 5000,"
+    ]
+}
+```
+
+#### 16.6 UI de Diff Visual (Atualizado)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  📊 Comparação de Planos                                                    │
-│  plan_v1.json ←→ plan_v2.json                                              │
+│  📊 Comparação de Planos: api-tests                                         │
+│  v1 (2024-12-01) ←→ v3 (2024-12-05)                                        │
 │  ─────────────────────────────────────────────────────────────────────────  │
 │                                                                             │
-│  Resumo: +2 steps, -1 step, ~3 alterações                                  │
+│  📈 Resumo: +5 linhas, -2 linhas, 3 paths modificados                      │
 │                                                                             │
 │  ┌─────────────────────────────┐  ┌─────────────────────────────┐          │
-│  │ ANTES (v1)                  │  │ DEPOIS (v2)                 │          │
+│  │ VERSÃO 1                    │  │ VERSÃO 3                    │          │
+│  │ 📅 2024-12-01 10:00         │  │ 📅 2024-12-05 14:30         │          │
+│  │ 🤖 gpt-3.5-turbo            │  │ 🤖 gpt-4                    │          │
 │  │                             │  │                             │          │
-│  │ steps:                      │  │ steps:                      │          │
-│  │   - id: "login"             │  │   - id: "login"             │          │
-│  │ -   timeout: 5000           │  │ +   timeout: 10000   ← MUDOU│          │
-│  │                             │  │                             │          │
-│  │ - - id: "old_step" ← REMOVIDO│  │ + - id: "new_step" ← NOVO  │          │
-│  │                             │  │ +   action: "http_request"  │          │
-│  │                             │  │                             │          │
+│  │ {                           │  │ {                           │          │
+│  │   "name": "api-tests",      │  │   "name": "api-tests",      │          │
+│  │ - "timeout": 5000,          │  │ + "timeout": 10000,  ← MUDOU│          │
+│  │   "steps": [                │  │   "steps": [                │          │
+│  │     { "id": "login" },      │  │     { "id": "login" },      │          │
+│  │ -   { "id": "old-step" }    │  │ +   { "id": "new-step" }    │          │
+│  │   ]                         │  │ +   { "id": "extra-step" }  │          │
+│  │ }                           │  │   ]                         │          │
+│  │                             │  │ }                           │          │
 │  └─────────────────────────────┘  └─────────────────────────────┘          │
 │                                                                             │
-│  [Aceitar v2]  [Manter v1]  [Merge Manual]                                 │
+│  ┌─────────────────────────────────────────────────────────────────┐       │
+│  │ Metadados da Versão 3:                                          │       │
+│  │ • Modelo: gpt-4 (openai)                                        │       │
+│  │ • Descrição: "Added extra validation step"                      │       │
+│  │ • Tags: api, smoke, validation                                  │       │
+│  └─────────────────────────────────────────────────────────────────┘       │
+│                                                                             │
+│  [🔄 Restaurar v1]  [✅ Manter v3]  [📝 Merge Manual]  [📥 Exportar Diff]  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 16.4 Casos de Uso de Diff
+#### 16.7 Componentes UI Sugeridos
 
-| Cenário | Trigger | Ação UI |
-|---------|---------|---------|
-| LLM regenera plano | Automático após generate | Modal de review |
-| Usuário abre versão antiga | Manual via histórico | Split view |
-| Comparar dois planos | Manual via seleção | Side-by-side |
-| Atualizar OpenAPI | Após parse | Highlight mudanças em endpoints |
+**1. Timeline de Versões:**
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  📜 Histórico de Versões: api-tests                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  v5 ●─────────────────────────────────────────────────────────● (atual)    │
+│      │ 2024-12-05 14:30 │ gpt-4 │ "Final adjustments"                      │
+│      │                                                                      │
+│  v4 ●─────────────────────────────────────────────────────────●            │
+│      │ 2024-12-04 16:00 │ gpt-4 │ "Added error handling steps"             │
+│      │                                                                      │
+│  v3 ●─────────────────────────────────────────────────────────● ← rollback │
+│      │ 2024-12-03 11:00 │ grok │ "Rollback from v1"                        │
+│      │                                                                      │
+│  v2 ●─────────────────────────────────────────────────────────●            │
+│      │ 2024-12-02 09:00 │ gpt-3.5 │ "Added auth flow"                      │
+│      │                                                                      │
+│  v1 ●─────────────────────────────────────────────────────────● (inicial)  │
+│      │ 2024-12-01 10:00 │ mock │ "Initial plan"                            │
+│                                                                             │
+│  [Comparar Selecionados]  [Restaurar Versão]  [Exportar Histórico]         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**2. Card de Plano na Lista:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  📋 api-tests                                      v5 ▼     │
+│  ────────────────────────────────────────────────────────── │
+│  🕐 Última atualização: há 2 horas                          │
+│  🤖 Modelo: gpt-4 (openai)                                  │
+│  📊 5 versões │ 12 steps │ 45 assertions                    │
+│                                                             │
+│  Tags: [api] [smoke] [validation]                           │
+│                                                             │
+│  [▶️ Executar]  [✏️ Editar]  [📜 Histórico]  [🔄 Diff]     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 16.8 Integração com Cache LLM
+
+O sistema de versionamento integra-se com o cache de respostas LLM:
+
+```python
+# brain/src/cache.py
+
+class PlanCache:
+    """Cache de respostas LLM indexado por hash."""
+
+    def get_cache_key(
+        self,
+        requirement: str,
+        provider: str,
+        model: str,
+        options: dict[str, Any] | None = None,
+    ) -> str:
+        """
+        Gera hash único para cache baseado em:
+        - Texto do requirement normalizado
+        - Provider (openai, grok, mock)
+        - Modelo (gpt-4, grok-beta, etc.)
+        - Opções adicionais (temperature, etc.)
+
+        Isso garante determinismo: mesmos inputs = mesmo cache hit.
+        """
+
+    def get(self, key: str) -> dict | None:
+        """Obtém resposta cacheada se existir e não expirada."""
+
+    def set(self, key: str, value: dict, ttl: int | None = None) -> None:
+        """Armazena resposta no cache com TTL opcional."""
+```
+
+**Fluxo de Geração com Cache:**
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  UI: Gerar      │     │   PlanCache     │     │  LLM Provider   │
+│  Plano          │────▶│   (hit/miss)    │────▶│  (se miss)      │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+         │                      │                       │
+         │                      │ cache hit             │
+         │◀─────────────────────┘                       │
+         │                                              │
+         │                      │ cache miss            │
+         │                      │◀──────────────────────┘
+         │                      │
+         ▼                      ▼
+┌─────────────────┐     ┌─────────────────┐
+│  PlanVersion    │◀────│   Salvar        │
+│  Store          │     │   Versão        │
+└─────────────────┘     └─────────────────┘
+```
+
+#### 16.9 Eventos WebSocket para Versionamento
+
+```typescript
+// Eventos que a UI deve escutar
+
+interface PlanVersionEvent {
+    type: 'plan_version_created' | 'plan_version_rollback' | 'plan_deleted';
+    plan_name: string;
+    version?: number;
+    timestamp: string;
+    metadata?: Record<string, any>;
+}
+
+// Exemplo de uso
+ws.onmessage = (event) => {
+    const data: PlanVersionEvent = JSON.parse(event.data);
+
+    switch (data.type) {
+        case 'plan_version_created':
+            // Atualizar lista de versões
+            refreshVersionList(data.plan_name);
+            showToast(`Nova versão v${data.version} criada`);
+            break;
+
+        case 'plan_version_rollback':
+            // Highlight na timeline
+            highlightRollback(data.plan_name, data.version);
+            showToast(`Plano restaurado para v${data.metadata?.to_version}`);
+            break;
+
+        case 'plan_deleted':
+            // Remover da lista
+            removePlanFromList(data.plan_name);
+            break;
+    }
+};
+```
+
+#### 16.10 Casos de Uso de Versionamento
+
+| Cenário | Trigger | Ação Backend | Ação UI |
+|---------|---------|--------------|---------|
+| LLM gera novo plano | `aqa generate` | `PlanVersionStore.save()` | Criar card, notificação |
+| Usuário edita plano | Botão "Salvar" | `PlanVersionStore.save()` | Increment version badge |
+| Comparar versões | Seleção de 2 versões | `PlanVersionStore.diff()` | Split view com cores |
+| Restaurar versão | Botão "Restaurar" | `PlanVersionStore.rollback()` | Atualizar timeline |
+| Exportar histórico | Botão "Exportar" | Serializar todas versões | Download JSON/CSV |
+| Limpar versões antigas | Settings | Bulk delete versões < N | Atualizar contagem |
 
 ---
 

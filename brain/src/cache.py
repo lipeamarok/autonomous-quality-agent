@@ -1141,3 +1141,704 @@ class ExecutionHistory:
             self._ensure_dir()
             self._index = []
             self._save_index()
+
+
+# =============================================================================
+# VERSIONAMENTO DE PLANOS
+# =============================================================================
+
+
+@dataclass
+class PlanVersion:
+    """
+    Representa uma versão de um plano aprovado.
+
+    ## Atributos:
+
+    - `version`: Número da versão (1, 2, 3, ...)
+    - `plan`: O plano UTDL completo
+    - `created_at`: Data/hora de criação
+    - `created_by`: Quem criou (usuário ou "auto")
+    - `source`: Origem do plano ("llm", "manual", "import")
+    - `llm_provider`: Provedor LLM usado (se aplicável)
+    - `llm_model`: Modelo LLM usado (se aplicável)
+    - `input_hash`: Hash do input que gerou o plano
+    - `description`: Descrição/comentário da versão
+    - `tags`: Tags para categorização
+    - `parent_version`: Versão anterior (se for update)
+    """
+
+    version: int
+    plan: dict[str, Any]
+    created_at: str
+    created_by: str = "auto"
+    source: Literal["llm", "manual", "import"] = "llm"
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    input_hash: str | None = None
+    description: str = ""
+    tags: list[str] | None = None
+    parent_version: int | None = None
+
+
+@dataclass
+class PlanDiff:
+    """
+    Resultado da comparação entre duas versões de um plano.
+
+    ## Atributos:
+
+    - `version_a`: Número da versão A
+    - `version_b`: Número da versão B
+    - `steps_added`: Steps adicionados em B
+    - `steps_removed`: Steps removidos de A
+    - `steps_modified`: Steps modificados (existem em ambos mas diferentes)
+    - `config_changes`: Mudanças na configuração
+    - `meta_changes`: Mudanças nos metadados
+    """
+
+    version_a: int
+    version_b: int
+    steps_added: list[dict[str, Any]]
+    steps_removed: list[dict[str, Any]]
+    steps_modified: list[dict[str, Any]]
+    config_changes: dict[str, Any]
+    meta_changes: dict[str, Any]
+
+    @property
+    def has_changes(self) -> bool:
+        """Retorna True se houver alguma diferença."""
+        return bool(
+            self.steps_added
+            or self.steps_removed
+            or self.steps_modified
+            or self.config_changes
+            or self.meta_changes
+        )
+
+    @property
+    def summary(self) -> str:
+        """Retorna resumo das mudanças."""
+        parts = []
+        if self.steps_added:
+            parts.append(f"+{len(self.steps_added)} steps")
+        if self.steps_removed:
+            parts.append(f"-{len(self.steps_removed)} steps")
+        if self.steps_modified:
+            parts.append(f"~{len(self.steps_modified)} modified")
+        if self.config_changes:
+            parts.append("config changed")
+        if self.meta_changes:
+            parts.append("meta changed")
+        return ", ".join(parts) if parts else "no changes"
+
+
+def get_global_plans_dir() -> Path:
+    """
+    Retorna o diretório global de planos versionados (~/.aqa/plans/).
+
+    Respeita variável de ambiente AQA_HOME se definida.
+
+    ## Retorno:
+
+    Path para o diretório de planos versionados.
+    """
+    aqa_home = os.environ.get("AQA_HOME")
+    if aqa_home:
+        return Path(aqa_home) / "plans"
+    return Path.home() / AQA_HOME_DIR / "plans"
+
+
+class PlanVersionStore:
+    """
+    Armazena versões de planos aprovados com histórico completo.
+
+    Diferente do PlanCache (que cacheia respostas LLM), este store
+    mantém versões "oficiais" de planos que foram aprovados/validados.
+
+    ## Estrutura:
+
+    ```
+    ~/.aqa/plans/
+    ├── index.json              # Índice de todos os planos
+    ├── my-api-tests/           # Diretório por plano (slug do nome)
+    │   ├── metadata.json       # Metadados do plano
+    │   ├── v1.json             # Versão 1
+    │   ├── v2.json             # Versão 2
+    │   └── current -> v2.json  # Link para versão atual
+    └── another-plan/
+        └── ...
+    ```
+
+    ## Exemplo:
+
+        >>> store = PlanVersionStore()
+        >>>
+        >>> # Salva primeira versão
+        >>> v1 = store.save(
+        ...     plan_name="my-api-tests",
+        ...     plan=plan_dict,
+        ...     source="llm",
+        ...     llm_provider="openai",
+        ...     llm_model="gpt-4",
+        ...     description="Initial version from Swagger",
+        ... )
+        >>>
+        >>> # Atualiza para nova versão
+        >>> v2 = store.save(
+        ...     plan_name="my-api-tests",
+        ...     plan=updated_plan,
+        ...     description="Added auth steps",
+        ... )
+        >>>
+        >>> # Compara versões
+        >>> diff = store.diff("my-api-tests", 1, 2)
+        >>> print(diff.summary)
+        '+2 steps, ~1 modified'
+    """
+
+    INDEX_FILE = "index.json"
+    METADATA_FILE = "metadata.json"
+    CURRENT_LINK = "current.json"
+
+    def __init__(
+        self,
+        plans_dir: str | None = None,
+        enabled: bool = True,
+    ):
+        """
+        Inicializa o store de versões.
+
+        ## Parâmetros:
+
+        - `plans_dir`: Diretório para planos (default: ~/.aqa/plans)
+        - `enabled`: Se False, operações são no-op
+        """
+        if plans_dir:
+            self.plans_dir = Path(plans_dir)
+        else:
+            self.plans_dir = get_global_plans_dir()
+
+        self.enabled = enabled
+        self._index: dict[str, dict[str, Any]] = {}
+        self._lock = threading.Lock()
+
+        if enabled:
+            self._ensure_dir()
+            self._load_index()
+
+    @classmethod
+    def global_store(cls, enabled: bool = True) -> "PlanVersionStore":
+        """
+        Cria store global em ~/.aqa/plans/.
+
+        ## Parâmetros:
+
+        - `enabled`: Se False, store é desabilitado
+
+        ## Retorno:
+
+        Instância configurada para uso global.
+        """
+        return cls(plans_dir=None, enabled=enabled)
+
+    def _ensure_dir(self) -> None:
+        """Cria diretório de planos se não existir."""
+        self.plans_dir.mkdir(parents=True, exist_ok=True)
+
+    def _load_index(self) -> None:
+        """Carrega índice do disco."""
+        with self._lock:
+            index_path = self.plans_dir / self.INDEX_FILE
+            if index_path.exists():
+                try:
+                    with open(index_path, "r", encoding="utf-8") as f:
+                        self._index = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    self._index = {}
+
+    def _save_index(self) -> None:
+        """Salva índice no disco. DEVE ser chamada com _lock adquirido."""
+        index_path = self.plans_dir / self.INDEX_FILE
+        with open(index_path, "w", encoding="utf-8") as f:
+            json.dump(self._index, f, indent=2)
+
+    def _slugify(self, name: str) -> str:
+        """
+        Converte nome do plano para slug válido para diretório.
+
+        ## Parâmetros:
+
+        - `name`: Nome do plano
+
+        ## Retorno:
+
+        Slug válido (lowercase, sem espaços, sem caracteres especiais)
+        """
+        import re
+        # Lowercase e substitui espaços por hífens
+        slug = name.lower().strip().replace(" ", "-")
+        # Remove caracteres não alfanuméricos (exceto hífens)
+        slug = re.sub(r"[^a-z0-9\-]", "", slug)
+        # Remove hífens duplicados
+        slug = re.sub(r"-+", "-", slug)
+        # Remove hífens no início/fim
+        slug = slug.strip("-")
+        return slug or "unnamed-plan"
+
+    def _get_plan_dir(self, plan_name: str) -> Path:
+        """Retorna diretório de um plano específico."""
+        slug = self._slugify(plan_name)
+        return self.plans_dir / slug
+
+    def list_plans(self) -> list[dict[str, Any]]:
+        """
+        Lista todos os planos versionados.
+
+        ## Retorno:
+
+        Lista de metadados dos planos.
+        """
+        if not self.enabled:
+            return []
+
+        with self._lock:
+            return list(self._index.values())
+
+    def get_plan_info(self, plan_name: str) -> dict[str, Any] | None:
+        """
+        Retorna informações de um plano.
+
+        ## Parâmetros:
+
+        - `plan_name`: Nome do plano
+
+        ## Retorno:
+
+        Metadados do plano ou None se não existir.
+        """
+        if not self.enabled:
+            return None
+
+        slug = self._slugify(plan_name)
+        with self._lock:
+            return self._index.get(slug)
+
+    def get_version(
+        self,
+        plan_name: str,
+        version: int | None = None,
+    ) -> PlanVersion | None:
+        """
+        Retorna uma versão específica do plano.
+
+        ## Parâmetros:
+
+        - `plan_name`: Nome do plano
+        - `version`: Número da versão (None = versão atual)
+
+        ## Retorno:
+
+        PlanVersion ou None se não existir.
+        """
+        if not self.enabled:
+            return None
+
+        plan_dir = self._get_plan_dir(plan_name)
+        if not plan_dir.exists():
+            return None
+
+        # Determina arquivo da versão
+        if version is None:
+            version_file = plan_dir / self.CURRENT_LINK
+        else:
+            version_file = plan_dir / f"v{version}.json"
+
+        if not version_file.exists():
+            return None
+
+        try:
+            with open(version_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return PlanVersion(
+                    version=data.get("version", 1),
+                    plan=data.get("plan", {}),
+                    created_at=data.get("created_at", ""),
+                    created_by=data.get("created_by", "auto"),
+                    source=data.get("source", "llm"),
+                    llm_provider=data.get("llm_provider"),
+                    llm_model=data.get("llm_model"),
+                    input_hash=data.get("input_hash"),
+                    description=data.get("description", ""),
+                    tags=data.get("tags"),
+                    parent_version=data.get("parent_version"),
+                )
+        except (json.JSONDecodeError, IOError):
+            return None
+
+    def get_current(self, plan_name: str) -> dict[str, Any] | None:
+        """
+        Retorna o plano da versão atual.
+
+        Atalho para `get_version(plan_name, None).plan`.
+
+        ## Parâmetros:
+
+        - `plan_name`: Nome do plano
+
+        ## Retorno:
+
+        Dict do plano ou None se não existir.
+        """
+        version = self.get_version(plan_name, None)
+        return version.plan if version else None
+
+    def list_versions(self, plan_name: str) -> list[dict[str, Any]]:
+        """
+        Lista todas as versões de um plano.
+
+        ## Parâmetros:
+
+        - `plan_name`: Nome do plano
+
+        ## Retorno:
+
+        Lista de metadados das versões (sem o plano completo).
+        """
+        if not self.enabled:
+            return []
+
+        plan_dir = self._get_plan_dir(plan_name)
+        if not plan_dir.exists():
+            return []
+
+        versions = []
+        for file in sorted(plan_dir.glob("v*.json")):
+            try:
+                with open(file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    versions.append({
+                        "version": data.get("version", 1),
+                        "created_at": data.get("created_at", ""),
+                        "created_by": data.get("created_by", "auto"),
+                        "source": data.get("source", "llm"),
+                        "description": data.get("description", ""),
+                        "llm_provider": data.get("llm_provider"),
+                        "llm_model": data.get("llm_model"),
+                    })
+            except (json.JSONDecodeError, IOError):
+                continue
+
+        return versions
+
+    def save(
+        self,
+        plan_name: str,
+        plan: dict[str, Any],
+        *,
+        source: Literal["llm", "manual", "import"] = "llm",
+        llm_provider: str | None = None,
+        llm_model: str | None = None,
+        input_hash: str | None = None,
+        description: str = "",
+        tags: list[str] | None = None,
+        created_by: str = "auto",
+    ) -> PlanVersion:
+        """
+        Salva uma nova versão do plano.
+
+        Se o plano não existir, cria versão 1.
+        Se existir, incrementa o número da versão.
+
+        ## Parâmetros:
+
+        - `plan_name`: Nome do plano (será convertido para slug)
+        - `plan`: O plano UTDL completo
+        - `source`: Origem ("llm", "manual", "import")
+        - `llm_provider`: Provedor LLM usado
+        - `llm_model`: Modelo LLM usado
+        - `input_hash`: Hash do input (para referência ao cache)
+        - `description`: Descrição da versão
+        - `tags`: Tags para categorização
+        - `created_by`: Identificador de quem criou
+
+        ## Retorno:
+
+        PlanVersion criada.
+        """
+        if not self.enabled:
+            return PlanVersion(
+                version=0,
+                plan=plan,
+                created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            )
+
+        slug = self._slugify(plan_name)
+        plan_dir = self._get_plan_dir(plan_name)
+        plan_dir.mkdir(parents=True, exist_ok=True)
+
+        with self._lock:
+            # Determina próxima versão
+            current_info = self._index.get(slug, {})
+            current_version = current_info.get("current_version", 0)
+            new_version = current_version + 1
+            parent_version = current_version if current_version > 0 else None
+
+            # Cria dados da versão
+            timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            version_data = {
+                "version": new_version,
+                "plan": plan,
+                "created_at": timestamp,
+                "created_by": created_by,
+                "source": source,
+                "llm_provider": llm_provider,
+                "llm_model": llm_model,
+                "input_hash": input_hash,
+                "description": description,
+                "tags": tags or [],
+                "parent_version": parent_version,
+            }
+
+            # Salva arquivo da versão
+            version_file = plan_dir / f"v{new_version}.json"
+            with open(version_file, "w", encoding="utf-8") as f:
+                json.dump(version_data, f, indent=2, ensure_ascii=False)
+
+            # Atualiza current.json (cópia do arquivo atual)
+            current_file = plan_dir / self.CURRENT_LINK
+            with open(current_file, "w", encoding="utf-8") as f:
+                json.dump(version_data, f, indent=2, ensure_ascii=False)
+
+            # Atualiza índice
+            self._index[slug] = {
+                "name": plan_name,
+                "slug": slug,
+                "current_version": new_version,
+                "total_versions": new_version,
+                "created_at": current_info.get("created_at", timestamp),
+                "updated_at": timestamp,
+                "path": str(plan_dir.relative_to(self.plans_dir)),
+            }
+            self._save_index()
+
+            return PlanVersion(
+                version=new_version,
+                plan=plan,
+                created_at=timestamp,
+                created_by=created_by,
+                source=source,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+                input_hash=input_hash,
+                description=description,
+                tags=tags,
+                parent_version=parent_version,
+            )
+
+    def diff(
+        self,
+        plan_name: str,
+        version_a: int,
+        version_b: int | None = None,
+    ) -> PlanDiff | None:
+        """
+        Compara duas versões de um plano.
+
+        ## Parâmetros:
+
+        - `plan_name`: Nome do plano
+        - `version_a`: Primeira versão (mais antiga)
+        - `version_b`: Segunda versão (None = versão atual)
+
+        ## Retorno:
+
+        PlanDiff com as diferenças ou None se versões não existirem.
+
+        ## Exemplo:
+
+            >>> diff = store.diff("my-plan", 1, 2)
+            >>> print(diff.summary)
+            '+1 steps, ~2 modified'
+        """
+        if not self.enabled:
+            return None
+
+        v_a = self.get_version(plan_name, version_a)
+        v_b = self.get_version(plan_name, version_b)
+
+        if not v_a or not v_b:
+            return None
+
+        plan_a = v_a.plan
+        plan_b = v_b.plan
+
+        # Compara steps
+        steps_a = {s.get("id"): s for s in plan_a.get("steps", [])}
+        steps_b = {s.get("id"): s for s in plan_b.get("steps", [])}
+
+        steps_added = [s for sid, s in steps_b.items() if sid not in steps_a]
+        steps_removed = [s for sid, s in steps_a.items() if sid not in steps_b]
+        steps_modified = []
+
+        for sid in steps_a:
+            if sid in steps_b and steps_a[sid] != steps_b[sid]:
+                steps_modified.append({
+                    "id": sid,
+                    "before": steps_a[sid],
+                    "after": steps_b[sid],
+                })
+
+        # Compara config
+        config_a = plan_a.get("config", {})
+        config_b = plan_b.get("config", {})
+        config_changes = {}
+        all_keys = set(config_a.keys()) | set(config_b.keys())
+        for key in all_keys:
+            if config_a.get(key) != config_b.get(key):
+                config_changes[key] = {
+                    "before": config_a.get(key),
+                    "after": config_b.get(key),
+                }
+
+        # Compara meta
+        meta_a = plan_a.get("meta", {})
+        meta_b = plan_b.get("meta", {})
+        meta_changes = {}
+        all_meta_keys = set(meta_a.keys()) | set(meta_b.keys())
+        for key in all_meta_keys:
+            if meta_a.get(key) != meta_b.get(key):
+                meta_changes[key] = {
+                    "before": meta_a.get(key),
+                    "after": meta_b.get(key),
+                }
+
+        return PlanDiff(
+            version_a=version_a,
+            version_b=v_b.version,
+            steps_added=steps_added,
+            steps_removed=steps_removed,
+            steps_modified=steps_modified,
+            config_changes=config_changes,
+            meta_changes=meta_changes,
+        )
+
+    def delete_version(self, plan_name: str, version: int) -> bool:
+        """
+        Remove uma versão específica do plano.
+
+        Não permite remover a versão atual.
+
+        ## Parâmetros:
+
+        - `plan_name`: Nome do plano
+        - `version`: Número da versão a remover
+
+        ## Retorno:
+
+        True se removida, False se não existia ou é a versão atual.
+        """
+        if not self.enabled:
+            return False
+
+        slug = self._slugify(plan_name)
+        plan_dir = self._get_plan_dir(plan_name)
+
+        with self._lock:
+            info = self._index.get(slug)
+            if not info:
+                return False
+
+            # Não permite remover versão atual
+            if info.get("current_version") == version:
+                return False
+
+            version_file = plan_dir / f"v{version}.json"
+            if not version_file.exists():
+                return False
+
+            version_file.unlink()
+            return True
+
+    def delete_plan(self, plan_name: str) -> bool:
+        """
+        Remove um plano e todas as suas versões.
+
+        ## Parâmetros:
+
+        - `plan_name`: Nome do plano
+
+        ## Retorno:
+
+        True se removido, False se não existia.
+        """
+        if not self.enabled:
+            return False
+
+        slug = self._slugify(plan_name)
+        plan_dir = self._get_plan_dir(plan_name)
+
+        with self._lock:
+            if slug not in self._index:
+                return False
+
+            # Remove diretório e conteúdo
+            import shutil
+            if plan_dir.exists():
+                shutil.rmtree(plan_dir)
+
+            # Remove do índice
+            del self._index[slug]
+            self._save_index()
+            return True
+
+    def rollback(
+        self,
+        plan_name: str,
+        target_version: int,
+        description: str = "",
+    ) -> PlanVersion | None:
+        """
+        Restaura uma versão anterior criando nova versão com o conteúdo antigo.
+
+        O rollback não apaga versões - cria uma nova versão com o conteúdo
+        da versão alvo, mantendo histórico completo.
+
+        ## Parâmetros:
+
+        - `plan_name`: Nome do plano
+        - `target_version`: Versão para restaurar
+        - `description`: Descrição opcional do rollback
+
+        ## Retorno:
+
+        Nova PlanVersion ou None se versão alvo não existir.
+
+        ## Exemplo:
+
+            >>> store.rollback("my-plan", target_version=1)
+            PlanVersion(version=3, ...)  # Nova versão com conteúdo de v1
+        """
+        if not self.enabled:
+            return None
+
+        # Obtém versão alvo
+        target = self.get_version(plan_name, target_version)
+        if not target:
+            return None
+
+        # Obtém versão atual para referência
+        current = self.get_version(plan_name)
+        current_version = current.version if current else 0
+
+        # Monta descrição
+        if not description:
+            description = f"Rollback from v{current_version} to v{target_version}"
+
+        # Salva como nova versão
+        return self.save(
+            plan_name=plan_name,
+            plan=target.plan,
+            source="manual",
+            description=description,
+        )
