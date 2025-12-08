@@ -2,9 +2,28 @@
 
 > **Objetivo**: Guia completo para implementação da interface web do Autonomous Quality Agent (AQA), incluindo arquitetura, stack tecnológico, componentes, e integração com a API REST existente.
 
-**Versão:** 2.0.0
+**Versão:** 1.0.0 (Contrato Congelado)
 **Última atualização:** 2024-12-08
-**Status:** Implementação Web UI (Next.js + React)
+**Status:** ✅ FROZEN — Contrato de Interface para UI
+
+> ⚠️ **AVISO**: Este documento está **congelado como v1.0.0**. Qualquer alteração na API ou nos contratos de dados deve:
+> 1. Incrementar a versão do documento
+> 2. Manter retrocompatibilidade ou documentar breaking changes
+> 3. Atualizar o `openapi.json` correspondente
+
+---
+
+## 📋 Pontos de Atenção para Implementação
+
+Estes pontos **NÃO bloqueiam** o início da UI, mas devem ser considerados:
+
+| # | Ponto | Tratamento na UI |
+|---|-------|------------------|
+| 1 | Campos opcionais podem vir vazios | Usar optional chaining e defaults |
+| 2 | Dois modos de execução (REST/WebSocket) | REST para planos pequenos, WS para longos, fallback gracioso |
+| 3 | Workspace Init depende de filesystem | Modo desktop: custom path. Modo SaaS: path fixo |
+| 4 | IDs de execução são numéricos | Tratar como `string \| number` |
+| 5 | Telemetria OTEL não é MVP | Placeholder para fase futura |
 
 ---
 

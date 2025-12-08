@@ -1,0 +1,114 @@
+[
+  {
+    "event": "execution_started",
+    "execution_id": "exec-12345",
+    "plan_id": "plan-mock-001",
+    "plan_name": "Login API Tests",
+    "total_steps": 4,
+    "timestamp": "2024-12-08T10:35:00.000Z"
+  },
+  {
+    "event": "step_started",
+    "step_id": "login_success",
+    "description": "Login com credenciais válidas",
+    "step_index": 1,
+    "total_steps": 4,
+    "timestamp": "2024-12-08T10:35:00.100Z"
+  },
+  {
+    "event": "step_completed",
+    "step_id": "login_success",
+    "status": "passed",
+    "duration_ms": 423,
+    "http_details": {
+      "method": "POST",
+      "url": "https://api.example.com/auth/login",
+      "status_code": 200
+    },
+    "timestamp": "2024-12-08T10:35:00.523Z"
+  },
+  {
+    "event": "step_started",
+    "step_id": "login_invalid_password",
+    "description": "Login com senha inválida - deve falhar",
+    "step_index": 2,
+    "total_steps": 4,
+    "timestamp": "2024-12-08T10:35:00.530Z"
+  },
+  {
+    "event": "step_completed",
+    "step_id": "login_invalid_password",
+    "status": "passed",
+    "duration_ms": 312,
+    "http_details": {
+      "method": "POST",
+      "url": "https://api.example.com/auth/login",
+      "status_code": 401
+    },
+    "timestamp": "2024-12-08T10:35:00.842Z"
+  },
+  {
+    "event": "step_started",
+    "step_id": "get_profile",
+    "description": "Obter perfil do usuário autenticado",
+    "step_index": 3,
+    "total_steps": 4,
+    "timestamp": "2024-12-08T10:35:00.850Z"
+  },
+  {
+    "event": "step_retry",
+    "step_id": "get_profile",
+    "attempt": 2,
+    "max_attempts": 3,
+    "reason": "Assertion failed",
+    "backoff_ms": 500,
+    "timestamp": "2024-12-08T10:35:01.150Z"
+  },
+  {
+    "event": "step_completed",
+    "step_id": "get_profile",
+    "status": "failed",
+    "duration_ms": 567,
+    "attempt": 2,
+    "error": "Assertion failed: expected $.email to eq 'test@example.com', got 'other@example.com'",
+    "http_details": {
+      "method": "GET",
+      "url": "https://api.example.com/users/usr_abc123",
+      "status_code": 200
+    },
+    "timestamp": "2024-12-08T10:35:01.417Z"
+  },
+  {
+    "event": "step_started",
+    "step_id": "logout",
+    "description": "Logout do usuário",
+    "step_index": 4,
+    "total_steps": 4,
+    "timestamp": "2024-12-08T10:35:01.420Z"
+  },
+  {
+    "event": "step_completed",
+    "step_id": "logout",
+    "status": "passed",
+    "duration_ms": 198,
+    "http_details": {
+      "method": "POST",
+      "url": "https://api.example.com/auth/logout",
+      "status_code": 204
+    },
+    "timestamp": "2024-12-08T10:35:01.618Z"
+  },
+  {
+    "event": "execution_complete",
+    "execution_id": "exec-12345",
+    "status": "failed",
+    "summary": {
+      "total_steps": 4,
+      "passed": 3,
+      "failed": 1,
+      "skipped": 0,
+      "duration_ms": 1847
+    },
+    "timestamp": "2024-12-08T10:35:01.847Z"
+  }
+]

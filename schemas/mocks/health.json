@@ -1,0 +1,11 @@
+{
+  "status": "healthy",
+  "version": "0.5.0",
+  "timestamp": "2024-12-08T10:30:00Z",
+  "components": {
+    "brain": "ok",
+    "runner": "ok",
+    "storage": "ok",
+    "llm": "ok"
+  }
+}

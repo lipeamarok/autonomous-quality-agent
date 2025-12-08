@@ -1,0 +1,149 @@
+{
+  "success": true,
+  "execution_id": "exec-12345",
+  "plan_id": "plan-mock-001",
+  "plan_name": "Login API Tests",
+  "summary": {
+    "total_steps": 4,
+    "passed": 3,
+    "failed": 1,
+    "skipped": 0,
+    "duration_ms": 1847,
+    "assertions_passed": 8,
+    "assertions_failed": 1,
+    "success_rate": 0.75
+  },
+  "steps": [
+    {
+      "step_id": "login_success",
+      "status": "passed",
+      "duration_ms": 423,
+      "attempt": 1,
+      "error": null,
+      "http_details": {
+        "method": "POST",
+        "url": "https://api.example.com/auth/login",
+        "status_code": 200,
+        "latency_ms": 420
+      },
+      "assertions_results": [
+        {
+          "type": "status_code",
+          "operator": "eq",
+          "expected": 200,
+          "actual": 200,
+          "passed": true
+        },
+        {
+          "type": "body",
+          "path": "$.token",
+          "operator": "exists",
+          "passed": true
+        },
+        {
+          "type": "body",
+          "path": "$.user.email",
+          "operator": "eq",
+          "expected": "test@example.com",
+          "actual": "test@example.com",
+          "passed": true
+        }
+      ],
+      "extractions": {
+        "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+        "user_id": "usr_abc123"
+      }
+    },
+    {
+      "step_id": "login_invalid_password",
+      "status": "passed",
+      "duration_ms": 312,
+      "attempt": 1,
+      "error": null,
+      "http_details": {
+        "method": "POST",
+        "url": "https://api.example.com/auth/login",
+        "status_code": 401,
+        "latency_ms": 310
+      },
+      "assertions_results": [
+        {
+          "type": "status_code",
+          "operator": "eq",
+          "expected": 401,
+          "actual": 401,
+          "passed": true
+        },
+        {
+          "type": "body",
+          "path": "$.error",
+          "operator": "exists",
+          "passed": true
+        }
+      ],
+      "extractions": {}
+    },
+    {
+      "step_id": "get_profile",
+      "status": "failed",
+      "duration_ms": 567,
+      "attempt": 2,
+      "error": "Assertion failed: expected $.email to eq 'test@example.com', got 'other@example.com'",
+      "http_details": {
+        "method": "GET",
+        "url": "https://api.example.com/users/usr_abc123",
+        "status_code": 200,
+        "latency_ms": 280
+      },
+      "assertions_results": [
+        {
+          "type": "status_code",
+          "operator": "eq",
+          "expected": 200,
+          "actual": 200,
+          "passed": true
+        },
+        {
+          "type": "body",
+          "path": "$.email",
+          "operator": "eq",
+          "expected": "test@example.com",
+          "actual": "other@example.com",
+          "passed": false
+        }
+      ],
+      "extractions": {}
+    },
+    {
+      "step_id": "logout",
+      "status": "passed",
+      "duration_ms": 198,
+      "attempt": 1,
+      "error": null,
+      "http_details": {
+        "method": "POST",
+        "url": "https://api.example.com/auth/logout",
+        "status_code": 204,
+        "latency_ms": 195
+      },
+      "assertions_results": [
+        {
+          "type": "status_code",
+          "operator": "in",
+          "expected": [200, 204],
+          "actual": 204,
+          "passed": true
+        }
+      ],
+      "extractions": {}
+    }
+  ],
+  "context_snapshot": {
+    "test_email": "test@example.com",
+    "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user_id": "usr_abc123"
+  },
+  "runner_version": "0.5.0",
+  "execution_mode": "sequential",
+  "timestamp": "2024-12-08T10:35:00Z"
+}

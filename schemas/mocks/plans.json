@@ -1,0 +1,96 @@
+{
+  "success": true,
+  "total": 6,
+  "plans": [
+    {
+      "id": "plan-mock-001",
+      "name": "Login API Tests",
+      "description": "Testes de autenticação para API de login",
+      "tags": ["auth", "login", "api"],
+      "created_at": "2024-12-01T10:00:00Z",
+      "updated_at": "2024-12-08T10:30:00Z",
+      "version": 3,
+      "step_count": 4,
+      "last_execution": {
+        "execution_id": "exec-12345",
+        "timestamp": "2024-12-08T10:35:00Z",
+        "status": "failed"
+      }
+    },
+    {
+      "id": "plan-mock-002",
+      "name": "User CRUD Tests",
+      "description": "Testes completos de CRUD para usuários",
+      "tags": ["users", "crud", "api"],
+      "created_at": "2024-12-02T14:00:00Z",
+      "updated_at": "2024-12-07T09:15:00Z",
+      "version": 2,
+      "step_count": 6,
+      "last_execution": {
+        "execution_id": "exec-12344",
+        "timestamp": "2024-12-08T09:15:00Z",
+        "status": "passed"
+      }
+    },
+    {
+      "id": "plan-mock-003",
+      "name": "Payment Flow Tests",
+      "description": "Fluxo completo de pagamento com diferentes métodos",
+      "tags": ["payment", "checkout", "integration"],
+      "created_at": "2024-12-03T11:00:00Z",
+      "updated_at": "2024-12-06T17:45:00Z",
+      "version": 5,
+      "step_count": 8,
+      "last_execution": {
+        "execution_id": "exec-12343",
+        "timestamp": "2024-12-08T08:45:00Z",
+        "status": "passed"
+      }
+    },
+    {
+      "id": "plan-mock-004",
+      "name": "Search API Tests",
+      "description": "Testes de busca com filtros e paginação",
+      "tags": ["search", "filters", "pagination"],
+      "created_at": "2024-12-04T16:30:00Z",
+      "updated_at": "2024-12-07T14:20:00Z",
+      "version": 1,
+      "step_count": 5,
+      "last_execution": {
+        "execution_id": "exec-12341",
+        "timestamp": "2024-12-07T14:20:00Z",
+        "status": "failed"
+      }
+    },
+    {
+      "id": "plan-mock-005",
+      "name": "Notification Tests",
+      "description": "Testes de envio de notificações push e email",
+      "tags": ["notification", "push", "email"],
+      "created_at": "2024-12-05T09:00:00Z",
+      "updated_at": "2024-12-07T09:30:00Z",
+      "version": 1,
+      "step_count": 3,
+      "last_execution": {
+        "execution_id": "exec-12339",
+        "timestamp": "2024-12-07T09:30:00Z",
+        "status": "failed"
+      }
+    },
+    {
+      "id": "plan-mock-006",
+      "name": "Admin API Tests",
+      "description": "Testes de endpoints administrativos com RBAC",
+      "tags": ["admin", "rbac", "security"],
+      "created_at": "2024-12-06T10:00:00Z",
+      "updated_at": "2024-12-06T14:00:00Z",
+      "version": 1,
+      "step_count": 10,
+      "last_execution": {
+        "execution_id": "exec-12336",
+        "timestamp": "2024-12-06T14:00:00Z",
+        "status": "failed"
+      }
+    }
+  ]
+}

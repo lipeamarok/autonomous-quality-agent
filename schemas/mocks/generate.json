@@ -1,0 +1,148 @@
+{
+  "success": true,
+  "plan": {
+    "spec_version": "0.1",
+    "meta": {
+      "id": "plan-mock-001",
+      "name": "Login API Tests",
+      "description": "Testes de autenticação para API de login",
+      "tags": ["auth", "login", "api"],
+      "created_at": "2024-12-08T10:30:00Z"
+    },
+    "config": {
+      "base_url": "https://api.example.com",
+      "timeout_ms": 30000,
+      "global_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "variables": {
+        "test_email": "test@example.com",
+        "test_password": "securePassword123"
+      }
+    },
+    "steps": [
+      {
+        "id": "login_success",
+        "description": "Login com credenciais válidas",
+        "action": "http_request",
+        "params": {
+          "method": "POST",
+          "path": "/auth/login",
+          "body": {
+            "email": "{{test_email}}",
+            "password": "{{test_password}}"
+          }
+        },
+        "assertions": [
+          {
+            "type": "status_code",
+            "operator": "eq",
+            "value": 200
+          },
+          {
+            "type": "body",
+            "path": "$.token",
+            "operator": "exists"
+          },
+          {
+            "type": "body",
+            "path": "$.user.email",
+            "operator": "eq",
+            "value": "{{test_email}}"
+          }
+        ],
+        "extract": [
+          {
+            "source": "body",
+            "path": "$.token",
+            "target": "auth_token"
+          },
+          {
+            "source": "body",
+            "path": "$.user.id",
+            "target": "user_id"
+          }
+        ]
+      },
+      {
+        "id": "login_invalid_password",
+        "description": "Login com senha inválida - deve falhar",
+        "action": "http_request",
+        "params": {
+          "method": "POST",
+          "path": "/auth/login",
+          "body": {
+            "email": "{{test_email}}",
+            "password": "wrongPassword"
+          }
+        },
+        "assertions": [
+          {
+            "type": "status_code",
+            "operator": "eq",
+            "value": 401
+          },
+          {
+            "type": "body",
+            "path": "$.error",
+            "operator": "exists"
+          }
+        ]
+      },
+      {
+        "id": "get_profile",
+        "description": "Obter perfil do usuário autenticado",
+        "action": "http_request",
+        "depends_on": ["login_success"],
+        "params": {
+          "method": "GET",
+          "path": "/users/{{user_id}}",
+          "headers": {
+            "Authorization": "Bearer {{auth_token}}"
+          }
+        },
+        "assertions": [
+          {
+            "type": "status_code",
+            "operator": "eq",
+            "value": 200
+          },
+          {
+            "type": "body",
+            "path": "$.email",
+            "operator": "eq",
+            "value": "{{test_email}}"
+          }
+        ]
+      },
+      {
+        "id": "logout",
+        "description": "Logout do usuário",
+        "action": "http_request",
+        "depends_on": ["get_profile"],
+        "params": {
+          "method": "POST",
+          "path": "/auth/logout",
+          "headers": {
+            "Authorization": "Bearer {{auth_token}}"
+          }
+        },
+        "assertions": [
+          {
+            "type": "status_code",
+            "operator": "in",
+            "value": [200, 204]
+          }
+        ]
+      }
+    ]
+  },
+  "metadata": {
+    "generation_time_ms": 2450,
+    "model_used": "gpt-4o",
+    "tokens_used": 1850,
+    "llm_mode": "mock",
+    "cached": false
+  }
+}

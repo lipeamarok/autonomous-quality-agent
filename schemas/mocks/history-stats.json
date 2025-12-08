@@ -1,0 +1,46 @@
+{
+  "success": true,
+  "stats": {
+    "total_executions": 156,
+    "success_rate": 0.823,
+    "avg_duration_ms": 2340,
+    "executions_today": 8,
+    "executions_this_week": 42,
+    "total_steps_executed": 892,
+    "total_assertions_run": 2156,
+    "assertions_pass_rate": 0.91,
+    "most_failed_steps": [
+      {
+        "step_id": "get_profile",
+        "plan_name": "Login API Tests",
+        "failure_count": 12
+      },
+      {
+        "step_id": "create_payment",
+        "plan_name": "Payment Flow Tests",
+        "failure_count": 8
+      },
+      {
+        "step_id": "search_products",
+        "plan_name": "Search API Tests",
+        "failure_count": 5
+      }
+    ],
+    "execution_trend": [
+      { "date": "2024-12-02", "total": 18, "passed": 15, "failed": 3 },
+      { "date": "2024-12-03", "total": 22, "passed": 19, "failed": 3 },
+      { "date": "2024-12-04", "total": 25, "passed": 21, "failed": 4 },
+      { "date": "2024-12-05", "total": 20, "passed": 17, "failed": 3 },
+      { "date": "2024-12-06", "total": 28, "passed": 24, "failed": 4 },
+      { "date": "2024-12-07", "total": 35, "passed": 28, "failed": 7 },
+      { "date": "2024-12-08", "total": 8, "passed": 5, "failed": 3 }
+    ],
+    "plans_by_execution_count": [
+      { "plan_id": "plan-mock-001", "plan_name": "Login API Tests", "count": 45 },
+      { "plan_id": "plan-mock-002", "plan_name": "User CRUD Tests", "count": 38 },
+      { "plan_id": "plan-mock-003", "plan_name": "Payment Flow Tests", "count": 32 },
+      { "plan_id": "plan-mock-004", "plan_name": "Search API Tests", "count": 21 },
+      { "plan_id": "plan-mock-005", "plan_name": "Notification Tests", "count": 12 }
+    ]
+  }
+}

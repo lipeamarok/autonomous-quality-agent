@@ -1,0 +1,2927 @@
+﻿{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Autonomous Quality Agent API",
+    "description": "\n## \ud83e\uddea AQA \u2014 Autonomous Quality Agent\n\nAPI REST para gera\u00e7\u00e3o e execu\u00e7\u00e3o de testes de API usando IA.\n\n### Funcionalidades:\n\n- **Generate**: Gerar planos de teste UTDL a partir de requisitos ou OpenAPI specs\n- **Validate**: Validar estrutura de planos UTDL\n- **Execute**: Executar planos via Runner de alta performance (Rust)\n- **History**: Consultar hist\u00f3rico de execu\u00e7\u00f5es\n- **WebSocket**: Streaming em tempo real de execu\u00e7\u00f5es\n\n### Links \u00fateis:\n\n- [Documenta\u00e7\u00e3o](https://github.com/lipeamarok/autonomous-quality-agent)\n- [GitHub](https://github.com/lipeamarok/autonomous-quality-agent)\n        ",
+    "version": "0.5.0"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health Check",
+        "description": "Verifica se a API est\u00e1 funcionando e retorna informa\u00e7\u00f5es de status.",
+        "operationId": "health_check_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "API Info",
+        "description": "Informa\u00e7\u00f5es b\u00e1sicas sobre a API.",
+        "operationId": "api_info_api_v1__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api Info Api V1  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/status": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Status da Autentica\u00e7\u00e3o",
+        "description": "Retorna informa\u00e7\u00f5es sobre o modo de autentica\u00e7\u00e3o configurado.",
+        "operationId": "get_auth_status_api_v1_auth_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/keys": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Listar API Keys",
+        "description": "Lista todas as API keys cadastradas.\n\n**Nota**: Os valores das keys n\u00e3o s\u00e3o revelados, apenas os prefixos.\n\n**Requer**: Master key no header X-API-Key",
+        "operationId": "list_api_keys_api_v1_auth_keys_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListKeysResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Master key n\u00e3o fornecida"
+          },
+          "403": {
+            "description": "Master key inv\u00e1lida"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Criar API Key",
+        "description": "Cria uma nova API key.\n\n**\u26a0\ufe0f Importante**: A key completa \u00e9 mostrada apenas uma vez nesta resposta.\nGuarde-a em local seguro.\n\n**Requer**: Master key no header X-API-Key",
+        "operationId": "create_api_key_api_v1_auth_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateKeyResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Master key n\u00e3o fornecida"
+          },
+          "403": {
+            "description": "Master key inv\u00e1lida"
+          },
+          "503": {
+            "description": "Gerenciamento de keys n\u00e3o configurado"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/keys/{key_value}": {
+      "delete": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Revogar API Key",
+        "description": "Revoga uma API key existente.\n\n**Nota**: Ap\u00f3s revogada, a key n\u00e3o pode ser recuperada.\n\n**Requer**: Master key no header X-API-Key",
+        "operationId": "revoke_api_key_api_v1_auth_keys__key_value__delete",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "key_value",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key Value"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeKeyResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Master key n\u00e3o fornecida"
+          },
+          "403": {
+            "description": "Master key inv\u00e1lida"
+          },
+          "404": {
+            "description": "Key n\u00e3o encontrada"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/generate": {
+      "post": {
+        "tags": [
+          "Generate"
+        ],
+        "summary": "Gerar Plano UTDL",
+        "description": "Gera um plano de teste UTDL usando LLM.\n\n## Modos de uso:\n\n1. **Via texto livre**: Forne\u00e7a `requirement` com descri\u00e7\u00e3o em linguagem natural\n2. **Via OpenAPI**: Forne\u00e7a `swagger` com a especifica\u00e7\u00e3o da API\n\n## Exemplo:\n\n```json\n{\n    \"requirement\": \"Testar endpoint de login com credenciais v\u00e1lidas e inv\u00e1lidas\",\n    \"base_url\": \"https://api.example.com\",\n    \"include_auth\": true\n}\n```",
+        "operationId": "generate_plan_api_v1_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Erro na gera\u00e7\u00e3o",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Erro de valida\u00e7\u00e3o do request"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/validate": {
+      "post": {
+        "tags": [
+          "Validate"
+        ],
+        "summary": "Validar Plano UTDL",
+        "description": "Valida a estrutura de um plano UTDL.\n\n## Modos de valida\u00e7\u00e3o:\n\n- **strict**: Warnings viram erros. Use para produ\u00e7\u00e3o/CI.\n- **default**: Erros bloqueiam, warnings s\u00e3o reportados.\n- **lenient**: Tolerante a planos parciais. Use para desenvolvimento.\n\n## Valida\u00e7\u00f5es realizadas:\n\n- Estrutura do schema UTDL\n- IDs \u00fanicos de steps\n- Depend\u00eancias existentes\n- Aus\u00eancia de ciclos no DAG\n- Vari\u00e1veis interpoladas v\u00e1lidas\n- Limites de execu\u00e7\u00e3o (max_steps, max_retries)",
+        "operationId": "validate_plan_api_v1_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/execute": {
+      "post": {
+        "tags": [
+          "Execute"
+        ],
+        "summary": "Executar Plano UTDL",
+        "description": "Executa um plano de teste UTDL usando o Runner de alta performance.\n\n## Modos de execu\u00e7\u00e3o:\n\n1. **Plano inline**: Forne\u00e7a `plan` com o plano completo\n2. **Arquivo de plano**: Forne\u00e7a `plan_file` com o caminho\n3. **Gerar e executar**: Forne\u00e7a `requirement` ou `swagger`\n\n## Op\u00e7\u00f5es:\n\n- **parallel**: Executar steps em paralelo (quando poss\u00edvel)\n- **timeout_seconds**: Timeout global\n- **dry_run**: Validar sem executar\n- **save_report**: Salvar no hist\u00f3rico",
+        "operationId": "execute_plan_api_v1_execute_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecuteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/history": {
+      "get": {
+        "tags": [
+          "History"
+        ],
+        "summary": "Listar Hist\u00f3rico",
+        "description": "Lista execu\u00e7\u00f5es anteriores com suporte a pagina\u00e7\u00e3o e filtros.\n\n## Filtros dispon\u00edveis:\n\n- **status**: Filtrar por resultado (success, failure, error)\n- **plan_name**: Buscar por nome do plano (contains)\n- **page**: P\u00e1gina (1-indexed)\n- **limit**: Itens por p\u00e1gina (1-100)",
+        "operationId": "list_history_api_v1_history_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "success",
+                    "failure",
+                    "error"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filtrar por status",
+              "title": "Status"
+            },
+            "description": "Filtrar por status"
+          },
+          {
+            "name": "plan_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filtrar por nome do plano",
+              "title": "Plan Name"
+            },
+            "description": "Filtrar por nome do plano"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "P\u00e1gina",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "P\u00e1gina"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Itens por p\u00e1gina",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Itens por p\u00e1gina"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/history/stats": {
+      "get": {
+        "tags": [
+          "History"
+        ],
+        "summary": "Estat\u00edsticas do Hist\u00f3rico",
+        "description": "Retorna estat\u00edsticas agregadas de todas as execu\u00e7\u00f5es.",
+        "operationId": "history_stats_api_v1_history_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryStatsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/history/{execution_id}": {
+      "get": {
+        "tags": [
+          "History"
+        ],
+        "summary": "Detalhes da Execu\u00e7\u00e3o",
+        "description": "Retorna detalhes completos de uma execu\u00e7\u00e3o espec\u00edfica.",
+        "operationId": "get_execution_api_v1_history__execution_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "execution_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Execution Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "History"
+        ],
+        "summary": "Deletar Execu\u00e7\u00e3o",
+        "description": "Remove uma execu\u00e7\u00e3o do hist\u00f3rico.",
+        "operationId": "delete_execution_api_v1_history__execution_id__delete",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "execution_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Execution Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Execution Api V1 History  Execution Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspace/init": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Inicializar Workspace",
+        "description": "Cria a estrutura de diret\u00f3rios do workspace AQA.\n\n## Estrutura criada:\n\n```\n.aqa/\n\u251c\u2500\u2500 config.yaml    # Configura\u00e7\u00f5es do projeto\n\u251c\u2500\u2500 plans/         # Planos de teste gerados\n\u2514\u2500\u2500 reports/       # Relat\u00f3rios de execu\u00e7\u00e3o\n```",
+        "operationId": "init_workspace_api_v1_workspace_init_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceInitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceInitResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspace/status": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Status do Workspace",
+        "description": "Retorna informa\u00e7\u00f5es sobre o workspace atual.",
+        "operationId": "workspace_status_api_v1_workspace_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/plans": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Listar Planos Versionados",
+        "description": "Lista todos os planos que possuem vers\u00f5es salvas.\n\nCada plano inclui:\n- Nome identificador\n- Vers\u00e3o atual\n- Total de vers\u00f5es\n- Data da \u00faltima atualiza\u00e7\u00e3o",
+        "operationId": "list_plans_api_v1_plans_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlansListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/plans/{plan_name}": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Obter Plano",
+        "description": "Retorna a vers\u00e3o atual (ou especificada) de um plano.",
+        "operationId": "get_plan_api_v1_plans__plan_name__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Name"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Vers\u00e3o espec\u00edfica (omita para atual)",
+              "title": "Version"
+            },
+            "description": "Vers\u00e3o espec\u00edfica (omita para atual)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/{plan_name}/versions": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Listar Vers\u00f5es",
+        "description": "Lista todas as vers\u00f5es de um plano espec\u00edfico.",
+        "operationId": "list_versions_api_v1_plans__plan_name__versions_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanVersionsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/{plan_name}/versions/{version}": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Obter Vers\u00e3o Espec\u00edfica",
+        "description": "Retorna uma vers\u00e3o espec\u00edfica de um plano.",
+        "operationId": "get_version_endpoint_api_v1_plans__plan_name__versions__version__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Name"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/{plan_name}/diff": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Comparar Vers\u00f5es",
+        "description": "Compara duas vers\u00f5es de um plano e retorna as diferen\u00e7as.\n\nSe `version_b` n\u00e3o for fornecido, compara com a vers\u00e3o atual.",
+        "operationId": "diff_versions_api_v1_plans__plan_name__diff_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Name"
+            }
+          },
+          {
+            "name": "version_a",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "Vers\u00e3o base (mais antiga)",
+              "title": "Version A"
+            },
+            "description": "Vers\u00e3o base (mais antiga)"
+          },
+          {
+            "name": "version_b",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Vers\u00e3o a comparar (omita para atual)",
+              "title": "Version B"
+            },
+            "description": "Vers\u00e3o a comparar (omita para atual)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanDiffResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/{plan_name}/versions/{version}/restore": {
+      "post": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Restaurar Vers\u00e3o",
+        "description": "Restaura uma vers\u00e3o anterior de um plano.\n\nIsso cria uma nova vers\u00e3o com o conte\u00fado da vers\u00e3o especificada.",
+        "operationId": "restore_version_api_v1_plans__plan_name__versions__version__restore_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Name"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PlanRestoreRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanRestoreResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics": {
+      "get": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Prometheus Metrics",
+        "description": "Retorna m\u00e9tricas no formato Prometheus.\n\nUse este endpoint para integra\u00e7\u00e3o com:\n- Prometheus\n- Grafana\n- DataDog\n- New Relic",
+        "operationId": "get_metrics_api_v1_metrics_get",
+        "responses": {
+          "200": {
+            "description": "M\u00e9tricas em formato Prometheus",
+            "content": {
+              "text/plain": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics/json": {
+      "get": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "M\u00e9tricas em JSON",
+        "description": "Retorna m\u00e9tricas em formato JSON para debug.",
+        "operationId": "get_metrics_json_api_v1_metrics_json_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Root Health",
+        "description": "Health check na raiz.",
+        "operationId": "root_health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Root Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuthStatusResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Se autentica\u00e7\u00e3o est\u00e1 habilitada"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "description": "Modo de autentica\u00e7\u00e3o: none, apikey"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Mensagem descritiva"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "mode",
+          "message"
+        ],
+        "title": "AuthStatusResponse",
+        "description": "Status da autentica\u00e7\u00e3o."
+      },
+      "CreateKeyRequest": {
+        "properties": {
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Descri\u00e7\u00e3o da key (ex: 'CI/CD Pipeline')",
+            "default": "",
+            "examples": [
+              "CI/CD Pipeline",
+              "Development Key"
+            ]
+          }
+        },
+        "type": "object",
+        "title": "CreateKeyRequest",
+        "description": "Request para criar API key."
+      },
+      "CreateKeyResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "api_key": {
+            "type": "string",
+            "title": "Api Key",
+            "description": "API key (mostrada apenas uma vez!)"
+          },
+          "prefix": {
+            "type": "string",
+            "title": "Prefix",
+            "description": "Prefixo para identifica\u00e7\u00e3o"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "Guarde esta key em local seguro. Ela n\u00e3o ser\u00e1 mostrada novamente."
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_key",
+          "prefix"
+        ],
+        "title": "CreateKeyResponse",
+        "description": "Response com a API key criada."
+      },
+      "ExecuteRequest": {
+        "properties": {
+          "plan": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan",
+            "description": "Plano UTDL completo a executar"
+          },
+          "plan_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan File",
+            "description": "Caminho para arquivo de plano UTDL"
+          },
+          "requirement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement",
+            "description": "Gerar plano a partir desta descri\u00e7\u00e3o e executar"
+          },
+          "swagger": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Swagger",
+            "description": "Gerar plano a partir desta spec OpenAPI e executar"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url",
+            "description": "URL base para gera\u00e7\u00e3o (usado com requirement/swagger)"
+          },
+          "parallel": {
+            "type": "boolean",
+            "title": "Parallel",
+            "description": "Executar steps em paralelo quando poss\u00edvel (DAG)",
+            "default": false
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "description": "Timeout global em segundos",
+            "default": 60
+          },
+          "max_steps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Steps",
+            "description": "Limitar n\u00famero de steps executados"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "description": "Validar plano sem executar",
+            "default": false
+          },
+          "save_report": {
+            "type": "boolean",
+            "title": "Save Report",
+            "description": "Salvar relat\u00f3rio no hist\u00f3rico",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "ExecuteRequest",
+        "description": "Request para executar um plano UTDL.\n\n## Modos de execu\u00e7\u00e3o:\n\n1. Executar plano inline:\n    ```json\n    {\n        \"plan\": { \"spec_version\": \"0.1\", ... }\n    }\n    ```\n\n2. Executar plano salvo:\n    ```json\n    {\n        \"plan_file\": \"./plans/login_test.json\"\n    }\n    ```\n\n3. Gerar e executar (fluxo completo):\n    ```json\n    {\n        \"requirement\": \"Testar login\",\n        \"base_url\": \"https://api.example.com\"\n    }\n    ```",
+        "examples": [
+          {
+            "plan": {
+              "config": {
+                "base_url": "https://httpbin.org"
+              },
+              "meta": {
+                "id": "qt-001",
+                "name": "Quick Test"
+              },
+              "spec_version": "0.1",
+              "steps": [
+                {
+                  "action": "http_request",
+                  "assertions": [
+                    {
+                      "operator": "eq",
+                      "type": "status_code",
+                      "value": 200
+                    }
+                  ],
+                  "id": "get_ip",
+                  "params": {
+                    "method": "GET",
+                    "path": "/ip"
+                  }
+                }
+              ]
+            },
+            "timeout_seconds": 30
+          }
+        ]
+      },
+      "ExecuteResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Se todos os steps passaram"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id",
+            "description": "ID da execu\u00e7\u00e3o para refer\u00eancia"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id",
+            "description": "ID do plano executado"
+          },
+          "plan_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Name",
+            "description": "Nome do plano executado"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ExecuteSummary",
+            "description": "Resumo estat\u00edstico"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepResultSchema"
+            },
+            "type": "array",
+            "title": "Steps",
+            "description": "Resultados de cada step"
+          },
+          "report_saved": {
+            "type": "boolean",
+            "title": "Report Saved",
+            "description": "Se o relat\u00f3rio foi salvo",
+            "default": false
+          },
+          "generated_plan": {
+            "type": "boolean",
+            "title": "Generated Plan",
+            "description": "Se o plano foi gerado (n\u00e3o fornecido)",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "summary",
+          "steps"
+        ],
+        "title": "ExecuteResponse",
+        "description": "Response da execu\u00e7\u00e3o de plano UTDL.\n\n## Exemplo:\n\n    {\n        \"success\": true,\n        \"execution_id\": \"exec-abc123\",\n        \"plan_name\": \"Login Test\",\n        \"summary\": {\n            \"total_steps\": 5,\n            \"passed\": 4,\n            \"failed\": 1,\n            \"skipped\": 0,\n            \"total_duration_ms\": 1234.5,\n            \"success_rate\": 80.0\n        },\n        \"steps\": [...]\n    }"
+      },
+      "ExecuteSummary": {
+        "properties": {
+          "total_steps": {
+            "type": "integer",
+            "title": "Total Steps",
+            "description": "Total de steps no plano"
+          },
+          "passed": {
+            "type": "integer",
+            "title": "Passed",
+            "description": "Steps que passaram"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed",
+            "description": "Steps que falharam"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped",
+            "description": "Steps pulados"
+          },
+          "total_duration_ms": {
+            "type": "number",
+            "title": "Total Duration Ms",
+            "description": "Dura\u00e7\u00e3o total em ms"
+          },
+          "success_rate": {
+            "type": "number",
+            "title": "Success Rate",
+            "description": "Taxa de sucesso (0-100)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_steps",
+          "passed",
+          "failed",
+          "skipped",
+          "total_duration_ms",
+          "success_rate"
+        ],
+        "title": "ExecuteSummary",
+        "description": "Resumo estat\u00edstico da execu\u00e7\u00e3o."
+      },
+      "GenerateErrorResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": false
+          },
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "description": "Mensagem de erro"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code",
+            "description": "C\u00f3digo de erro estruturado"
+          },
+          "validation_errors": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Errors",
+            "description": "Lista de erros de valida\u00e7\u00e3o do plano gerado"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "GenerateErrorResponse",
+        "description": "Response de erro na gera\u00e7\u00e3o."
+      },
+      "GenerateRequest": {
+        "properties": {
+          "requirement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement",
+            "description": "Descri\u00e7\u00e3o em linguagem natural do que testar",
+            "examples": [
+              "Testar endpoint de login com credenciais v\u00e1lidas e inv\u00e1lidas"
+            ]
+          },
+          "swagger": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Swagger",
+            "description": "Especifica\u00e7\u00e3o OpenAPI/Swagger como objeto JSON"
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url",
+            "description": "URL base da API a ser testada",
+            "default": "https://api.example.com",
+            "examples": [
+              "https://api.example.com",
+              "http://localhost:8080"
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Modelo LLM a usar (sobrescreve config). Ex: gpt-4, grok-2"
+          },
+          "include_negative": {
+            "type": "boolean",
+            "title": "Include Negative",
+            "description": "Incluir casos de teste negativos (campos inv\u00e1lidos, etc.)",
+            "default": false
+          },
+          "include_auth": {
+            "type": "boolean",
+            "title": "Include Auth",
+            "description": "Detectar e incluir step de autentica\u00e7\u00e3o automaticamente",
+            "default": false
+          },
+          "skip_cache": {
+            "type": "boolean",
+            "title": "Skip Cache",
+            "description": "Ignorar cache e for\u00e7ar regenera\u00e7\u00e3o",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "GenerateRequest",
+        "description": "Request para gerar um plano UTDL.\n\n## Modos de uso:\n\n1. Via texto livre (requirement):\n    ```json\n    {\n        \"requirement\": \"Testar login com credenciais v\u00e1lidas e inv\u00e1lidas\",\n        \"base_url\": \"https://api.example.com\"\n    }\n    ```\n\n2. Via OpenAPI spec (swagger):\n    ```json\n    {\n        \"swagger\": { \"openapi\": \"3.0.0\", ... },\n        \"base_url\": \"https://api.example.com\"\n    }\n    ```",
+        "examples": [
+          {
+            "base_url": "https://api.example.com",
+            "include_auth": true,
+            "requirement": "Testar API de login com email e senha"
+          },
+          {
+            "base_url": "https://api.example.com",
+            "include_negative": true,
+            "swagger": {
+              "info": {
+                "title": "API",
+                "version": "1.0"
+              },
+              "openapi": "3.0.0"
+            }
+          }
+        ]
+      },
+      "GenerateResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Se a gera\u00e7\u00e3o foi bem-sucedida",
+            "default": true
+          },
+          "plan": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Plan",
+            "description": "Plano UTDL gerado"
+          },
+          "cached": {
+            "type": "boolean",
+            "title": "Cached",
+            "description": "Se o plano veio do cache",
+            "default": false
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider",
+            "description": "Provider LLM usado (ex: openai, xai)"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Modelo LLM usado (ex: gpt-4)"
+          },
+          "tokens_used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Used",
+            "description": "Tokens consumidos na gera\u00e7\u00e3o"
+          },
+          "generation_time_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation Time Ms",
+            "description": "Tempo de gera\u00e7\u00e3o em ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan"
+        ],
+        "title": "GenerateResponse",
+        "description": "Response da gera\u00e7\u00e3o de plano UTDL.\n\n## Exemplo:\n\n    {\n        \"success\": true,\n        \"plan\": { \"spec_version\": \"0.1\", \"meta\": {...}, \"steps\": [...] },\n        \"cached\": false,\n        \"provider\": \"openai\",\n        \"tokens_used\": 1500\n    }"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Status do servi\u00e7o",
+            "examples": [
+              "healthy"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "Vers\u00e3o do AQA",
+            "examples": [
+              "0.3.0"
+            ]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp",
+            "description": "Timestamp do check"
+          },
+          "components": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Components",
+            "description": "Status dos componentes internos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "timestamp"
+        ],
+        "title": "HealthResponse",
+        "description": "Resposta do health check."
+      },
+      "HistoryDetailSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "ID \u00fanico da execu\u00e7\u00e3o"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "Data/hora da execu\u00e7\u00e3o (ISO 8601)"
+          },
+          "plan_file": {
+            "type": "string",
+            "title": "Plan File",
+            "description": "Arquivo de plano usado"
+          },
+          "plan_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Name",
+            "description": "Nome do plano"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failure",
+              "error"
+            ],
+            "title": "Status",
+            "description": "Status geral da execu\u00e7\u00e3o"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms",
+            "description": "Dura\u00e7\u00e3o em milissegundos"
+          },
+          "total_steps": {
+            "type": "integer",
+            "title": "Total Steps",
+            "description": "Total de steps"
+          },
+          "passed_steps": {
+            "type": "integer",
+            "title": "Passed Steps",
+            "description": "Steps que passaram"
+          },
+          "failed_steps": {
+            "type": "integer",
+            "title": "Failed Steps",
+            "description": "Steps que falharam"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "description": "Tags do plano"
+          },
+          "runner_report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runner Report",
+            "description": "Relat\u00f3rio completo do Runner"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "Metadados adicionais"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "timestamp",
+          "plan_file",
+          "status",
+          "duration_ms",
+          "total_steps",
+          "passed_steps",
+          "failed_steps"
+        ],
+        "title": "HistoryDetailSchema",
+        "description": "Registro detalhado com relat\u00f3rio completo."
+      },
+      "HistoryListResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryRecordSchema"
+            },
+            "type": "array",
+            "title": "Records",
+            "description": "Lista de execu\u00e7\u00f5es"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total de registros"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "description": "P\u00e1gina atual"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "description": "Itens por p\u00e1gina"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages",
+            "description": "Total de p\u00e1ginas"
+          }
+        },
+        "type": "object",
+        "required": [
+          "records",
+          "total",
+          "page",
+          "limit",
+          "pages"
+        ],
+        "title": "HistoryListResponse",
+        "description": "Response da listagem de hist\u00f3rico.\n\n## Exemplo:\n\n    {\n        \"success\": true,\n        \"records\": [...],\n        \"total\": 50,\n        \"page\": 1,\n        \"limit\": 20,\n        \"pages\": 3\n    }"
+      },
+      "HistoryRecordSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "ID \u00fanico da execu\u00e7\u00e3o"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "Data/hora da execu\u00e7\u00e3o (ISO 8601)"
+          },
+          "plan_file": {
+            "type": "string",
+            "title": "Plan File",
+            "description": "Arquivo de plano usado"
+          },
+          "plan_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Name",
+            "description": "Nome do plano"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failure",
+              "error"
+            ],
+            "title": "Status",
+            "description": "Status geral da execu\u00e7\u00e3o"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms",
+            "description": "Dura\u00e7\u00e3o em milissegundos"
+          },
+          "total_steps": {
+            "type": "integer",
+            "title": "Total Steps",
+            "description": "Total de steps"
+          },
+          "passed_steps": {
+            "type": "integer",
+            "title": "Passed Steps",
+            "description": "Steps que passaram"
+          },
+          "failed_steps": {
+            "type": "integer",
+            "title": "Failed Steps",
+            "description": "Steps que falharam"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "description": "Tags do plano"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "timestamp",
+          "plan_file",
+          "status",
+          "duration_ms",
+          "total_steps",
+          "passed_steps",
+          "failed_steps"
+        ],
+        "title": "HistoryRecordSchema",
+        "description": "Registro de uma execu\u00e7\u00e3o no hist\u00f3rico."
+      },
+      "HistoryStatsResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "total_executions": {
+            "type": "integer",
+            "title": "Total Executions",
+            "description": "Total de execu\u00e7\u00f5es"
+          },
+          "success_count": {
+            "type": "integer",
+            "title": "Success Count",
+            "description": "Execu\u00e7\u00f5es bem-sucedidas"
+          },
+          "failure_count": {
+            "type": "integer",
+            "title": "Failure Count",
+            "description": "Execu\u00e7\u00f5es com falhas"
+          },
+          "error_count": {
+            "type": "integer",
+            "title": "Error Count",
+            "description": "Execu\u00e7\u00f5es com erro"
+          },
+          "success_rate": {
+            "type": "number",
+            "title": "Success Rate",
+            "description": "Taxa de sucesso (%)"
+          },
+          "avg_duration_ms": {
+            "type": "number",
+            "title": "Avg Duration Ms",
+            "description": "Dura\u00e7\u00e3o m\u00e9dia (ms)"
+          },
+          "total_steps_executed": {
+            "type": "integer",
+            "title": "Total Steps Executed",
+            "description": "Total de steps executados"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_executions",
+          "success_count",
+          "failure_count",
+          "error_count",
+          "success_rate",
+          "avg_duration_ms",
+          "total_steps_executed"
+        ],
+        "title": "HistoryStatsResponse",
+        "description": "Estat\u00edsticas agregadas do hist\u00f3rico."
+      },
+      "KeyInfo": {
+        "properties": {
+          "prefix": {
+            "type": "string",
+            "title": "Prefix",
+            "description": "Prefixo da key (primeiros 8 chars)"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Descri\u00e7\u00e3o da key"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At",
+            "description": "Data de cria\u00e7\u00e3o (ISO)"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At",
+            "description": "\u00daltimo uso (ISO)"
+          },
+          "usage_count": {
+            "type": "integer",
+            "title": "Usage Count",
+            "description": "Total de usos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "prefix",
+          "description",
+          "created_at",
+          "usage_count"
+        ],
+        "title": "KeyInfo",
+        "description": "Informa\u00e7\u00f5es de uma API key."
+      },
+      "ListKeysResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/KeyInfo"
+            },
+            "type": "array",
+            "title": "Keys",
+            "description": "Lista de API keys",
+            "default": []
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total de keys"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total"
+        ],
+        "title": "ListKeysResponse",
+        "description": "Response da listagem de keys."
+      },
+      "MetricsResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metrics"
+          },
+          "timestamp": {
+            "type": "number",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "title": "MetricsResponse",
+        "description": "Response com m\u00e9tricas em JSON."
+      },
+      "PlanDetailResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "plan_name": {
+            "type": "string",
+            "title": "Plan Name",
+            "description": "Nome do plano"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "N\u00famero da vers\u00e3o"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At",
+            "description": "Data de cria\u00e7\u00e3o (ISO)"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "Origem: 'llm', 'user', 'rollback'"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Descri\u00e7\u00e3o da vers\u00e3o"
+          },
+          "plan": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Plan",
+            "description": "Conte\u00fado do plano UTDL"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan_name",
+          "version",
+          "created_at",
+          "source",
+          "plan"
+        ],
+        "title": "PlanDetailResponse",
+        "description": "Resposta com detalhes de um plano/vers\u00e3o."
+      },
+      "PlanDiffChange": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "ID do item modificado"
+          },
+          "field": {
+            "type": "string",
+            "title": "Field",
+            "description": "Campo: 'step', 'config', 'meta'"
+          },
+          "before": {
+            "title": "Before",
+            "description": "Valor antes"
+          },
+          "after": {
+            "title": "After",
+            "description": "Valor depois"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "field"
+        ],
+        "title": "PlanDiffChange",
+        "description": "Uma mudan\u00e7a espec\u00edfica no diff."
+      },
+      "PlanDiffResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "plan_name": {
+            "type": "string",
+            "title": "Plan Name",
+            "description": "Nome do plano"
+          },
+          "version_a": {
+            "type": "integer",
+            "title": "Version A",
+            "description": "Vers\u00e3o base"
+          },
+          "version_b": {
+            "type": "integer",
+            "title": "Version B",
+            "description": "Vers\u00e3o comparada"
+          },
+          "has_changes": {
+            "type": "boolean",
+            "title": "Has Changes",
+            "description": "Se h\u00e1 diferen\u00e7as"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "description": "Resumo textual das mudan\u00e7as"
+          },
+          "steps_added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Steps Added",
+            "description": "IDs de steps adicionados",
+            "default": []
+          },
+          "steps_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Steps Removed",
+            "description": "IDs de steps removidos",
+            "default": []
+          },
+          "steps_modified": {
+            "items": {
+              "$ref": "#/components/schemas/PlanDiffChange"
+            },
+            "type": "array",
+            "title": "Steps Modified",
+            "description": "Steps modificados",
+            "default": []
+          },
+          "config_changes": {
+            "items": {
+              "$ref": "#/components/schemas/PlanDiffChange"
+            },
+            "type": "array",
+            "title": "Config Changes",
+            "description": "Mudan\u00e7as de configura\u00e7\u00e3o",
+            "default": []
+          },
+          "meta_changes": {
+            "items": {
+              "$ref": "#/components/schemas/PlanDiffChange"
+            },
+            "type": "array",
+            "title": "Meta Changes",
+            "description": "Mudan\u00e7as de metadados",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan_name",
+          "version_a",
+          "version_b",
+          "has_changes",
+          "summary"
+        ],
+        "title": "PlanDiffResponse",
+        "description": "Resposta de compara\u00e7\u00e3o entre vers\u00f5es."
+      },
+      "PlanRestoreRequest": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Descri\u00e7\u00e3o opcional para a nova vers\u00e3o",
+            "examples": [
+              "Restaurado da vers\u00e3o 2"
+            ]
+          }
+        },
+        "type": "object",
+        "title": "PlanRestoreRequest",
+        "description": "Request para restaurar vers\u00e3o."
+      },
+      "PlanRestoreResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "plan_name": {
+            "type": "string",
+            "title": "Plan Name",
+            "description": "Nome do plano"
+          },
+          "restored_from": {
+            "type": "integer",
+            "title": "Restored From",
+            "description": "Vers\u00e3o de origem"
+          },
+          "new_version": {
+            "type": "integer",
+            "title": "New Version",
+            "description": "Nova vers\u00e3o criada"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At",
+            "description": "Data de cria\u00e7\u00e3o da nova vers\u00e3o"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan_name",
+          "restored_from",
+          "new_version",
+          "created_at"
+        ],
+        "title": "PlanRestoreResponse",
+        "description": "Resposta de restaura\u00e7\u00e3o de vers\u00e3o."
+      },
+      "PlanSummary": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Nome identificador do plano"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version",
+            "description": "N\u00famero da vers\u00e3o atual"
+          },
+          "total_versions": {
+            "type": "integer",
+            "title": "Total Versions",
+            "description": "Total de vers\u00f5es salvas"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "Data da \u00faltima atualiza\u00e7\u00e3o"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "current_version",
+          "total_versions"
+        ],
+        "title": "PlanSummary",
+        "description": "Resumo de um plano versionado."
+      },
+      "PlanVersionSummary": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "N\u00famero da vers\u00e3o"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At",
+            "description": "Data de cria\u00e7\u00e3o"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "Origem: 'llm', 'user', 'rollback'"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Descri\u00e7\u00e3o da vers\u00e3o"
+          },
+          "llm_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Provider",
+            "description": "Provider LLM usado"
+          },
+          "llm_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Model",
+            "description": "Modelo LLM usado"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "source"
+        ],
+        "title": "PlanVersionSummary",
+        "description": "Resumo de uma vers\u00e3o de plano."
+      },
+      "PlanVersionsResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "plan_name": {
+            "type": "string",
+            "title": "Plan Name",
+            "description": "Nome do plano"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/PlanVersionSummary"
+            },
+            "type": "array",
+            "title": "Versions",
+            "description": "Lista de vers\u00f5es",
+            "default": []
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total de vers\u00f5es"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan_name",
+          "total"
+        ],
+        "title": "PlanVersionsResponse",
+        "description": "Resposta da listagem de vers\u00f5es."
+      },
+      "PlansListResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "plans": {
+            "items": {
+              "$ref": "#/components/schemas/PlanSummary"
+            },
+            "type": "array",
+            "title": "Plans",
+            "description": "Lista de planos",
+            "default": []
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total de planos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total"
+        ],
+        "title": "PlansListResponse",
+        "description": "Resposta da listagem de planos."
+      },
+      "RevokeKeyResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Mensagem de confirma\u00e7\u00e3o"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "RevokeKeyResponse",
+        "description": "Response da revoga\u00e7\u00e3o de key."
+      },
+      "StepResultSchema": {
+        "properties": {
+          "step_id": {
+            "type": "string",
+            "title": "Step Id",
+            "description": "ID do step executado"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status",
+            "description": "Status da execu\u00e7\u00e3o"
+          },
+          "duration_ms": {
+            "type": "number",
+            "title": "Duration Ms",
+            "description": "Tempo de execu\u00e7\u00e3o em milissegundos"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Mensagem de erro, se falhou"
+          },
+          "assertions_passed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assertions Passed",
+            "description": "Assertions que passaram"
+          },
+          "assertions_failed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assertions Failed",
+            "description": "Assertions que falharam"
+          },
+          "extractions": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extractions",
+            "description": "Vari\u00e1veis extra\u00eddas neste step"
+          }
+        },
+        "type": "object",
+        "required": [
+          "step_id",
+          "status",
+          "duration_ms"
+        ],
+        "title": "StepResultSchema",
+        "description": "Resultado da execu\u00e7\u00e3o de um step individual."
+      },
+      "ValidateRequest": {
+        "properties": {
+          "plan": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Plan",
+            "description": "Plano UTDL a ser validado"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "strict",
+              "default",
+              "lenient"
+            ],
+            "title": "Mode",
+            "description": "Modo de valida\u00e7\u00e3o: strict (warnings viram erros), default, lenient (tolerante)",
+            "default": "default"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan"
+        ],
+        "title": "ValidateRequest",
+        "description": "Request para validar um plano UTDL.\n\n## Exemplo:\n\n    {\n        \"plan\": {\n            \"spec_version\": \"0.1\",\n            \"meta\": { \"name\": \"Test Plan\" },\n            \"config\": { \"base_url\": \"https://api.example.com\" },\n            \"steps\": [...]\n        },\n        \"mode\": \"default\"\n    }",
+        "examples": [
+          {
+            "mode": "default",
+            "plan": {
+              "config": {
+                "base_url": "https://api.example.com"
+              },
+              "meta": {
+                "id": "test-123",
+                "name": "Example Plan"
+              },
+              "spec_version": "0.1",
+              "steps": [
+                {
+                  "action": "http_request",
+                  "assertions": [
+                    {
+                      "operator": "eq",
+                      "type": "status_code",
+                      "value": 200
+                    }
+                  ],
+                  "id": "health_check",
+                  "params": {
+                    "method": "GET",
+                    "path": "/health"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "ValidateResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Se a opera\u00e7\u00e3o foi executada (n\u00e3o se \u00e9 v\u00e1lido)",
+            "default": true
+          },
+          "is_valid": {
+            "type": "boolean",
+            "title": "Is Valid",
+            "description": "Se o plano passou na valida\u00e7\u00e3o"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            },
+            "type": "array",
+            "title": "Issues",
+            "description": "Lista de problemas encontrados"
+          },
+          "error_count": {
+            "type": "integer",
+            "title": "Error Count",
+            "description": "N\u00famero de erros",
+            "default": 0
+          },
+          "warning_count": {
+            "type": "integer",
+            "title": "Warning Count",
+            "description": "N\u00famero de warnings",
+            "default": 0
+          },
+          "stats": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stats",
+            "description": "Estat\u00edsticas do plano (steps, assertions, extractions)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_valid"
+        ],
+        "title": "ValidateResponse",
+        "description": "Response da valida\u00e7\u00e3o de plano UTDL.\n\n## Exemplo de sucesso:\n\n    {\n        \"success\": true,\n        \"is_valid\": true,\n        \"issues\": [],\n        \"stats\": { \"steps\": 5, \"assertions\": 12, \"extractions\": 3 }\n    }\n\n## Exemplo de falha:\n\n    {\n        \"success\": true,\n        \"is_valid\": false,\n        \"issues\": [\n            {\n                \"severity\": \"error\",\n                \"code\": \"E1005\",\n                \"message\": \"Step 'step2' depende de 'unknown' que n\u00e3o existe\",\n                \"path\": \"$.steps[1].depends_on[0]\"\n            }\n        ],\n        \"stats\": { \"steps\": 2, \"assertions\": 1, \"extractions\": 0 }\n    }"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidationIssue": {
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ],
+            "title": "Severity",
+            "description": "Severidade do problema"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "C\u00f3digo de erro estruturado (ex: E1001)"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Descri\u00e7\u00e3o do problema"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path",
+            "description": "Caminho JSON onde o problema foi encontrado"
+          },
+          "suggestion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestion",
+            "description": "Sugest\u00e3o de como corrigir"
+          }
+        },
+        "type": "object",
+        "required": [
+          "severity",
+          "message"
+        ],
+        "title": "ValidationIssue",
+        "description": "Um problema encontrado na valida\u00e7\u00e3o.\n\n## Severidades:\n\n- `error`: Bloqueia execu\u00e7\u00e3o, deve ser corrigido\n- `warning`: N\u00e3o bloqueia, mas merece aten\u00e7\u00e3o\n- `info`: Informativo apenas"
+      },
+      "WorkspaceInitRequest": {
+        "properties": {
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path",
+            "description": "Caminho onde criar o workspace. Se None, usa diret\u00f3rio atual."
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "description": "Sobrescrever se j\u00e1 existir",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "WorkspaceInitRequest",
+        "description": "Request para inicializar workspace.\n\n## Exemplo:\n\n    {\n        \"path\": \"./my-project\",\n        \"force\": false\n    }"
+      },
+      "WorkspaceInitResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "workspace_path": {
+            "type": "string",
+            "title": "Workspace Path",
+            "description": "Caminho absoluto do workspace criado"
+          },
+          "created_files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Created Files",
+            "description": "Arquivos e diret\u00f3rios criados"
+          },
+          "already_existed": {
+            "type": "boolean",
+            "title": "Already Existed",
+            "description": "Se o workspace j\u00e1 existia",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "workspace_path",
+          "created_files"
+        ],
+        "title": "WorkspaceInitResponse",
+        "description": "Response da inicializa\u00e7\u00e3o de workspace.\n\n## Exemplo:\n\n    {\n        \"success\": true,\n        \"workspace_path\": \"/home/user/project/.aqa\",\n        \"created_files\": [\n            \".aqa/config.yaml\",\n            \".aqa/plans/\",\n            \".aqa/reports/\"\n        ]\n    }"
+      },
+      "WorkspaceStatusResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "initialized": {
+            "type": "boolean",
+            "title": "Initialized",
+            "description": "Se existe um workspace v\u00e1lido"
+          },
+          "workspace_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Path",
+            "description": "Caminho do workspace, se existir"
+          },
+          "plans_count": {
+            "type": "integer",
+            "title": "Plans Count",
+            "description": "N\u00famero de planos salvos",
+            "default": 0
+          },
+          "history_count": {
+            "type": "integer",
+            "title": "History Count",
+            "description": "N\u00famero de execu\u00e7\u00f5es no hist\u00f3rico",
+            "default": 0
+          },
+          "config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config",
+            "description": "Configura\u00e7\u00e3o do workspace"
+          }
+        },
+        "type": "object",
+        "required": [
+          "initialized"
+        ],
+        "title": "WorkspaceStatusResponse",
+        "description": "Status do workspace atual."
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "description": "API Key para autentica\u00e7\u00e3o. Obtenha em /api/v1/auth/keys",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  }
+}

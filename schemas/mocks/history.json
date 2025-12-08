@@ -1,0 +1,148 @@
+{
+  "success": true,
+  "total": 25,
+  "page": 1,
+  "per_page": 10,
+  "records": [
+    {
+      "execution_id": "exec-12345",
+      "plan_id": "plan-mock-001",
+      "plan_name": "Login API Tests",
+      "timestamp": "2024-12-08T10:35:00Z",
+      "summary": {
+        "total_steps": 4,
+        "passed": 3,
+        "failed": 1,
+        "skipped": 0,
+        "duration_ms": 1847
+      },
+      "status": "failed"
+    },
+    {
+      "execution_id": "exec-12344",
+      "plan_id": "plan-mock-002",
+      "plan_name": "User CRUD Tests",
+      "timestamp": "2024-12-08T09:15:00Z",
+      "summary": {
+        "total_steps": 6,
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "duration_ms": 2340
+      },
+      "status": "passed"
+    },
+    {
+      "execution_id": "exec-12343",
+      "plan_id": "plan-mock-003",
+      "plan_name": "Payment Flow Tests",
+      "timestamp": "2024-12-08T08:45:00Z",
+      "summary": {
+        "total_steps": 8,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 1,
+        "duration_ms": 4521
+      },
+      "status": "passed"
+    },
+    {
+      "execution_id": "exec-12342",
+      "plan_id": "plan-mock-001",
+      "plan_name": "Login API Tests",
+      "timestamp": "2024-12-07T16:30:00Z",
+      "summary": {
+        "total_steps": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "duration_ms": 1523
+      },
+      "status": "passed"
+    },
+    {
+      "execution_id": "exec-12341",
+      "plan_id": "plan-mock-004",
+      "plan_name": "Search API Tests",
+      "timestamp": "2024-12-07T14:20:00Z",
+      "summary": {
+        "total_steps": 5,
+        "passed": 0,
+        "failed": 5,
+        "skipped": 0,
+        "duration_ms": 890
+      },
+      "status": "failed"
+    },
+    {
+      "execution_id": "exec-12340",
+      "plan_id": "plan-mock-002",
+      "plan_name": "User CRUD Tests",
+      "timestamp": "2024-12-07T11:00:00Z",
+      "summary": {
+        "total_steps": 6,
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "duration_ms": 2150
+      },
+      "status": "passed"
+    },
+    {
+      "execution_id": "exec-12339",
+      "plan_id": "plan-mock-005",
+      "plan_name": "Notification Tests",
+      "timestamp": "2024-12-07T09:30:00Z",
+      "summary": {
+        "total_steps": 3,
+        "passed": 2,
+        "failed": 1,
+        "skipped": 0,
+        "duration_ms": 1120
+      },
+      "status": "failed"
+    },
+    {
+      "execution_id": "exec-12338",
+      "plan_id": "plan-mock-003",
+      "plan_name": "Payment Flow Tests",
+      "timestamp": "2024-12-06T17:45:00Z",
+      "summary": {
+        "total_steps": 8,
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0,
+        "duration_ms": 4890
+      },
+      "status": "passed"
+    },
+    {
+      "execution_id": "exec-12337",
+      "plan_id": "plan-mock-001",
+      "plan_name": "Login API Tests",
+      "timestamp": "2024-12-06T15:20:00Z",
+      "summary": {
+        "total_steps": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "duration_ms": 1680
+      },
+      "status": "passed"
+    },
+    {
+      "execution_id": "exec-12336",
+      "plan_id": "plan-mock-006",
+      "plan_name": "Admin API Tests",
+      "timestamp": "2024-12-06T14:00:00Z",
+      "summary": {
+        "total_steps": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "duration_ms": 5230
+      },
+      "status": "failed"
+    }
+  ]
+}

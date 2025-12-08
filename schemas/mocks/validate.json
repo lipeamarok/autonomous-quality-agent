@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "is_valid": true,
+  "error_count": 0,
+  "warning_count": 2,
+  "errors": [],
+  "warnings": [
+    "Step 'login_invalid_password' não tem recovery_policy definida",
+    "Recomendado adicionar description ao plano"
+  ],
+  "normalized": true,
+  "schema_version": "0.1"
+}
