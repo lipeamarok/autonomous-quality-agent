@@ -80,7 +80,7 @@ from ..cache import PlanCache
 class GenerationMetadata:
     """
     Metadados da última geração realizada.
-    
+
     Permite à API retornar informações sobre provider, modelo,
     cache e tokens usados.
     """
