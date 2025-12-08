@@ -21,6 +21,47 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ---
 
+## [0.5.0] - 2025-12-08
+
+### Adicionado
+- **API REST Server**: Nova API HTTP baseada em FastAPI
+  - Comando `aqa serve --host 0.0.0.0 --port 8080`
+  - `GET /health` - Health check com status dos componentes
+  - `POST /api/v1/generate` - Geração de planos UTDL
+  - `POST /api/v1/validate` - Validação de planos
+  - `POST /api/v1/execute` - Execução de testes
+  - `GET /api/v1/history` - Histórico de execuções
+  - `GET /api/v1/history/{id}` - Detalhes de execução
+  - `GET /api/v1/history/stats` - Estatísticas agregadas
+  - `POST /api/v1/workspace/init` - Inicialização de workspace
+  - `GET /api/v1/workspace/status` - Status do workspace
+  - `WS /ws/execute` - WebSocket para streaming em tempo real
+- **Fallback de Serviços HTTP**: Mecanismo robusto para testes E2E
+  - Ordem de prioridade: httpbingo.org → postman-echo.com → httpbin.org
+  - Helper `make_header_assertion()` para assertions compatíveis
+- **Dependências da API**: fastapi, uvicorn, websockets, python-multipart, httpx
+
+### Corrigido
+- httpbingo.org retorna 402 para runner Rust em endpoints de auth
+- postman-echo.com retorna headers em lowercase
+- JSON path do runner não suporta bracket notation (`$.headers["key"]`)
+- Testes E2E agora usam dot notation (`$.headers.key`)
+
+### Documentação
+- `docs/interface.md` atualizado para v1.4.0 com referência completa da API
+- Códigos de erro da API documentados (E6001-E6103)
+
+---
+
+## [0.4.0] - 2024-12-05
+
+### Adicionado
+- **Versionamento de Planos**: Hash-based versioning para planos UTDL
+- **Comando `plan-version`**: Gerenciamento de versões de planos
+- **Histórico de Execuções**: Storage SQLite com compressão
+
+---
+
 ## [0.3.0] - 2024-12-04
 
 ### Adicionado

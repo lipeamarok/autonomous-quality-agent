@@ -2,9 +2,9 @@
 
 > **Objetivo**: Mapear todos os pontos de conexão entre o sistema CLI atual e a futura interface de usuário, facilitando a transição de comandos técnicos para componentes visuais intuitivos.
 
-**Versão:** 1.3.0
-**Última atualização:** 2024-12-05
-**Status:** Enterprise-ready
+**Versão:** 1.4.0
+**Última atualização:** 2024-12-06
+**Status:** Enterprise-ready (API REST Implementada)
 
 ---
 
@@ -18,6 +18,7 @@
 | `generate` | ✅ Estável | P0 | Alta |
 | `validate` | ✅ Estável | P0 | Baixa |
 | `run` | ✅ Estável | P0 | Alta |
+| `serve` | ✅ Estável (NOVO) | P0 | Média |
 | `explain` | ✅ Estável | P2 | Baixa |
 | `demo` | ✅ Estável | P3 | Baixa |
 | `history` | ✅ Estável | P1 | Média |
@@ -72,6 +73,8 @@
 7. [APIs Internas Expostas](#7-apis-internas-expostas)
 8. [Estados e Feedbacks](#8-estados-e-feedbacks)
 9. [Recomendações para Implementação](#9-recomendações-para-implementação)
+   - [9.5 API REST Implementada](#95-api-rest-implementada) ⭐ NOVO
+   - [9.6 Códigos de Erro da API](#96-códigos-de-erro-da-api)
 
 ### Parte II — Segurança e Infraestrutura
 10. [Segurança da API](#10-segurança-da-api)
@@ -1044,36 +1047,496 @@ XAI_API_KEY=xai-...
 
 ---
 
-### 9.4 Estrutura de Diretórios Proposta
+### 9.4 Estrutura de Diretórios (Implementada)
 
 ```
 autonomous-quality-agent/
-├── brain/                    # Existente - sem alterações
-├── runner/                   # Existente - sem alterações
-├── api/                      # NOVO - API Layer
-│   ├── __init__.py
-│   ├── main.py               # FastAPI app
-│   ├── routes/
-│   │   ├── workspace.py
-│   │   ├── plans.py
-│   │   ├── execute.py
-│   │   ├── history.py
-│   │   └── llm.py
-│   ├── websocket/
-│   │   └── execution.py
-│   └── models/
-│       └── requests.py
-├── ui/                       # NOVO - Frontend
-│   ├── package.json
+├── brain/
 │   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── hooks/
-│   │   └── api/
-│   └── public/
+│   │   ├── api/                  # ✅ IMPLEMENTADO - API Layer
+│   │   │   ├── __init__.py       # Exports: create_app, APIConfig
+│   │   │   ├── app.py            # FastAPI app factory
+│   │   │   ├── config.py         # APIConfig dataclass
+│   │   │   ├── deps.py           # Dependency injection
+│   │   │   ├── routes/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── health.py     # GET /health
+│   │   │   │   ├── generate.py   # POST /api/v1/generate
+│   │   │   │   ├── validate.py   # POST /api/v1/validate
+│   │   │   │   ├── execute.py    # POST /api/v1/execute
+│   │   │   │   ├── history.py    # GET /api/v1/history
+│   │   │   │   └── workspace.py  # POST /api/v1/workspace/*
+│   │   │   ├── schemas/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── common.py     # ErrorDetail, SuccessResponse
+│   │   │   │   ├── generate.py   # GenerateRequest/Response
+│   │   │   │   ├── validate.py   # ValidateRequest/Response
+│   │   │   │   ├── execute.py    # ExecuteRequest/Response
+│   │   │   │   ├── history.py    # HistoryRecordSchema
+│   │   │   │   └── workspace.py  # WorkspaceInitRequest
+│   │   │   └── websocket/
+│   │   │       ├── __init__.py
+│   │   │       └── execute_stream.py  # WS /ws/execute
+│   │   └── cli/
+│   │       └── commands/
+│   │           └── serve_cmd.py  # ✅ CLI: aqa serve
+│   └── tests/
+│       └── test_api.py           # ✅ Testes da API
+├── runner/                       # Existente - Rust binary
+├── ui/                           # FUTURO - Frontend
+│   ├── package.json
+│   └── src/
 └── docs/
-    └── interface.md          # Este documento
+    └── interface.md              # Este documento
 ```
+
+---
+
+### 9.5 API REST Implementada
+
+A API REST foi implementada em `brain/src/api/` usando FastAPI. Esta seção documenta todos os endpoints disponíveis.
+
+#### Iniciar o Servidor
+
+```bash
+# Via CLI (recomendado)
+aqa serve --host 0.0.0.0 --port 8080
+
+# Via módulo Python
+python -m uvicorn src.api:create_app --factory --host 0.0.0.0 --port 8080 --reload
+```
+
+#### Base URLs
+
+| Ambiente | URL Base | Documentação |
+|----------|----------|--------------|
+| Local | `http://localhost:8080` | `http://localhost:8080/docs` |
+| Docker | `http://aqa-api:8080` | `http://aqa-api:8080/docs` |
+
+---
+
+#### Endpoint: GET /health
+
+Verifica o status de saúde da API e seus componentes.
+
+**Request:**
+```http
+GET /health HTTP/1.1
+Host: localhost:8080
+```
+
+**Response (200 OK):**
+```json
+{
+  "status": "healthy",
+  "version": "0.1.0",
+  "timestamp": "2024-12-06T10:30:00Z",
+  "components": {
+    "brain": "ok",
+    "runner": "ok",
+    "storage": "ok"
+  }
+}
+```
+
+---
+
+#### Endpoint: POST /api/v1/generate
+
+Gera um plano de teste UTDL a partir de um requisito ou especificação OpenAPI.
+
+**Request:**
+```http
+POST /api/v1/generate HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{
+  "requirement": "Testar endpoint de login com credenciais válidas e inválidas",
+  "swagger_url": "https://api.example.com/openapi.json",
+  "swagger_content": null,
+  "base_url": "https://api.example.com",
+  "options": {
+    "include_negative": true,
+    "include_auth": true,
+    "max_steps": 10
+  }
+}
+```
+
+**Parâmetros:**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|-------|------|-------------|-----------|
+| `requirement` | string | ❌ | Requisito em texto livre |
+| `swagger_url` | string | ❌ | URL da especificação OpenAPI |
+| `swagger_content` | object | ❌ | Conteúdo OpenAPI inline |
+| `base_url` | string | ❌ | URL base da API alvo |
+| `options.include_negative` | bool | ❌ | Incluir casos negativos |
+| `options.include_auth` | bool | ❌ | Incluir testes de autenticação |
+| `options.max_steps` | int | ❌ | Limite de steps no plano |
+
+> **Nota:** Pelo menos um de `requirement`, `swagger_url` ou `swagger_content` deve ser fornecido.
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "plan": {
+    "spec_version": "0.1",
+    "meta": {
+      "name": "Login Tests",
+      "id": "plan-abc123",
+      "description": "Testes de autenticação"
+    },
+    "config": {
+      "base_url": "https://api.example.com"
+    },
+    "steps": [...]
+  },
+  "stats": {
+    "generation_time_ms": 3500,
+    "model_used": "gpt-4o",
+    "tokens_used": 1250
+  }
+}
+```
+
+**Erros:**
+
+| Código | Descrição |
+|--------|-----------|
+| 400 (E6002) | Nenhuma fonte de entrada fornecida |
+| 500 (E6101) | Erro na geração do plano |
+
+---
+
+#### Endpoint: POST /api/v1/validate
+
+Valida um plano UTDL e retorna erros/warnings.
+
+**Request:**
+```http
+POST /api/v1/validate HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{
+  "plan": {
+    "spec_version": "0.1",
+    "meta": {"name": "Test Plan", "id": "test-001"},
+    "config": {"base_url": "https://api.example.com"},
+    "steps": []
+  },
+  "mode": "strict"
+}
+```
+
+**Parâmetros:**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|-------|------|-------------|-----------|
+| `plan` | object | ✅ | Plano UTDL a validar |
+| `mode` | string | ❌ | Modo de validação: `default`, `strict` |
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "is_valid": true,
+  "error_count": 0,
+  "warning_count": 1,
+  "errors": [],
+  "warnings": ["Plano sem steps"]
+}
+```
+
+---
+
+#### Endpoint: POST /api/v1/execute
+
+Executa um plano de teste.
+
+**Request:**
+```http
+POST /api/v1/execute HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{
+  "plan": {
+    "spec_version": "0.1",
+    "meta": {"name": "Test", "id": "test-001"},
+    "config": {"base_url": "https://httpbin.org"},
+    "steps": [
+      {
+        "id": "get_ip",
+        "action": "http_request",
+        "params": {"method": "GET", "path": "/ip"},
+        "assertions": [{"type": "status_code", "operator": "eq", "value": 200}]
+      }
+    ]
+  },
+  "dry_run": false,
+  "context": {
+    "auth_token": "Bearer xxx"
+  }
+}
+```
+
+**Parâmetros:**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|-------|------|-------------|-----------|
+| `plan` | object | ❌* | Plano UTDL inline |
+| `plan_file` | string | ❌* | Caminho para arquivo de plano |
+| `requirement` | string | ❌* | Requisito para gerar e executar |
+| `swagger` | string | ❌* | OpenAPI para gerar e executar |
+| `dry_run` | bool | ❌ | Apenas validar, não executar |
+| `context` | object | ❌ | Variáveis de contexto |
+
+> **Nota:** *Pelo menos uma fonte de plano deve ser fornecida.
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "execution_id": "exec-xyz789",
+  "summary": {
+    "total_steps": 5,
+    "passed": 4,
+    "failed": 1,
+    "skipped": 0,
+    "duration_ms": 1250
+  },
+  "steps": [
+    {
+      "id": "get_ip",
+      "status": "passed",
+      "duration_ms": 150,
+      "response": {"status_code": 200}
+    }
+  ]
+}
+```
+
+**Erros:**
+
+| Código | Descrição |
+|--------|-----------|
+| 400 (E6002) | Nenhuma fonte de plano fornecida |
+| 400 (E6004) | Plano inválido |
+
+---
+
+#### Endpoint: GET /api/v1/history
+
+Lista o histórico de execuções.
+
+**Request:**
+```http
+GET /api/v1/history?limit=20&plan_id=test-001 HTTP/1.1
+Host: localhost:8080
+```
+
+**Query Parameters:**
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `limit` | int | 20 | Quantidade de registros |
+| `plan_id` | string | - | Filtrar por plano |
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "total": 42,
+  "records": [
+    {
+      "execution_id": "exec-xyz789",
+      "plan_id": "test-001",
+      "plan_name": "Login Tests",
+      "timestamp": "2024-12-06T10:30:00Z",
+      "summary": {
+        "total_steps": 5,
+        "passed": 5,
+        "failed": 0
+      }
+    }
+  ]
+}
+```
+
+---
+
+#### Endpoint: GET /api/v1/history/{execution_id}
+
+Obtém detalhes de uma execução específica.
+
+**Request:**
+```http
+GET /api/v1/history/exec-xyz789 HTTP/1.1
+Host: localhost:8080
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "record": {
+    "execution_id": "exec-xyz789",
+    "plan_id": "test-001",
+    "plan_name": "Login Tests",
+    "timestamp": "2024-12-06T10:30:00Z",
+    "duration_ms": 1250,
+    "summary": {...},
+    "steps": [...]
+  }
+}
+```
+
+---
+
+#### Endpoint: GET /api/v1/history/stats
+
+Obtém estatísticas agregadas do histórico.
+
+**Request:**
+```http
+GET /api/v1/history/stats HTTP/1.1
+Host: localhost:8080
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "stats": {
+    "total_executions": 42,
+    "total_steps_run": 210,
+    "pass_rate": 0.95,
+    "avg_duration_ms": 1100
+  }
+}
+```
+
+---
+
+#### Endpoint: POST /api/v1/workspace/init
+
+Inicializa um novo workspace AQA.
+
+**Request:**
+```http
+POST /api/v1/workspace/init HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{
+  "directory": "/path/to/project",
+  "force": false,
+  "swagger_url": "https://api.example.com/openapi.json"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "workspace_path": "/path/to/project/.aqa",
+  "files_created": [
+    ".aqa/config.yaml",
+    ".aqa/plans/",
+    ".aqa/reports/"
+  ]
+}
+```
+
+---
+
+#### Endpoint: GET /api/v1/workspace/status
+
+Obtém status do workspace atual.
+
+**Request:**
+```http
+GET /api/v1/workspace/status HTTP/1.1
+Host: localhost:8080
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "initialized": true,
+  "path": "/path/to/project/.aqa",
+  "config": {
+    "base_url": "https://api.example.com",
+    "llm_mode": "real"
+  }
+}
+```
+
+---
+
+#### WebSocket: /ws/execute
+
+Executa plano com streaming de resultados em tempo real.
+
+**Connection:**
+```javascript
+const ws = new WebSocket('ws://localhost:8080/ws/execute');
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    plan: {...},
+    context: {}
+  }));
+};
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  // msg.type: 'step_start', 'step_complete', 'execution_complete', 'error'
+};
+```
+
+**Mensagens Recebidas:**
+
+| type | Descrição | Payload |
+|------|-----------|---------|
+| `step_start` | Início de step | `{step_id, step_index}` |
+| `step_complete` | Step finalizado | `{step_id, status, duration_ms, response}` |
+| `execution_complete` | Execução finalizada | `{summary, total_duration_ms}` |
+| `error` | Erro na execução | `{code, message}` |
+
+**Exemplo de Mensagem:**
+```json
+{
+  "type": "step_complete",
+  "step_id": "get_ip",
+  "step_index": 0,
+  "status": "passed",
+  "duration_ms": 150,
+  "response": {
+    "status_code": 200,
+    "body": {"origin": "1.2.3.4"}
+  }
+}
+```
+
+---
+
+### 9.6 Códigos de Erro da API
+
+| Código | HTTP | Descrição |
+|--------|------|-----------|
+| E6001 | 400 | Request body inválido |
+| E6002 | 400 | Parâmetro obrigatório ausente |
+| E6003 | 404 | Recurso não encontrado |
+| E6004 | 400 | Validação do plano falhou |
+| E6101 | 500 | Erro na geração LLM |
+| E6102 | 500 | Erro na execução do runner |
+| E6103 | 500 | Erro de storage/persistência |
 
 ---
 

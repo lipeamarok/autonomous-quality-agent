@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aqa"
-version = "0.3.0"
+version = "0.5.0"
 description = "Autonomous Quality Agent - LLM-powered API test generation and execution"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -31,6 +31,11 @@ dependencies = [
     "requests>=2.31.0",
     "click>=8.1.0",
     "rich>=13.0.0",
+    # API dependencies
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "websockets>=12.0",
+    "python-multipart>=0.0.6",
 ]
 
 [project.urls]
@@ -55,7 +60,7 @@ telemetry = [
 ]
 
 [tool.setuptools]
-packages = ["src", "src.cli", "src.cli.commands", "src.ingestion", "src.generator", "src.adapter", "src.llm", "src.validator", "src.runner", "src.telemetry"]
+packages = ["src", "src.cli", "src.cli.commands", "src.ingestion", "src.generator", "src.adapter", "src.llm", "src.validator", "src.runner", "src.telemetry", "src.api", "src.api.routes", "src.api.schemas", "src.api.websocket"]
 package-dir = {"" = "."}
 
 [tool.setuptools.package-data]

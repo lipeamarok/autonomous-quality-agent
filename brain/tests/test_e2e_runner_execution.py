@@ -12,7 +12,14 @@ Estes testes executam o binário do Runner Rust de verdade:
 ## Requisitos:
 
 - Rust toolchain instalado (cargo)
-- Conexão com internet (para httpbin.org)
+- Conexão com internet (para serviço HTTP de teste)
+
+## Serviços HTTP de teste (com fallback):
+
+1. httpbingo.org - Clone open-source do httpbin (primário)
+   NOTA: Funciona bem para endpoints simples (/get, /post, /headers)
+2. postman-echo.com - Serviço da Postman (fallback 1)
+3. httpbin.org - Original, frequentemente instável (fallback 2)
 
 ## Como rodar:
 
@@ -25,6 +32,8 @@ import json
 import subprocess
 import sys
 import tempfile
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Any
 
@@ -32,8 +41,123 @@ import pytest
 
 
 # ============================================================================
+# CONFIGURAÇÃO DE SERVIÇO HTTP DE TESTE
+# ============================================================================
+
+# Lista de serviços HTTP de teste em ordem de preferência
+# Cada entrada: (base_url, get_path, post_path, ip_path, headers_path)
+HTTP_TEST_SERVICES = [
+    {
+        "name": "httpbingo.org",
+        "base_url": "https://httpbingo.org",
+        "health_path": "/get",
+        "get_path": "/get",
+        "post_path": "/post",
+        "ip_path": "/ip",
+        "headers_path": "/headers",
+        "ip_json_path": "$.origin",
+    },
+    {
+        "name": "postman-echo.com",
+        "base_url": "https://postman-echo.com",
+        "health_path": "/get",
+        "get_path": "/get",
+        "post_path": "/post",
+        "ip_path": "/ip",  # Postman não tem /ip, usa /get
+        "headers_path": "/headers",
+        "ip_json_path": "$.origin",
+    },
+    {
+        "name": "httpbin.org",
+        "base_url": "https://httpbin.org",
+        "health_path": "/get",
+        "get_path": "/get",
+        "post_path": "/post",
+        "ip_path": "/ip",
+        "headers_path": "/headers",
+        "ip_json_path": "$.origin",
+    },
+]
+
+
+def _check_service_available(base_url: str, health_path: str, timeout: float = 5.0) -> bool:
+    """
+    Verifica se um serviço HTTP está disponível.
+    
+    Args:
+        base_url: URL base do serviço
+        health_path: Path para verificar disponibilidade
+        timeout: Timeout em segundos
+        
+    Returns:
+        True se o serviço responde com 200, False caso contrário
+    """
+    try:
+        url = f"{base_url}{health_path}"
+        request = urllib.request.Request(url, method="GET")
+        request.add_header("User-Agent", "AQA-Test/1.0")
+        
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status == 200
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+        return False
+
+
+def get_available_http_service() -> dict[str, str]:
+    """
+    Retorna o primeiro serviço HTTP de teste disponível.
+    
+    Testa cada serviço em ordem de preferência e retorna
+    o primeiro que responder.
+    
+    Returns:
+        Dicionário com configuração do serviço disponível
+        
+    Raises:
+        pytest.skip: Se nenhum serviço estiver disponível
+    """
+    for service in HTTP_TEST_SERVICES:
+        if _check_service_available(service["base_url"], service["health_path"]):
+            return service
+    
+    # Nenhum serviço disponível
+    pytest.skip(
+        "Nenhum serviço HTTP de teste disponível. "
+        f"Tentados: {', '.join(s['name'] for s in HTTP_TEST_SERVICES)}"
+    )
+
+
+# Cache do serviço disponível para evitar múltiplas verificações
+_cached_service: dict[str, str] | None = None
+
+
+def get_http_service() -> dict[str, str]:
+    """
+    Retorna o serviço HTTP de teste (com cache).
+    
+    Verifica disponibilidade apenas na primeira chamada.
+    """
+    global _cached_service
+    if _cached_service is None:
+        _cached_service = get_available_http_service()
+        print(f"\n[INFO] Usando serviço HTTP de teste: {_cached_service['name']}")
+    return _cached_service
+
+
+# ============================================================================
 # FIXTURES
 # ============================================================================
+
+
+@pytest.fixture(scope="module")
+def http_service() -> dict[str, str]:
+    """
+    Fixture que fornece o serviço HTTP de teste disponível.
+    
+    Scope é 'module' para verificar disponibilidade apenas uma vez
+    por módulo de teste.
+    """
+    return get_http_service()
 
 
 def get_runner_binary_path() -> Path:
@@ -142,23 +266,29 @@ def temp_output_file():
 # ============================================================================
 
 
-def create_health_check_plan() -> dict[str, Any]:
+def create_health_check_plan(service: dict[str, str] | None = None) -> dict[str, Any]:
     """
-    Plano simples: health check no httpbin.org.
+    Plano simples: health check em serviço HTTP de teste.
 
-    httpbin.org é um serviço público para testes de HTTP.
+    Usa o serviço fornecido ou detecta automaticamente um disponível.
+    
+    Args:
+        service: Configuração do serviço HTTP (opcional, auto-detecta se None)
     """
+    if service is None:
+        service = get_http_service()
+    
     return {
         "spec_version": "0.1",
         "meta": {
             "id": "e2e-health-check-001",
             "name": "e2e-health-check",
-            "description": "Teste e2e de health check",
+            "description": f"Teste e2e de health check ({service['name']})",
             "created_at": "2024-12-04T00:00:00Z",
         },
         "config": {
-            "base_url": "https://httpbin.org",
-            "timeout_ms": 10000,
+            "base_url": service["base_url"],
+            "timeout_ms": 15000,  # Timeout aumentado para serviços externos
         },
         "steps": [
             {
@@ -166,7 +296,7 @@ def create_health_check_plan() -> dict[str, Any]:
                 "action": "http_request",
                 "params": {
                     "method": "GET",
-                    "path": "/get",
+                    "path": service["get_path"],
                 },
                 "expect": {
                     "status": 200,
@@ -176,29 +306,35 @@ def create_health_check_plan() -> dict[str, Any]:
     }
 
 
-def create_multi_step_plan() -> dict[str, Any]:
+def create_multi_step_plan(service: dict[str, str] | None = None) -> dict[str, Any]:
     """
     Plano com múltiplos steps e extração de variáveis.
+    
+    Args:
+        service: Configuração do serviço HTTP (opcional, auto-detecta se None)
     """
+    if service is None:
+        service = get_http_service()
+    
     return {
         "spec_version": "0.1",
         "meta": {
             "id": "e2e-multi-step-001",
             "name": "e2e-multi-step",
-            "description": "Teste e2e com múltiplos steps",
+            "description": f"Teste e2e com múltiplos steps ({service['name']})",
             "created_at": "2024-12-04T00:00:00Z",
         },
         "config": {
-            "base_url": "https://httpbin.org",
-            "timeout_ms": 10000,
+            "base_url": service["base_url"],
+            "timeout_ms": 15000,
         },
         "steps": [
             {
-                "id": "get_ip",
+                "id": "get_data",
                 "action": "http_request",
                 "params": {
                     "method": "GET",
-                    "path": "/ip",
+                    "path": service["get_path"],
                 },
                 "expect": {
                     "status": 200,
@@ -206,7 +342,7 @@ def create_multi_step_plan() -> dict[str, Any]:
                 "extract": [
                     {
                         "source": "body",
-                        "path": "$.origin",
+                        "path": service["ip_json_path"],
                         "target": "client_ip",
                     }
                 ],
@@ -214,10 +350,10 @@ def create_multi_step_plan() -> dict[str, Any]:
             {
                 "id": "get_headers",
                 "action": "http_request",
-                "depends_on": ["get_ip"],
+                "depends_on": ["get_data"],
                 "params": {
                     "method": "GET",
-                    "path": "/headers",
+                    "path": service["headers_path"],
                 },
                 "expect": {
                     "status": 200,
@@ -227,21 +363,27 @@ def create_multi_step_plan() -> dict[str, Any]:
     }
 
 
-def create_post_request_plan() -> dict[str, Any]:
+def create_post_request_plan(service: dict[str, str] | None = None) -> dict[str, Any]:
     """
     Plano com POST request e body JSON.
+    
+    Args:
+        service: Configuração do serviço HTTP (opcional, auto-detecta se None)
     """
+    if service is None:
+        service = get_http_service()
+    
     return {
         "spec_version": "0.1",
         "meta": {
             "id": "e2e-post-request-001",
             "name": "e2e-post-request",
-            "description": "Teste e2e com POST",
+            "description": f"Teste e2e com POST ({service['name']})",
             "created_at": "2024-12-04T00:00:00Z",
         },
         "config": {
-            "base_url": "https://httpbin.org",
-            "timeout_ms": 10000,
+            "base_url": service["base_url"],
+            "timeout_ms": 15000,
         },
         "steps": [
             {
@@ -249,7 +391,7 @@ def create_post_request_plan() -> dict[str, Any]:
                 "action": "http_request",
                 "params": {
                     "method": "POST",
-                    "path": "/post",
+                    "path": service["post_path"],
                     "headers": {
                         "Content-Type": "application/json",
                     },
@@ -266,21 +408,27 @@ def create_post_request_plan() -> dict[str, Any]:
     }
 
 
-def create_failing_plan() -> dict[str, Any]:
+def create_failing_plan(service: dict[str, str] | None = None) -> dict[str, Any]:
     """
     Plano que deve falhar (assertion de status falha).
+    
+    Args:
+        service: Configuração do serviço HTTP (opcional, auto-detecta se None)
     """
+    if service is None:
+        service = get_http_service()
+    
     return {
         "spec_version": "0.1",
         "meta": {
             "id": "e2e-expected-failure-001",
             "name": "e2e-expected-failure",
-            "description": "Teste que deve falhar",
+            "description": f"Teste que deve falhar ({service['name']})",
             "created_at": "2024-12-04T00:00:00Z",
         },
         "config": {
-            "base_url": "https://httpbin.org",
-            "timeout_ms": 10000,
+            "base_url": service["base_url"],
+            "timeout_ms": 15000,
         },
         "steps": [
             {
@@ -288,13 +436,13 @@ def create_failing_plan() -> dict[str, Any]:
                 "action": "http_request",
                 "params": {
                     "method": "GET",
-                    "path": "/get",
+                    "path": service["get_path"],
                 },
                 "assertions": [
                     {
                         "type": "status_code",
                         "operator": "eq",
-                        "value": 404,  # httpbin retorna 200, não 404
+                        "value": 404,  # Serviço retorna 200, não 404
                     }
                 ],
             }
@@ -333,6 +481,7 @@ class TestRunnerExecution:
         compiled_runner: Path,
         temp_plan_file: Path,
         temp_output_file: Path,
+        http_service: dict[str, str],
     ):
         """
         Executa um plano simples de health check.
@@ -342,8 +491,8 @@ class TestRunnerExecution:
         - ExecutionReport é gerado
         - Step passou
         """
-        # Escreve o plano
-        plan = create_health_check_plan()
+        # Escreve o plano usando serviço disponível
+        plan = create_health_check_plan(http_service)
         temp_plan_file.write_text(json.dumps(plan, indent=2))
 
         # Executa o Runner
@@ -358,7 +507,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=90,  # Timeout aumentado para serviços externos
         )
 
         # Verifica execução
@@ -389,6 +538,7 @@ class TestRunnerExecution:
         compiled_runner: Path,
         temp_plan_file: Path,
         temp_output_file: Path,
+        http_service: dict[str, str],
     ):
         """
         Executa plano com múltiplos steps e dependências.
@@ -398,7 +548,7 @@ class TestRunnerExecution:
         - Dependências são respeitadas
         - Extração de variáveis funciona
         """
-        plan = create_multi_step_plan()
+        plan = create_multi_step_plan(http_service)
         temp_plan_file.write_text(json.dumps(plan, indent=2))
 
         result = subprocess.run(
@@ -412,7 +562,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=90,
         )
 
         assert result.returncode == 0, f"Runner falhou: {result.stderr}"
@@ -432,6 +582,7 @@ class TestRunnerExecution:
         compiled_runner: Path,
         temp_plan_file: Path,
         temp_output_file: Path,
+        http_service: dict[str, str],
     ):
         """
         Executa plano com POST request.
@@ -440,7 +591,7 @@ class TestRunnerExecution:
         - POST com body JSON funciona
         - Headers são enviados corretamente
         """
-        plan = create_post_request_plan()
+        plan = create_post_request_plan(http_service)
         temp_plan_file.write_text(json.dumps(plan, indent=2))
 
         result = subprocess.run(
@@ -454,7 +605,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=90,
         )
 
         assert result.returncode == 0, f"Runner falhou: {result.stderr}"
@@ -464,7 +615,7 @@ class TestRunnerExecution:
         step_result = report["steps"][0]
         assert step_result["status"] == "passed"
 
-        # httpbin retorna o body enviado em 'json'
+        # O serviço HTTP de teste retorna o body enviado
         # O Runner deve ter capturado isso no response
 
     def test_failing_step_is_reported(
@@ -472,13 +623,14 @@ class TestRunnerExecution:
         compiled_runner: Path,
         temp_plan_file: Path,
         temp_output_file: Path,
+        http_service: dict[str, str],
     ):
         """
         Verifica que falhas são reportadas corretamente.
 
         Quando o status esperado não bate, o step deve falhar.
         """
-        plan = create_failing_plan()
+        plan = create_failing_plan(http_service)
         temp_plan_file.write_text(json.dumps(plan, indent=2))
 
         # Executa o Runner (ignoramos o return code pois esperamos falha)
@@ -493,7 +645,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=90,
         )
 
         # Runner pode retornar código != 0 em falhas
@@ -515,11 +667,12 @@ class TestRunnerExecution:
         compiled_runner: Path,
         temp_plan_file: Path,
         temp_output_file: Path,
+        http_service: dict[str, str],
     ):
         """
         Runner aceita flag --verbose para mais detalhes.
         """
-        plan = create_health_check_plan()
+        plan = create_health_check_plan(http_service)
         temp_plan_file.write_text(json.dumps(plan, indent=2))
 
         result = subprocess.run(
@@ -534,7 +687,7 @@ class TestRunnerExecution:
             ],
             capture_output=True,
             text=True,
-            timeout=90,  # Increased for slow network conditions
+            timeout=120,  # Timeout aumentado para verbose + rede lenta
         )
 
         # Verbose deve funcionar
@@ -551,9 +704,10 @@ class TestExecutionReportStructure:
         compiled_runner: Path,
         temp_plan_file: Path,
         temp_output_file: Path,
+        http_service: dict[str, str],
     ):
         """Report inclui timestamps de início e fim."""
-        plan = create_health_check_plan()
+        plan = create_health_check_plan(http_service)
         temp_plan_file.write_text(json.dumps(plan, indent=2))
 
         subprocess.run(
@@ -567,7 +721,7 @@ class TestExecutionReportStructure:
             ],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=90,
         )
 
         report = json.loads(temp_output_file.read_text())
@@ -580,9 +734,10 @@ class TestExecutionReportStructure:
         compiled_runner: Path,
         temp_plan_file: Path,
         temp_output_file: Path,
+        http_service: dict[str, str],
     ):
         """Cada step result inclui duração em ms."""
-        plan = create_health_check_plan()
+        plan = create_health_check_plan(http_service)
         temp_plan_file.write_text(json.dumps(plan, indent=2))
 
         subprocess.run(
@@ -596,7 +751,7 @@ class TestExecutionReportStructure:
             ],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=90,
         )
 
         report = json.loads(temp_output_file.read_text())
@@ -610,9 +765,10 @@ class TestExecutionReportStructure:
         compiled_runner: Path,
         temp_plan_file: Path,
         temp_output_file: Path,
+        http_service: dict[str, str],
     ):
         """Summary inclui duração total da execução."""
-        plan = create_health_check_plan()
+        plan = create_health_check_plan(http_service)
         temp_plan_file.write_text(json.dumps(plan, indent=2))
 
         subprocess.run(
@@ -626,7 +782,7 @@ class TestExecutionReportStructure:
             ],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=90,
         )
 
         report = json.loads(temp_output_file.read_text())

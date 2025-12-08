@@ -525,33 +525,33 @@ on:
 jobs:
   api-tests:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Install AQA
         run: |
           cd brain && pip install -e .
           cd ../runner && cargo build --release
-      
+
       - name: Validate Plans
         run: aqa --json validate .aqa/plans/*.json
-      
+
       - name: Run API Tests
         env:
           API_USERNAME: ${{ secrets.API_USERNAME }}
           API_PASSWORD: ${{ secrets.API_PASSWORD }}
         run: |
           aqa --json run .aqa/plans/smoke-tests.json > results.json
-          
+
       - name: Check Results
         run: |
           if ! jq -e '.success' results.json; then
@@ -559,7 +559,7 @@ jobs:
             cat results.json | jq '.steps[] | select(.status == "failed")'
             exit 1
           fi
-      
+
       - name: Upload Report
         uses: actions/upload-artifact@v4
         if: always()
@@ -613,12 +613,12 @@ run-api-tests:
 // Jenkinsfile
 pipeline {
     agent any
-    
+
     environment {
         API_USERNAME = credentials('api-username')
         API_PASSWORD = credentials('api-password')
     }
-    
+
     stages {
         stage('Setup') {
             steps {
@@ -626,13 +626,13 @@ pipeline {
                 sh 'cd runner && cargo build --release'
             }
         }
-        
+
         stage('Validate') {
             steps {
                 sh 'aqa --json validate .aqa/plans/*.json'
             }
         }
-        
+
         stage('Test') {
             steps {
                 sh 'aqa --json run .aqa/plans/smoke-tests.json > results.json'
@@ -645,7 +645,7 @@ pipeline {
             }
         }
     }
-    
+
     post {
         always {
             archiveArtifacts artifacts: 'results.json', fingerprint: true
@@ -668,24 +668,24 @@ steps:
   - task: UsePythonVersion@0
     inputs:
       versionSpec: '3.11'
-  
+
   - script: pip install -e brain/
     displayName: 'Install AQA'
-  
+
   - script: |
       cd runner && cargo build --release
     displayName: 'Build Runner'
-  
+
   - script: aqa --json validate .aqa/plans/*.json
     displayName: 'Validate Plans'
-  
+
   - script: |
       aqa --json run .aqa/plans/smoke-tests.json > results.json
     displayName: 'Run API Tests'
     env:
       API_USERNAME: $(API_USERNAME)
       API_PASSWORD: $(API_PASSWORD)
-  
+
   - task: PublishTestResults@2
     inputs:
       testResultsFormat: 'JUnit'

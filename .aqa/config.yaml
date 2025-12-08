@@ -1,0 +1,32 @@
+# =============================================================================
+# AQA Configuration
+# =============================================================================
+# Este arquivo configura o Autonomous Quality Agent para este projeto.
+
+# URL base da API a ser testada
+base_url: https://api.example.com
+
+# Modelo LLM a usar para geração de planos
+# Opções: gpt-5.1, gpt-4-turbo, grok-4-1-fast-reasoning
+model: gpt-5.1
+
+# Provedor LLM (detectado automaticamente pela API key)
+# provider: openai
+
+# Timeout para requisições HTTP (em segundos)
+http_timeout: 30
+
+# Modo de execução padrão: sequential ou parallel
+execution_mode: sequential
+
+# Diretório para salvar planos gerados
+plans_dir: .aqa/plans
+
+# Diretório para salvar relatórios
+reports_dir: .aqa/reports
+
+# Variáveis de contexto customizadas
+# Estas variáveis ficam disponíveis em todos os planos via ${var_name}
+variables:
+  # api_key: "${env:API_KEY}"
+  # auth_token: "${env:AUTH_TOKEN}"

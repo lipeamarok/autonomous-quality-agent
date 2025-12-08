@@ -1,0 +1,22 @@
+# AQA Workspace Configuration
+# Gerado automaticamente pelo aqa init
+
+# URL base padrão para testes
+base_url: https://api.example.com
+
+# Configurações do LLM
+llm:
+  provider: openai  # openai, xai, anthropic
+  model: gpt-4o
+  temperature: 0.2
+
+# Configurações do Runner
+runner:
+  timeout_ms: 30000
+  max_parallel: 10
+  retry_attempts: 3
+
+# Configurações de output
+output:
+  format: text  # text, json
+  save_reports: true

@@ -4,8 +4,8 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.4.0-green.svg)](https://github.com/lipeamarok/autonomous-quality-agent/releases)
-[![Tests](https://img.shields.io/badge/tests-423%20passed-brightgreen.svg)](brain/tests/)
+[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)](https://github.com/lipeamarok/autonomous-quality-agent/releases)
+[![Tests](https://img.shields.io/badge/tests-446%20passed-brightgreen.svg)](brain/tests/)
 
 > **Transformando requisitos em testes executáveis com IA e Alta Performance.**
 
