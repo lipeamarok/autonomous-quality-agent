@@ -14,6 +14,7 @@ from .validate import router as validate_router
 from .execute import router as execute_router
 from .history import router as history_router
 from .workspace import router as workspace_router
+from .plans import router as plans_router
 
 
 def create_api_router() -> APIRouter:
@@ -28,6 +29,7 @@ def create_api_router() -> APIRouter:
     - /execute - Execução de planos
     - /history - Histórico de execuções
     - /workspace - Gerenciamento de workspace
+    - /plans - Gerenciamento de planos e versões
     """
     router = APIRouter()
 
@@ -40,6 +42,7 @@ def create_api_router() -> APIRouter:
     router.include_router(execute_router, prefix="/execute", tags=["Execute"])
     router.include_router(history_router, prefix="/history", tags=["History"])
     router.include_router(workspace_router, prefix="/workspace", tags=["Workspace"])
+    router.include_router(plans_router, prefix="/plans", tags=["Plans"])
 
     return router
 

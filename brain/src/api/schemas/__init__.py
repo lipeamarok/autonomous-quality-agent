@@ -35,6 +35,17 @@ from .workspace import (
     WorkspaceInitRequest,
     WorkspaceInitResponse,
 )
+from .plans import (
+    PlanSummary,
+    PlansListResponse,
+    PlanDetailResponse,
+    PlanVersionSummary,
+    PlanVersionsResponse,
+    PlanDiffChange,
+    PlanDiffResponse,
+    PlanRestoreRequest,
+    PlanRestoreResponse,
+)
 
 __all__ = [
     # Common
@@ -60,4 +71,14 @@ __all__ = [
     # Workspace
     "WorkspaceInitRequest",
     "WorkspaceInitResponse",
+    # Plans
+    "PlanSummary",
+    "PlansListResponse",
+    "PlanDetailResponse",
+    "PlanVersionSummary",
+    "PlanVersionsResponse",
+    "PlanDiffChange",
+    "PlanDiffResponse",
+    "PlanRestoreRequest",
+    "PlanRestoreResponse",
 ]

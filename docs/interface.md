@@ -1479,6 +1479,167 @@ Host: localhost:8080
 
 ---
 
+#### Endpoint: GET /api/v1/plans
+
+Lista todos os planos versionados.
+
+**Request:**
+```http
+GET /api/v1/plans HTTP/1.1
+Host: localhost:8080
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "plans": [
+    {
+      "name": "my-api-tests",
+      "current_version": 3,
+      "total_versions": 3,
+      "updated_at": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+#### Endpoint: GET /api/v1/plans/{plan_name}
+
+Obtém a versão atual de um plano.
+
+**Request:**
+```http
+GET /api/v1/plans/my-api-tests HTTP/1.1
+Host: localhost:8080
+```
+
+**Query Parameters:**
+- `version` (opcional): Número da versão específica
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "plan_name": "my-api-tests",
+  "version": 3,
+  "created_at": "2024-01-15T10:30:00Z",
+  "source": "llm",
+  "description": "Added auth steps",
+  "plan": {...}
+}
+```
+
+---
+
+#### Endpoint: GET /api/v1/plans/{plan_name}/versions
+
+Lista todas as versões de um plano.
+
+**Request:**
+```http
+GET /api/v1/plans/my-api-tests/versions HTTP/1.1
+Host: localhost:8080
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "plan_name": "my-api-tests",
+  "versions": [
+    {
+      "version": 1,
+      "created_at": "2024-01-10T08:00:00Z",
+      "source": "llm",
+      "description": "Initial version",
+      "llm_provider": "openai",
+      "llm_model": "gpt-4"
+    },
+    {
+      "version": 2,
+      "created_at": "2024-01-12T14:00:00Z",
+      "source": "manual",
+      "description": "Fixed assertions"
+    }
+  ],
+  "total": 2
+}
+```
+
+---
+
+#### Endpoint: GET /api/v1/plans/{plan_name}/diff
+
+Compara duas versões de um plano.
+
+**Request:**
+```http
+GET /api/v1/plans/my-api-tests/diff?version_a=1&version_b=2 HTTP/1.1
+Host: localhost:8080
+```
+
+**Query Parameters:**
+- `version_a` (obrigatório): Versão base
+- `version_b` (opcional): Versão a comparar (default: atual)
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "plan_name": "my-api-tests",
+  "version_a": 1,
+  "version_b": 2,
+  "has_changes": true,
+  "summary": "+1 steps, ~2 modified",
+  "steps_added": ["step-auth"],
+  "steps_removed": [],
+  "steps_modified": [
+    {
+      "id": "step-1",
+      "field": "step",
+      "before": {"url": "/old"},
+      "after": {"url": "/new"}
+    }
+  ],
+  "config_changes": [],
+  "meta_changes": []
+}
+```
+
+---
+
+#### Endpoint: POST /api/v1/plans/{plan_name}/versions/{version}/restore
+
+Restaura uma versão anterior, criando nova versão.
+
+**Request:**
+```http
+POST /api/v1/plans/my-api-tests/versions/1/restore HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{
+  "description": "Rollback to v1 after regression"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "plan_name": "my-api-tests",
+  "restored_from": 1,
+  "new_version": 4,
+  "created_at": "2024-01-16T09:00:00Z"
+}
+```
+
+---
+
 #### WebSocket: /ws/execute
 
 Executa plano com streaming de resultados em tempo real.
@@ -1537,6 +1698,59 @@ ws.onmessage = (event) => {
 | E6101 | 500 | Erro na geração LLM |
 | E6102 | 500 | Erro na execução do runner |
 | E6103 | 500 | Erro de storage/persistência |
+
+---
+
+### 9.7 Roadmap da API REST
+
+Esta seção documenta o status de implementação e itens planejados para versões futuras.
+
+#### Status Atual (v0.5.0)
+
+| Fase | Funcionalidade | Status |
+|------|----------------|--------|
+| **Fase 1 (MVP)** | Health check | ✅ Implementado |
+| | Generate plan | ✅ Implementado |
+| | Validate plan | ✅ Implementado |
+| | Execute plan | ✅ Implementado |
+| | History list | ✅ Implementado |
+| | Workspace init | ✅ Implementado |
+| **Fase 2** | WebSocket streaming | ✅ Implementado |
+| | History details | ✅ Implementado |
+| | History stats | ✅ Implementado |
+| | Workspace status | ✅ Implementado |
+| **Fase 3** | Plan Versioning API | ✅ Implementado (v0.5.1) |
+| | Plans CRUD | ✅ Implementado (v0.5.1) |
+
+#### Planejado para v1.0.0
+
+| Funcionalidade | Endpoint/Recurso | Descrição | Prioridade |
+|----------------|------------------|-----------|------------|
+| **Autenticação API Key** | Header `X-API-Key` | Proteção de endpoints com chave | P0 |
+| **Autenticação JWT** | Header `Authorization: Bearer` | Para SaaS/multi-tenant | P1 |
+| **Rate Limiting** | Middleware | Limite de requisições por IP/Key | P0 |
+| **Upload OpenAPI** | `POST /api/v1/openapi/upload` | Upload multipart de arquivo | P2 |
+
+#### Endpoints de Plan Versioning (Implementado v0.5.1)
+
+| Endpoint | Descrição |
+|----------|-----------|
+| `GET /api/v1/plans` | Lista todos os planos versionados |
+| `GET /api/v1/plans/{name}` | Obtém versão atual de um plano |
+| `GET /api/v1/plans/{name}/versions` | Lista versões de um plano |
+| `GET /api/v1/plans/{name}/versions/{v}` | Obtém versão específica |
+| `GET /api/v1/plans/{name}/diff` | Compara versões |
+| `POST /api/v1/plans/{name}/versions/{v}/restore` | Restaura versão anterior |
+
+#### Planejado para v2.0.0+
+
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| Mobile Testing | Endpoints para emulador Android |
+| Web UI Testing | Endpoints para Playwright/Puppeteer |
+| Data Generation | Geração de dados de teste via Faker |
+| Multi-user | Autenticação com múltiplos usuários |
+| Métricas OTEL | Telemetria e observabilidade |
 
 ---
 

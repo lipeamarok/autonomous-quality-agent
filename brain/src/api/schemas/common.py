@@ -108,7 +108,7 @@ class PaginationParams(BaseModel):
 
     page: int = Field(1, ge=1, description="Número da página (1-indexed)")
     limit: int = Field(20, ge=1, le=100, description="Itens por página")
-    
+
     @property
     def offset(self) -> int:
         """Calcula offset para queries."""

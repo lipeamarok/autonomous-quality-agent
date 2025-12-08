@@ -14,7 +14,7 @@ Estes testes validam fluxos completos de autenticação:
 ## Serviços de teste (com fallback):
 
 1. httpbingo.org - Clone open-source do httpbin (primário)
-2. postman-echo.com - Serviço da Postman (fallback 1)  
+2. postman-echo.com - Serviço da Postman (fallback 1)
 3. httpbin.org - Original, frequentemente instável (fallback 2)
 
 ## Como rodar:
@@ -134,12 +134,12 @@ HTTP_AUTH_SERVICES: list[HttpAuthServiceConfig] = [
 def _check_service_available(base_url: str, health_path: str, timeout: float = 5.0) -> bool:
     """
     Verifica se um serviço HTTP está disponível.
-    
+
     Args:
         base_url: URL base do serviço
         health_path: Path para verificar disponibilidade
         timeout: Timeout em segundos
-        
+
     Returns:
         True se o serviço responde com 200, False caso contrário
     """
@@ -147,7 +147,7 @@ def _check_service_available(base_url: str, health_path: str, timeout: float = 5
         url = f"{base_url}{health_path}"
         request = urllib.request.Request(url, method="GET")
         request.add_header("User-Agent", "AQA-Test/1.0")
-        
+
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status == 200
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
@@ -157,13 +157,13 @@ def _check_service_available(base_url: str, health_path: str, timeout: float = 5
 def get_available_auth_service() -> HttpAuthServiceConfig:
     """
     Retorna o primeiro serviço HTTP de teste de auth disponível.
-    
+
     Testa cada serviço em ordem de preferência e retorna
     o primeiro que responder.
-    
+
     Returns:
         Dicionário com configuração do serviço disponível
-        
+
     Raises:
         pytest.skip: Se nenhum serviço estiver disponível
     """
@@ -172,7 +172,7 @@ def get_available_auth_service() -> HttpAuthServiceConfig:
         health_path = str(service["health_path"])
         if _check_service_available(base_url, health_path):
             return service
-    
+
     # Nenhum serviço disponível
     pytest.skip(
         "Nenhum serviço HTTP de teste disponível. "
@@ -187,7 +187,7 @@ _cached_auth_service: HttpAuthServiceConfig | None = None
 def get_auth_service() -> HttpAuthServiceConfig:
     """
     Retorna o serviço HTTP de teste de auth (com cache).
-    
+
     Verifica disponibilidade apenas na primeira chamada.
     """
     global _cached_auth_service
@@ -205,21 +205,21 @@ def make_header_assertion(
 ) -> dict[str, Any]:
     """
     Cria uma assertion de header compatível com o formato do serviço.
-    
+
     Diferenças entre serviços:
     - httpbingo.org: retorna headers como arrays {"Header": ["value"]}
     - httpbin.org: retorna headers preservando case {"Header": "value"}
     - postman-echo.com: retorna headers em lowercase {"header": "value"}
-    
+
     NOTA: O runner não suporta bracket notation para propriedades (["prop"]),
     apenas para índices de array ([0]). Usamos dot notation.
-    
+
     Args:
         service: Configuração do serviço HTTP
         header_name: Nome do header (ex: "X-Api-Key", "Authorization")
         expected_value: Valor esperado do header
         operator: Operador de comparação (default: "eq")
-        
+
     Returns:
         Dict com a assertion configurada corretamente para o serviço
     """
@@ -229,7 +229,7 @@ def make_header_assertion(
         adjusted_header = header_name.lower()
     else:
         adjusted_header = header_name
-    
+
     if service.get("headers_as_arrays", False):
         # Para serviços que retornam headers como arrays, usamos [0] para pegar o primeiro valor
         # Usamos dot notation para o nome do header + [0] para o índice do array
@@ -253,7 +253,7 @@ def make_header_assertion(
 def http_auth_service() -> HttpAuthServiceConfig:
     """
     Fixture que fornece o serviço HTTP de teste de auth disponível.
-    
+
     Scope é 'module' para verificar disponibilidade apenas uma vez
     por módulo de teste.
     """
@@ -448,7 +448,7 @@ class TestE2EBasicAuth:
         username = "testuser"
         password = "testpass"
         encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
-        
+
         # Monta o path de basic auth (alguns serviços usam path diferente)
         basic_auth_path = http_auth_service["basic_auth_path"].format(
             user=username, passwd=password
@@ -515,11 +515,11 @@ class TestE2EBasicAuth:
         """
         if not http_auth_service.get("supports_basic_auth"):
             pytest.skip(f"{http_auth_service['name']} não suporta Basic Auth")
-            
+
         username = "testuser"
         password = "wrongpass"
         encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
-        
+
         # O path espera as credenciais corretas, mas enviamos as erradas
         basic_auth_path = http_auth_service["basic_auth_path"].format(
             user="testuser", passwd="testpass"
@@ -582,7 +582,7 @@ class TestE2EBearerAuth:
         """
         if not http_auth_service.get("supports_bearer"):
             pytest.skip(f"{http_auth_service['name']} não suporta Bearer Auth")
-            
+
         token = "my-test-token-12345"
 
         plan: dict[str, Any] = {
@@ -648,7 +648,7 @@ class TestE2EBearerAuth:
         """
         if not http_auth_service.get("supports_bearer"):
             pytest.skip(f"{http_auth_service['name']} não suporta Bearer Auth")
-            
+
         plan: dict[str, Any] = {
             "spec_version": "0.1",
             "meta": {
@@ -695,7 +695,7 @@ class TestE2EBearerAuth:
         """
         if not http_auth_service.get("supports_bearer"):
             pytest.skip(f"{http_auth_service['name']} não suporta Bearer Auth")
-            
+
         plan: dict[str, Any] = {
             "spec_version": "0.1",
             "meta": {

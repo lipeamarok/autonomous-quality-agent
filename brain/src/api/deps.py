@@ -12,7 +12,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Generator
 
-from ..cache import ExecutionHistory, PlanCache
+from ..cache import ExecutionHistory, PlanCache, PlanVersionStore
 from ..config import BrainConfig
 from ..generator import UTDLGenerator
 from ..validator import UTDLValidator
@@ -88,3 +88,17 @@ def get_plan_cache() -> Generator[PlanCache, None, None]:
     """
     cache = PlanCache.global_cache(enabled=True)
     yield cache
+
+
+def get_version_store() -> Generator[PlanVersionStore, None, None]:
+    """
+    Fornece instância de PlanVersionStore para versionamento de planos.
+
+    ## Uso em endpoint:
+
+        >>> @router.get("/plans")
+        >>> def list_plans(store: PlanVersionStore = Depends(get_version_store)):
+        ...     plans = store.list_plans()
+    """
+    store = PlanVersionStore.global_store(enabled=True)
+    yield store

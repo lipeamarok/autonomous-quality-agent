@@ -379,3 +379,58 @@ class TestRequestIdMiddleware:
         )
 
         assert response.headers.get("X-Request-ID") == custom_id
+
+
+# =============================================================================
+# Testes: Plans Endpoint
+# =============================================================================
+
+
+class TestPlansEndpoint:
+    """Testes para endpoints de gerenciamento de planos."""
+
+    def test_list_plans_returns_200(self, client: TestClient) -> None:
+        """GET /api/v1/plans retorna 200 OK."""
+        response = client.get("/api/v1/plans")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert "plans" in data
+        assert "total" in data
+
+    def test_get_plan_not_found_returns_404(self, client: TestClient) -> None:
+        """GET /api/v1/plans/{name} retorna 404 para plano inexistente."""
+        response = client.get("/api/v1/plans/nonexistent-plan-xyz")
+
+        assert response.status_code == 404
+        data = response.json()
+        assert "detail" in data
+        assert data["detail"]["code"] == "E6003"
+
+    def test_list_versions_not_found_returns_404(self, client: TestClient) -> None:
+        """GET /api/v1/plans/{name}/versions retorna 404 para plano inexistente."""
+        response = client.get("/api/v1/plans/nonexistent-plan-xyz/versions")
+
+        assert response.status_code == 404
+
+    def test_get_version_not_found_returns_404(self, client: TestClient) -> None:
+        """GET /api/v1/plans/{name}/versions/{version} retorna 404."""
+        response = client.get("/api/v1/plans/nonexistent-plan-xyz/versions/1")
+
+        assert response.status_code == 404
+
+    def test_diff_versions_not_found_returns_404(self, client: TestClient) -> None:
+        """GET /api/v1/plans/{name}/diff retorna 404 para plano inexistente."""
+        response = client.get(
+            "/api/v1/plans/nonexistent-plan-xyz/diff",
+            params={"version_a": 1}
+        )
+
+        assert response.status_code == 404
+
+    def test_restore_version_not_found_returns_404(self, client: TestClient) -> None:
+        """POST /api/v1/plans/{name}/versions/{version}/restore retorna 404."""
+        response = client.post("/api/v1/plans/nonexistent-plan-xyz/versions/1/restore")
+
+        assert response.status_code == 404

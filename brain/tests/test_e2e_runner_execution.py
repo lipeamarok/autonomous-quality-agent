@@ -83,12 +83,12 @@ HTTP_TEST_SERVICES = [
 def _check_service_available(base_url: str, health_path: str, timeout: float = 5.0) -> bool:
     """
     Verifica se um serviço HTTP está disponível.
-    
+
     Args:
         base_url: URL base do serviço
         health_path: Path para verificar disponibilidade
         timeout: Timeout em segundos
-        
+
     Returns:
         True se o serviço responde com 200, False caso contrário
     """
@@ -96,7 +96,7 @@ def _check_service_available(base_url: str, health_path: str, timeout: float = 5
         url = f"{base_url}{health_path}"
         request = urllib.request.Request(url, method="GET")
         request.add_header("User-Agent", "AQA-Test/1.0")
-        
+
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status == 200
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
@@ -106,20 +106,20 @@ def _check_service_available(base_url: str, health_path: str, timeout: float = 5
 def get_available_http_service() -> dict[str, str]:
     """
     Retorna o primeiro serviço HTTP de teste disponível.
-    
+
     Testa cada serviço em ordem de preferência e retorna
     o primeiro que responder.
-    
+
     Returns:
         Dicionário com configuração do serviço disponível
-        
+
     Raises:
         pytest.skip: Se nenhum serviço estiver disponível
     """
     for service in HTTP_TEST_SERVICES:
         if _check_service_available(service["base_url"], service["health_path"]):
             return service
-    
+
     # Nenhum serviço disponível
     pytest.skip(
         "Nenhum serviço HTTP de teste disponível. "
@@ -134,7 +134,7 @@ _cached_service: dict[str, str] | None = None
 def get_http_service() -> dict[str, str]:
     """
     Retorna o serviço HTTP de teste (com cache).
-    
+
     Verifica disponibilidade apenas na primeira chamada.
     """
     global _cached_service
@@ -153,7 +153,7 @@ def get_http_service() -> dict[str, str]:
 def http_service() -> dict[str, str]:
     """
     Fixture que fornece o serviço HTTP de teste disponível.
-    
+
     Scope é 'module' para verificar disponibilidade apenas uma vez
     por módulo de teste.
     """
@@ -271,13 +271,13 @@ def create_health_check_plan(service: dict[str, str] | None = None) -> dict[str,
     Plano simples: health check em serviço HTTP de teste.
 
     Usa o serviço fornecido ou detecta automaticamente um disponível.
-    
+
     Args:
         service: Configuração do serviço HTTP (opcional, auto-detecta se None)
     """
     if service is None:
         service = get_http_service()
-    
+
     return {
         "spec_version": "0.1",
         "meta": {
@@ -309,13 +309,13 @@ def create_health_check_plan(service: dict[str, str] | None = None) -> dict[str,
 def create_multi_step_plan(service: dict[str, str] | None = None) -> dict[str, Any]:
     """
     Plano com múltiplos steps e extração de variáveis.
-    
+
     Args:
         service: Configuração do serviço HTTP (opcional, auto-detecta se None)
     """
     if service is None:
         service = get_http_service()
-    
+
     return {
         "spec_version": "0.1",
         "meta": {
@@ -366,13 +366,13 @@ def create_multi_step_plan(service: dict[str, str] | None = None) -> dict[str, A
 def create_post_request_plan(service: dict[str, str] | None = None) -> dict[str, Any]:
     """
     Plano com POST request e body JSON.
-    
+
     Args:
         service: Configuração do serviço HTTP (opcional, auto-detecta se None)
     """
     if service is None:
         service = get_http_service()
-    
+
     return {
         "spec_version": "0.1",
         "meta": {
@@ -411,13 +411,13 @@ def create_post_request_plan(service: dict[str, str] | None = None) -> dict[str,
 def create_failing_plan(service: dict[str, str] | None = None) -> dict[str, Any]:
     """
     Plano que deve falhar (assertion de status falha).
-    
+
     Args:
         service: Configuração do serviço HTTP (opcional, auto-detecta se None)
     """
     if service is None:
         service = get_http_service()
-    
+
     return {
         "spec_version": "0.1",
         "meta": {
