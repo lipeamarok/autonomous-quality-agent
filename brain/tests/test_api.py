@@ -208,9 +208,12 @@ class TestGenerateEndpoint:
             }
         )
 
-        # Pode ser 200 (sucesso) ou 500 (LLM não configurado)
-        # O importante é que não seja 400 (bad request)
-        assert response.status_code in [200, 500]
+        # Pode ser:
+        # - 200: sucesso (LLM configurado e funcionando)
+        # - 500: erro interno
+        # - 502: LLM não configurado ou falha na API do provider
+        # O importante é que não seja 400 (bad request - input inválido)
+        assert response.status_code in [200, 500, 502]
 
 
 # =============================================================================
