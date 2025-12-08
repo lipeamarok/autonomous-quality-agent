@@ -148,20 +148,16 @@ async def generate_plan(
         # Calcula tempo de geração
         generation_time_ms = (time.time() - start_time) * 1000
 
-        # Obtém info do provider usado
-        provider_used = getattr(generator, "_last_provider_used", None)
-        if provider_used:
-            provider_name = provider_used.value if hasattr(provider_used, "value") else str(provider_used)
-        else:
-            provider_name = None
+        # Obtém metadados da geração
+        metadata = generator.get_last_generation_metadata()
 
         return GenerateResponse(
             success=True,
             plan=plan.to_dict(),
-            cached=False,  # TODO: detectar se veio do cache
-            provider=provider_name,
-            model=None,  # TODO: obter do generator
-            tokens_used=None,  # TODO: obter do response
+            cached=metadata.cached if metadata else False,
+            provider=metadata.provider if metadata else None,
+            model=metadata.model if metadata else None,
+            tokens_used=metadata.tokens_used if metadata else None,
             generation_time_ms=generation_time_ms,
         )
 

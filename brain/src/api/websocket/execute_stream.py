@@ -300,8 +300,10 @@ async def _handle_execute(
     ).to_json())
 
     try:
-        # Simula eventos de step (o Runner real não emite eventos ainda)
-        # TODO: Integrar com telemetria do Runner para eventos reais
+        # Envia eventos simulados de início de step enquanto execução ocorre em background
+        # Nota: Para streaming real em tempo real, o Runner Rust precisaria emitir
+        # eventos via IPC durante execução. Atualmente, executamos primeiro e
+        # depois enviamos os resultados.
         for i, step in enumerate(plan.steps):
             # Evento: Step iniciado
             await websocket.send_text(ExecutionEvent(
@@ -328,6 +330,10 @@ async def _handle_execute(
 
         # Envia resultados de cada step
         for i, step_result in enumerate(runner_result.steps):
+            # Conta assertions
+            assertions_passed = sum(1 for a in step_result.assertions_results if a.passed)
+            assertions_failed = sum(1 for a in step_result.assertions_results if not a.passed)
+
             await websocket.send_text(ExecutionEvent(
                 event="step_completed",
                 data={
@@ -335,6 +341,9 @@ async def _handle_execute(
                     "status": step_result.status,
                     "duration_ms": step_result.duration_ms,
                     "error": step_result.error,
+                    "assertions_passed": assertions_passed if step_result.assertions_results else None,
+                    "assertions_failed": assertions_failed if step_result.assertions_results else None,
+                    "extractions": step_result.extractions if step_result.extractions else None,
                 }
             ).to_json())
 

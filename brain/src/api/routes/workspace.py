@@ -16,13 +16,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from ..deps import get_execution_history
 from ..schemas.workspace import (
     WorkspaceInitRequest,
     WorkspaceInitResponse,
     WorkspaceStatusResponse,
 )
+from ...cache import ExecutionHistory
 
 
 router = APIRouter()
@@ -158,7 +160,9 @@ async def init_workspace(
     summary="Status do Workspace",
     description="Retorna informações sobre o workspace atual.",
 )
-async def workspace_status() -> WorkspaceStatusResponse:
+async def workspace_status(
+    history: ExecutionHistory = Depends(get_execution_history),
+) -> WorkspaceStatusResponse:
     """
     Retorna status do workspace atual.
     """
@@ -180,9 +184,8 @@ async def workspace_status() -> WorkspaceStatusResponse:
     if plans_path.exists():
         plans_count = len(list(plans_path.glob("*.json")))
 
-    # Conta histórico
-    # TODO: usar ExecutionHistory.count()
-    history_count = 0
+    # Conta histórico usando ExecutionHistory.count()
+    history_count = history.count()
 
     # Lê config
     config = None

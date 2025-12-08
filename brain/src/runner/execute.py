@@ -79,6 +79,28 @@ from ..validator import Plan
 
 
 @dataclass
+class AssertionResult:
+    """
+    Resultado de uma assertion individual.
+
+    ## Atributos:
+        type: Tipo da assertion (status_code, json_body, header, latency_lt)
+        passed: Se a assertion passou
+        expected: Valor esperado
+        actual: Valor obtido
+        path: Path JSON ou nome do header (opcional)
+        message: Mensagem explicativa se falhou (opcional)
+    """
+
+    type: str
+    passed: bool
+    expected: Any | None = None
+    actual: Any | None = None
+    path: str | None = None
+    message: str | None = None
+
+
+@dataclass
 class StepResult:
     """
     Resultado da execução de um único step.
@@ -99,12 +121,20 @@ class StepResult:
 
         error: Mensagem de erro, se houver falha.
             Exemplo: "Connection refused" ou None se sucesso
+
+        assertions_results: Lista de resultados de assertions (opcional)
+            Cada item contém: type, passed, expected, actual
+
+        extractions: Variáveis extraídas deste step (opcional)
+            Exemplo: {"token": "abc123", "user_id": 42}
     """
 
     step_id: str
     status: str
     duration_ms: float
     error: str | None = None
+    assertions_results: list[AssertionResult] = field(default_factory=list)
+    extractions: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -406,12 +436,31 @@ def _parse_report(report: dict[str, Any]) -> RunnerResult:
     # Converte cada resultado de step
     steps: list[StepResult] = []
     for step_result in report.get("results", []):
+        # Parseia assertions_results se existirem
+        assertions_list: list[AssertionResult] = []
+        for ar in step_result.get("assertions_results", []):
+            assertions_list.append(
+                AssertionResult(
+                    type=ar.get("type", "unknown"),
+                    passed=ar.get("passed", False),
+                    expected=ar.get("expected"),
+                    actual=ar.get("actual"),
+                    path=ar.get("path"),
+                    message=ar.get("message"),
+                )
+            )
+
+        # Extrai extractions se existirem
+        extractions: dict[str, Any] = step_result.get("extractions", {})
+
         steps.append(
             StepResult(
                 step_id=step_result.get("step_id", "unknown"),
                 status=step_result.get("status", "unknown"),
                 duration_ms=step_result.get("duration_ms", 0),
                 error=step_result.get("error"),
+                assertions_results=assertions_list,
+                extractions=extractions,
             )
         )
 

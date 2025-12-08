@@ -258,9 +258,9 @@ async def delete_execution(
     - A exclusão é permanente
     - Retorna erro 404 se não encontrar
     """
-    record = history.get_full_record(execution_id)
+    deleted = history.delete(execution_id)
 
-    if not record:
+    if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
@@ -268,10 +268,6 @@ async def delete_execution(
                 "message": f"Execução não encontrada: {execution_id}",
             },
         )
-
-    # TODO: Implementar delete no ExecutionHistory
-    # Por enquanto, apenas retorna sucesso (não deleta de verdade)
-    # history.delete(execution_id)
 
     return {
         "success": True,

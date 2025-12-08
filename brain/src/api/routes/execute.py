@@ -87,15 +87,22 @@ def _create_step_results(result: RunnerResult) -> list[StepResultSchema]:
         else:
             step_status = "failed"
 
+        # Conta assertions passadas e falhadas
+        assertions_passed = sum(1 for a in step.assertions_results if a.passed)
+        assertions_failed = sum(1 for a in step.assertions_results if not a.passed)
+
+        # Extrai extractions se houver
+        extractions = step.extractions if step.extractions else None
+
         step_results.append(
             StepResultSchema(
                 step_id=step.step_id,
                 status=step_status,
                 duration_ms=step.duration_ms,
                 error=step.error,
-                assertions_passed=None,  # TODO: extrair do raw_report
-                assertions_failed=None,
-                extractions=None,
+                assertions_passed=assertions_passed if step.assertions_results else None,
+                assertions_failed=assertions_failed if step.assertions_results else None,
+                extractions=extractions,
             )
         )
 

@@ -1125,6 +1125,110 @@ class ExecutionHistory:
                 "history_dir": str(self.history_dir),
             }
 
+    def count(self) -> int:
+        """
+        Retorna o número total de registros no histórico.
+
+        ## Retorno:
+
+        Número inteiro de registros (0 se desabilitado).
+
+        ## Exemplo:
+
+            >>> history = ExecutionHistory()
+            >>> history.count()
+            42
+        """
+        if not self.enabled:
+            return 0
+
+        with self._lock:
+            return len(self._index)
+
+    def delete(self, record_id: str) -> bool:
+        """
+        Remove um registro específico do histórico.
+
+        ## Parâmetros:
+
+        - `record_id`: ID do registro a remover
+
+        ## Retorno:
+
+        True se o registro foi removido, False se não encontrado.
+
+        ## Exemplo:
+
+            >>> history = ExecutionHistory()
+            >>> history.delete("abc123")
+            True
+        """
+        if not self.enabled:
+            return False
+
+        with self._lock:
+            # Busca no índice
+            for i, entry in enumerate(self._index):
+                if entry.get("id") == record_id:
+                    # Remove arquivo físico
+                    file_path = self.history_dir / entry["file"]
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                        except (IOError, OSError):
+                            pass  # Ignora erro ao deletar arquivo
+
+                    # Remove do índice
+                    self._index.pop(i)
+                    self._save_index()
+                    return True
+
+            return False
+
+    def delete_bulk(self, record_ids: list[str]) -> int:
+        """
+        Remove múltiplos registros do histórico de uma vez.
+
+        ## Parâmetros:
+
+        - `record_ids`: Lista de IDs dos registros a remover
+
+        ## Retorno:
+
+        Número de registros efetivamente removidos.
+
+        ## Exemplo:
+
+            >>> history = ExecutionHistory()
+            >>> history.delete_bulk(["abc123", "def456"])
+            2
+        """
+        if not self.enabled or not record_ids:
+            return 0
+
+        ids_set = set(record_ids)
+        deleted = 0
+
+        with self._lock:
+            new_index: list[dict[str, Any]] = []
+            for entry in self._index:
+                if entry.get("id") in ids_set:
+                    # Remove arquivo físico
+                    file_path = self.history_dir / entry["file"]
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                            deleted += 1
+                        except (IOError, OSError):
+                            pass
+                else:
+                    new_index.append(entry)
+
+            self._index = new_index
+            self._save_index()
+
+        return deleted
+
     def clear_all(self) -> None:
         """
         Remove todos os registros do histórico.

@@ -53,7 +53,7 @@ import json
 import re
 
 # typing: Anotações de tipo para melhor documentação e checagem
-# (removido Any pois não é mais usado)
+from dataclasses import dataclass, field
 
 # ValidationError: Exceção lançada quando dados não passam na validação
 from pydantic import ValidationError
@@ -69,6 +69,26 @@ from .prompts import ERROR_CORRECTION_PROMPT, SYSTEM_PROMPT, USER_PROMPT_TEMPLAT
 
 # Cache: Sistema de cache para evitar chamadas repetidas ao LLM
 from ..cache import PlanCache
+
+
+# =============================================================================
+# METADADOS DA GERAÇÃO
+# =============================================================================
+
+
+@dataclass
+class GenerationMetadata:
+    """
+    Metadados da última geração realizada.
+    
+    Permite à API retornar informações sobre provider, modelo,
+    cache e tokens usados.
+    """
+    provider: str | None = None
+    model: str | None = None
+    cached: bool = False
+    tokens_used: int | None = None
+    correction_attempts: int = 0
 
 
 # =============================================================================
@@ -165,6 +185,7 @@ class UTDLGenerator:
         self.max_correction_attempts = max_correction_attempts
         self.verbose = verbose
         self._last_provider_used: ProviderName | None = None
+        self._last_generation_metadata: GenerationMetadata | None = None
 
         # Configura cache
         self._cache_enabled = cache_enabled
@@ -247,6 +268,14 @@ class UTDLGenerator:
             if cached_plan is not None:
                 if self.verbose:
                     print("[Cache HIT] Retornando plano do cache")
+                # Armazena metadados da geração (cache hit)
+                self._last_generation_metadata = GenerationMetadata(
+                    provider=provider_name,
+                    model=model_name,
+                    cached=True,
+                    tokens_used=0,
+                    correction_attempts=0,
+                )
                 # Converte dict para Plan
                 return Plan.model_validate(cached_plan)
 
@@ -277,6 +306,15 @@ class UTDLGenerator:
 
             # Se validou com sucesso, armazena no cache e retorna!
             if plan is not None:
+                # Armazena metadados da geração (LLM call)
+                self._last_generation_metadata = GenerationMetadata(
+                    provider=provider_name,
+                    model=model_name,
+                    cached=False,
+                    tokens_used=None,  # TODO: capturar do LiteLLM response
+                    correction_attempts=attempt,
+                )
+
                 # Armazena no cache para próximas chamadas
                 if self._cache_enabled:
                     self._cache.store(
@@ -339,6 +377,21 @@ class UTDLGenerator:
             provider=self._primary_provider.value,
             model=self._provider.primary_model,
         )
+
+    def get_last_generation_metadata(self) -> GenerationMetadata | None:
+        """
+        Retorna metadados da última geração.
+
+        ## Retorna:
+            GenerationMetadata com provider, model, cached, tokens_used
+            ou None se nenhuma geração foi feita ainda.
+
+        ## Uso:
+            >>> plan = generator.generate("testar login")
+            >>> meta = generator.get_last_generation_metadata()
+            >>> print(f"Provider: {meta.provider}, Cached: {meta.cached}")
+        """
+        return self._last_generation_metadata
 
     def clear_cache(self) -> int:
         """

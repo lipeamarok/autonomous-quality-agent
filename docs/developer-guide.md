@@ -13,6 +13,7 @@
 7. [Padrões de Código](#7-padrões-de-código)
 8. [Fluxo de Contribuição](#8-fluxo-de-contribuição)
 9. [CI/CD](#9-cicd)
+10. [Internacionalização (i18n)](#10-internacionalização-i18n---roadmap-pós-10)
 
 ---
 
@@ -795,3 +796,88 @@ make demo      # Rodar demo
 - Leia a [Architecture](./architecture.md) para decisões técnicas
 - Consulte o [User Guide](./user-guide.md) para uso
 - Veja [Error Codes](./error_codes.md) para referência
+
+---
+
+## 10. Internacionalização (i18n) - Roadmap Pós 1.0
+
+> Esta seção documenta a abordagem planejada para i18n após o MVP 1.0.
+
+### Status Atual
+
+O AQA v1.0 é desenvolvido primariamente em português brasileiro (pt-BR) para:
+- Documentação de código (docstrings)
+- Mensagens de erro estruturadas
+- Logs e outputs do CLI
+- Documentação técnica
+
+### Estratégia de i18n Pós 1.0
+
+#### Fase 1: Preparação (v1.1)
+
+1. **Separar strings do código**
+   - Criar módulo `brain/src/i18n/` com mensagens externalizadas
+   - Usar chaves semânticas: `error.validation.required_field`
+   - Manter pt-BR como fallback
+
+2. **Formato de arquivos de tradução**
+   ```
+   brain/src/i18n/
+   ├── __init__.py       # Loader e API
+   ├── messages/
+   │   ├── pt_BR.json    # Português (base)
+   │   ├── en_US.json    # Inglês
+   │   └── es_ES.json    # Espanhol
+   ```
+
+3. **API proposta**
+   ```python
+   from src.i18n import t
+
+   # Uso simples
+   message = t("error.plan_not_found")
+
+   # Com interpolação
+   message = t("error.step_failed", step_id="login", status="timeout")
+   ```
+
+#### Fase 2: Implementação (v1.2)
+
+1. **Detecção de locale**
+   - Via header `Accept-Language` na API
+   - Via env `AQA_LOCALE` para CLI
+   - Via config `~/.aqa/config.yaml`
+
+2. **Componentes a traduzir**
+   - Mensagens de erro (códigos E1xxx-E5xxx)
+   - Output do CLI (help, status, resultados)
+   - Documentação da API (OpenAPI descriptions)
+
+3. **Componentes que NÃO traduzir**
+   - Nomes de campos JSON (API contracts)
+   - Códigos de erro (E1001, E2001, etc.)
+   - IDs de steps e planos
+   - Logs técnicos de debug
+
+#### Considerações Técnicas
+
+- **Biblioteca**: Avaliar `python-i18n` ou `babel`
+- **Cache**: Carregar traduções uma vez no startup
+- **Fallback**: Se tradução não existe, usar pt-BR
+- **Contribuições**: Aceitar PRs com traduções via Crowdin/Weblate
+
+#### Timeline Estimado
+
+| Versão | Milestone |
+|--------|-----------|
+| v1.0   | MVP - apenas pt-BR |
+| v1.1   | Externalizar strings, adicionar en-US |
+| v1.2   | Suporte completo a múltiplos locales |
+
+### Como Contribuir com Traduções (Futuro)
+
+Após v1.1:
+1. Fork do repositório
+2. Copiar `messages/pt_BR.json` para novo locale
+3. Traduzir strings mantendo chaves
+4. Abrir PR com nova tradução
