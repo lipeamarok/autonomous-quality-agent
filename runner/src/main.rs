@@ -368,6 +368,20 @@ async fn execute_plan(
         "execution_id",
         serde_json::Value::String(execution_id.to_string()),
     );
+    // Adiciona timeout_ms global ao contexto
+    context.set(
+        "timeout_ms",
+        serde_json::Value::Number(plan.config.timeout_ms.into()),
+    );
+    // Adiciona global_headers ao contexto como objeto JSON
+    let global_headers_value: serde_json::Value = plan
+        .config
+        .global_headers
+        .iter()
+        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+        .collect::<serde_json::Map<String, serde_json::Value>>()
+        .into();
+    context.set("global_headers", global_headers_value);
     context.extend(&plan.config.variables);
 
     // Cria os executores para cada tipo de action.
@@ -412,6 +426,7 @@ async fn execute_plan(
     let report = ExecutionReport {
         execution_id: execution_id.to_string(),
         plan_id: plan.meta.id.clone(),
+        plan_name: plan.meta.name.clone(),
         status: if all_passed {
             "passed".to_string()
         } else {
@@ -419,6 +434,13 @@ async fn execute_plan(
         },
         start_time: start_time.to_rfc3339(),
         end_time: end_time.to_rfc3339(),
+        duration_ms,
+        runner_version: env!("CARGO_PKG_VERSION").to_string(),
+        execution_mode: if parallel {
+            "parallel".to_string()
+        } else {
+            "sequential".to_string()
+        },
         summary,
         steps: step_results,
     };
@@ -482,10 +504,12 @@ async fn execute_sequential(
                     step_id: step.id.clone(),
                     status: StepStatus::Failed,
                     duration_ms: 0,
+                    attempt: 1,
                     error: Some(format!("Unknown action: {}", step.action)),
                     context_before: Some(context_snapshot.clone()),
                     context_after: Some(context_snapshot),
                     extractions: None,
+                    http_details: None,
                 }
             }
         };
@@ -564,10 +588,12 @@ async fn execute_step_with_retry(
                         step_id: step.id.clone(),
                         status: StepStatus::Passed, // Ignora falha
                         duration_ms: result.duration_ms,
+                        attempt,
                         error: None,
                         context_before: result.context_before,
                         context_after: result.context_after,
                         extractions: result.extractions,
+                        http_details: result.http_details,
                     };
                 }
 
@@ -586,10 +612,12 @@ async fn execute_step_with_retry(
                         step_id: step.id.clone(),
                         status: StepStatus::Passed,
                         duration_ms: 0,
+                        attempt,
                         error: None,
                         context_before: Some(context_before),
                         context_after: Some(context_after),
                         extractions: None,
+                        http_details: None,
                     };
                 }
 
@@ -598,10 +626,12 @@ async fn execute_step_with_retry(
                         step_id: step.id.clone(),
                         status: StepStatus::Failed,
                         duration_ms: 0,
+                        attempt,
                         error: Some(e.to_string()),
                         context_before: Some(context_before),
                         context_after: Some(context_after),
                         extractions: None,
+                        http_details: None,
                     };
                 }
             }

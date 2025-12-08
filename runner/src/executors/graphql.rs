@@ -292,10 +292,12 @@ impl StepExecutor for GraphqlExecutor {
                 StepStatus::Failed
             },
             duration_ms,
+            attempt: 1,
             error: error_message,
             context_before: None,
             context_after: None,
             extractions: None,
+            http_details: None, // TODO: Adicionar detalhes GraphQL futuramente
         })
     }
 }

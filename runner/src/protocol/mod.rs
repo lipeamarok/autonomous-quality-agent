@@ -429,6 +429,10 @@ pub struct StepResult {
     /// Duração da execução em milissegundos.
     pub duration_ms: u64,
 
+    /// Número da tentativa (1 = primeira, 2+ = retry).
+    #[serde(default = "default_attempt")]
+    pub attempt: u32,
+
     /// Mensagem de erro (se status for Failed).
     ///
     /// `#[serde(skip_serializing_if)]` faz com que não apareça no JSON se for None.
@@ -449,6 +453,42 @@ pub struct StepResult {
     /// Inclui sucesso/falha de cada regra de extração.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extractions: Option<Vec<ExtractionResult>>,
+
+    /// Detalhes HTTP da requisição (apenas para steps HTTP).
+    /// Inclui método, URL, status code e latência.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_details: Option<HttpDetails>,
+}
+
+/// Detalhes de uma requisição HTTP executada.
+///
+/// Incluído no StepResult para steps do tipo HTTP.
+/// Fornece visibilidade sobre a requisição real feita.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct HttpDetails {
+    /// Método HTTP usado (GET, POST, PUT, DELETE, etc.).
+    pub method: String,
+
+    /// URL completa da requisição (com base_url e query params).
+    pub url: String,
+
+    /// Status code HTTP retornado (200, 404, 500, etc.).
+    pub status_code: u16,
+
+    /// Latência da requisição em milissegundos.
+    pub latency_ms: u64,
+
+    /// Headers da requisição (opcional, para debug).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_headers: Option<HashMap<String, String>>,
+
+    /// Headers da resposta (opcional, para debug).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_headers: Option<HashMap<String, String>>,
+}
+
+fn default_attempt() -> u32 {
+    1
 }
 
 // ============================================================================
@@ -486,6 +526,9 @@ pub struct ExecutionReport {
     /// ID do plano executado.
     pub plan_id: String,
 
+    /// Nome do plano executado.
+    pub plan_name: String,
+
     /// Status geral: "passed" se todos passaram, "failed" se algum falhou.
     pub status: String,
 
@@ -494,6 +537,15 @@ pub struct ExecutionReport {
 
     /// Data/hora de fim em formato ISO8601.
     pub end_time: String,
+
+    /// Duração total em milissegundos (root level para fácil acesso).
+    pub duration_ms: u64,
+
+    /// Versão do Runner que executou.
+    pub runner_version: String,
+
+    /// Modo de execução: "sequential" ou "parallel".
+    pub execution_mode: String,
 
     /// Resumo estatístico da execução.
     pub summary: ExecutionSummary,

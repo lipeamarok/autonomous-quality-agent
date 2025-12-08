@@ -205,10 +205,12 @@ impl StepExecutor for WaitExecutor {
             step_id: step.id.clone(),
             status: StepStatus::Passed,
             duration_ms: elapsed,
+            attempt: 1,
             error: None,
             context_before: None,
             context_after: None,
             extractions: None,
+            http_details: None,
         })
     }
 }

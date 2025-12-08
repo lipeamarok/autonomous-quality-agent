@@ -36,7 +36,7 @@
 use super::StepExecutor;
 use crate::context::Context;
 use crate::extractors::{ExtractionResult, Extractor};
-use crate::protocol::{Assertion, Extraction, Step, StepResult, StepStatus};
+use crate::protocol::{Assertion, Extraction, HttpDetails, Step, StepResult, StepStatus};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use jsonschema::JSONSchema;
@@ -633,7 +633,7 @@ impl StepExecutor for HttpExecutor {
 
         // Se o path já é uma URL completa, usa diretamente.
         // Senão, combina com a base_url do contexto.
-        let url = if interpolated_path.starts_with("http") {
+        let mut url = if interpolated_path.starts_with("http") {
             interpolated_path
         } else {
             let base = context
@@ -642,6 +642,30 @@ impl StepExecutor for HttpExecutor {
                 .unwrap_or("");
             format!("{}{}", base.trim_end_matches('/'), interpolated_path)
         };
+
+        // ====================================================================
+        // PASSO 2.1: QUERY PARAMETERS
+        // ====================================================================
+
+        // Adiciona query_params à URL se presentes.
+        if let Some(query_params) = params.get("query_params").and_then(|q| q.as_object()) {
+            let mut query_parts: Vec<String> = Vec::new();
+            for (k, v) in query_params {
+                // Interpola o valor do parâmetro
+                let value_str = match v {
+                    serde_json::Value::String(s) => context.interpolate_str(s)?,
+                    other => other.to_string().trim_matches('"').to_string(),
+                };
+                // URL-encode key e value
+                let encoded_key = urlencoding::encode(k);
+                let encoded_value = urlencoding::encode(&value_str);
+                query_parts.push(format!("{}={}", encoded_key, encoded_value));
+            }
+            if !query_parts.is_empty() {
+                let separator = if url.contains('?') { "&" } else { "?" };
+                url = format!("{}{}{}", url, separator, query_parts.join("&"));
+            }
+        }
 
         // Converte a string do método para o enum Method.
         let method = Method::from_bytes(method_str.as_bytes())
@@ -657,7 +681,17 @@ impl StepExecutor for HttpExecutor {
 
         let mut request_builder = self.client.request(method, &url);
 
-        // Adiciona headers (com interpolação de variáveis).
+        // Aplica global_headers primeiro (do config do plano).
+        if let Some(global_headers) = context.get("global_headers").and_then(|h| h.as_object()) {
+            for (k, v) in global_headers {
+                if let Some(v_str) = v.as_str() {
+                    let value = context.interpolate_str(v_str)?;
+                    request_builder = request_builder.header(k, value);
+                }
+            }
+        }
+
+        // Adiciona headers do step (sobrescrevem global_headers).
         if let Some(headers) = params.get("headers").and_then(|h| h.as_object()) {
             for (k, v) in headers {
                 if let Some(v_str) = v.as_str() {
@@ -672,6 +706,15 @@ impl StepExecutor for HttpExecutor {
             let resolved = context.interpolate_value(body)?;
             request_builder = request_builder.json(&resolved);
         }
+
+        // Aplica timeout (do step ou global).
+        let timeout_ms = params
+            .get("timeout_ms")
+            .and_then(|t| t.as_u64())
+            .or_else(|| context.get("timeout_ms").and_then(|t| t.as_u64()))
+            .unwrap_or(30000); // Default: 30 segundos
+
+        request_builder = request_builder.timeout(std::time::Duration::from_millis(timeout_ms));
 
         // ====================================================================
         // PASSO 4: EXECUÇÃO DA REQUISIÇÃO
@@ -718,10 +761,19 @@ impl StepExecutor for HttpExecutor {
                         step_id: step.id.clone(),
                         status: StepStatus::Failed,
                         duration_ms: duration,
+                        attempt: 1,
                         error: Some(error_msg),
                         context_before: Some(context_before),
                         context_after: Some(context.variables.clone()),
                         extractions: None,
+                        http_details: Some(HttpDetails {
+                            method: method_str.to_string(),
+                            url: url.clone(),
+                            status_code: status,
+                            latency_ms: duration,
+                            request_headers: None,
+                            response_headers: None,
+                        }),
                     });
                 }
 
@@ -737,6 +789,7 @@ impl StepExecutor for HttpExecutor {
                     step_id: step.id.clone(),
                     status: StepStatus::Passed,
                     duration_ms: duration,
+                    attempt: 1,
                     error: None,
                     context_before: Some(context_before),
                     context_after: Some(context_after),
@@ -745,6 +798,14 @@ impl StepExecutor for HttpExecutor {
                     } else {
                         Some(extraction_results)
                     },
+                    http_details: Some(HttpDetails {
+                        method: method_str.to_string(),
+                        url: url.clone(),
+                        status_code: status,
+                        latency_ms: duration,
+                        request_headers: None,
+                        response_headers: None,
+                    }),
                 })
             }
             Err(e) => {
@@ -754,10 +815,19 @@ impl StepExecutor for HttpExecutor {
                     step_id: step.id.clone(),
                     status: StepStatus::Failed,
                     duration_ms: duration,
+                    attempt: 1,
                     error: Some(e.to_string()),
                     context_before: Some(context_before),
                     context_after: Some(context.variables.clone()),
                     extractions: None,
+                    http_details: Some(HttpDetails {
+                        method: method_str.to_string(),
+                        url: url.clone(),
+                        status_code: 0, // Sem resposta (erro de rede)
+                        latency_ms: duration,
+                        request_headers: None,
+                        response_headers: None,
+                    }),
                 })
             }
         }

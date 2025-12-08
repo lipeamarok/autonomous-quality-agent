@@ -342,10 +342,12 @@ impl DagPlanner {
                             step_id: step_id.clone(),
                             status: StepStatus::Skipped,
                             duration_ms: 0,
+                            attempt: 1,
                             error: Some(format!("Dependency '{}' failed", dep)),
                             context_before: Some(context_snapshot.clone()),
                             context_after: Some(context_snapshot),
                             extractions: None,
+                            http_details: None,
                         };
 
                         results_clone.lock().await.push(result);
@@ -373,10 +375,12 @@ impl DagPlanner {
                                         step_id: step_id.clone(),
                                         status: StepStatus::Failed,
                                         duration_ms: 0,
+                                        attempt: 1,
                                         error: Some(e.to_string()),
                                         context_before: Some(context_before),
                                         context_after: Some(context_after),
                                         extractions: None,
+                                        http_details: None,
                                     }
                                 }
                             }
@@ -389,10 +393,12 @@ impl DagPlanner {
                                 step_id: step_id.clone(),
                                 status: StepStatus::Failed,
                                 duration_ms: 0,
+                                attempt: 1,
                                 error: Some(format!("No executor for action: {}", step.action)),
                                 context_before: Some(context_snapshot.clone()),
                                 context_after: Some(context_snapshot),
                                 extractions: None,
+                                http_details: None,
                             }
                         }
                     };
