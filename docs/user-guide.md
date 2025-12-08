@@ -158,12 +158,11 @@ Comandos:
 | `history` | ✅ **Estável** | Requer storage configurado |
 | `show` | ✅ **Estável** | Visualização de planos |
 | `plan` | ⚠️ **Alias** | Alias para `generate` |
-| `planversion` | 🧪 **Experimental** | API pode mudar em versões futuras |
+| `planversion` | ✅ **Estável** | Gerenciamento de versões de planos |
 
 **Legenda:**
 - ✅ **Estável**: Pode ser usado em produção, API não mudará
 - ⚠️ **Alias**: Redirecionamento para outro comando
-- 🧪 **Experimental**: Funcional mas API pode sofrer alterações
 
 ### Flags Globais
 

@@ -31,10 +31,14 @@ from fastapi import FastAPI, Request, status, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+from slowapi.errors import RateLimitExceeded  # type: ignore[import-untyped]
 
 from .config import APIConfig
+from .rate_limit import get_rate_limiter, rate_limit_exceeded_handler, get_rate_limit_config
 from .routes import create_api_router
+from .telemetry import TelemetryMiddleware
 from .websocket import ExecutionStreamManager, websocket_execute
+from ..telemetry.tracer import TelemetryConfig
 
 
 # Versão do AQA (sincronizada com pyproject.toml)
@@ -127,6 +131,18 @@ API REST para geração e execução de testes de API usando IA.
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Configura Rate Limiting
+    rate_limit_config = get_rate_limit_config()
+    if rate_limit_config.enabled:
+        limiter = get_rate_limiter()
+        app.state.limiter = limiter
+        app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+    # Configura Telemetria OTEL
+    telemetry_config = TelemetryConfig()
+    if telemetry_config.enabled:
+        app.add_middleware(TelemetryMiddleware)
 
     # Middleware para adicionar request_id
     # Nota: Funções decoradas são registradas pelo FastAPI, não acessadas diretamente

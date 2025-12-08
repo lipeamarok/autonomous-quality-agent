@@ -23,7 +23,7 @@
 | `demo` | ✅ Estável | P3 | Baixa |
 | `history` | ✅ Estável | P1 | Média |
 | `show` | ✅ Estável | P1 | Média |
-| `planversion` | 🧪 Experimental | P2 | Alta |
+| `planversion` | ✅ Estável | P1 | Alta |
 
 ### Funções Core para Expor via API
 
@@ -34,7 +34,7 @@
 | `validator/utdl_validator.py` | `UTDLValidator.validate()` | `POST /api/v1/plans/validate` | ✅ Estável |
 | `runner/execute.py` | `run_plan()` | `POST /api/v1/execute` | ✅ Estável |
 | `cache.py` | `ExecutionHistory` | `GET /api/v1/history` | ✅ Estável |
-| `cache.py` | `PlanVersionStore` | `GET /api/v1/planversions` | 🧪 Experimental |
+| `cache.py` | `PlanVersionStore` | `GET /api/v1/plans` | ✅ Estável |
 | `ingestion/security.py` | `detect_security()` | `POST /api/v1/openapi/security` | ✅ Estável |
 | `ingestion/swagger.py` | `parse_openapi()` | `POST /api/v1/openapi/parse` | ✅ Estável |
 | `llm/providers.py` | `get_llm_provider()` | `GET /api/v1/llm/status` | ✅ Estável |
