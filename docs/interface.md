@@ -1,67 +1,1180 @@
-# Interface Reference Document — Pontos de Conexão para UI
+# Interface Reference Document — AQA Web UI
 
-> **Objetivo**: Mapear todos os pontos de conexão entre o sistema CLI atual e a futura interface de usuário, facilitando a transição de comandos técnicos para componentes visuais intuitivos.
+> **Objetivo**: Guia completo para implementação da interface web do Autonomous Quality Agent (AQA), incluindo arquitetura, stack tecnológico, componentes, e integração com a API REST existente.
 
-**Versão:** 1.4.0
-**Última atualização:** 2024-12-06
-**Status:** Enterprise-ready (API REST Implementada)
-
----
-
-## Quick Reference — Resumo Executivo
-
-### Estabilidade dos Comandos CLI
-
-| Comando | Status | Prioridade UI | Complexidade |
-|---------|--------|---------------|--------------|
-| `init` | ✅ Estável | P0 | Baixa |
-| `generate` | ✅ Estável | P0 | Alta |
-| `validate` | ✅ Estável | P0 | Baixa |
-| `run` | ✅ Estável | P0 | Alta |
-| `serve` | ✅ Estável (NOVO) | P0 | Média |
-| `explain` | ✅ Estável | P2 | Baixa |
-| `demo` | ✅ Estável | P3 | Baixa |
-| `history` | ✅ Estável | P1 | Média |
-| `show` | ✅ Estável | P1 | Média |
-| `planversion` | ✅ Estável | P1 | Alta |
-
-### Funções Core para Expor via API
-
-| Módulo | Função/Classe | Endpoint Sugerido | Status |
-|--------|--------------|-------------------|--------|
-| `cli/commands/init_cmd.py` | `init()` | `POST /api/v1/workspace/init` | ✅ Estável |
-| `generator/llm.py` | `UTDLGenerator.generate()` | `POST /api/v1/plans/generate` | ✅ Estável |
-| `validator/utdl_validator.py` | `UTDLValidator.validate()` | `POST /api/v1/plans/validate` | ✅ Estável |
-| `runner/execute.py` | `run_plan()` | `POST /api/v1/execute` | ✅ Estável |
-| `cache.py` | `ExecutionHistory` | `GET /api/v1/history` | ✅ Estável |
-| `cache.py` | `PlanVersionStore` | `GET /api/v1/plans` | ✅ Estável |
-| `ingestion/security.py` | `detect_security()` | `POST /api/v1/openapi/security` | ✅ Estável |
-| `ingestion/swagger.py` | `parse_openapi()` | `POST /api/v1/openapi/parse` | ✅ Estável |
-| `llm/providers.py` | `get_llm_provider()` | `GET /api/v1/llm/status` | ✅ Estável |
-| `adapter/format_adapter.py` | `SmartFormatAdapter` | Interno | ✅ Estável |
-
-### Checklist para Implementação de UI
-
-- [ ] **Fase 1 (MVP)**: init, generate, validate, run
-- [ ] **Fase 2**: history, show, explain, WebSocket para execução real-time
-- [ ] **Fase 3**: planversion, diff, editor visual de planos
-- [ ] **Fase 4**: Dashboard com métricas, OTEL integration
-
-### Dependências Externas Requeridas
-
-| Componente | Dependência | Versão | Uso |
-|------------|-------------|--------|-----|
-| Brain | Python | 3.11+ | Core |
-| Brain | Click | 8.x | CLI |
-| Brain | Pydantic | 2.x | Validação |
-| Brain | Rich | 13.x | Terminal UI |
-| Runner | Rust | 1.75+ | Execução |
-| Runner | Tokio | 1.x | Async runtime |
-| Runner | Reqwest | 0.11+ | HTTP client |
+**Versão:** 2.0.0
+**Última atualização:** 2024-12-08
+**Status:** Implementação Web UI (Next.js + React)
 
 ---
 
-## Índice
+## 🚀 Quick Start — Resumo Executivo
+
+### Stack Tecnológico Definido
+
+| Camada | Tecnologia | Versão | Propósito |
+|--------|------------|--------|-----------|
+| **Framework** | Next.js | 15.x (App Router) | SSR, Routing, API Routes |
+| **UI Library** | React | 19.x | Componentes reativos |
+| **Styling** | TailwindCSS | 4.x | Utility-first CSS |
+| **Components** | shadcn/ui | latest | Componentes acessíveis e customizáveis |
+| **State/Data** | TanStack Query | 5.x | Server state, caching, mutations |
+| **Editor** | Monaco Editor | latest | Editor de código (UTDL/JSON) |
+| **Icons** | Lucide React | latest | Ícones consistentes |
+| **Forms** | React Hook Form + Zod | latest | Validação de formulários |
+| **Charts** | Recharts | 2.x | Visualização de métricas |
+| **WebSocket** | Native + React hooks | - | Execução real-time |
+
+### Fases de Implementação
+
+| Fase | Escopo | Páginas/Features | Prioridade |
+|------|--------|------------------|------------|
+| **1 - MVP** | Core funcional | Dashboard, Generate, Execute, History | P0 |
+| **2 - Editor** | Edição avançada | Plan Editor (Monaco), Validation | P1 |
+| **3 - Analytics** | Métricas e insights | Reports, Charts, Trends | P2 |
+| **4 - Enterprise** | Multi-tenant, Auth | Teams, RBAC, SSO | P3 |
+
+### Estrutura de Diretórios (UI)
+
+```
+ui/
+├── package.json
+├── next.config.ts
+├── tailwind.config.ts
+├── tsconfig.json
+├── .env.local.example
+├── components.json              # shadcn/ui config
+│
+├── app/                         # Next.js App Router
+│   ├── layout.tsx              # Root layout
+│   ├── page.tsx                # Dashboard (home)
+│   ├── globals.css             # Global styles
+│   │
+│   ├── generate/
+│   │   └── page.tsx            # Geração de planos
+│   │
+│   ├── plans/
+│   │   ├── page.tsx            # Lista de planos
+│   │   └── [id]/
+│   │       ├── page.tsx        # Detalhes do plano
+│   │       └── edit/
+│   │           └── page.tsx    # Editor Monaco
+│   │
+│   ├── execute/
+│   │   └── page.tsx            # Execução de planos
+│   │
+│   ├── history/
+│   │   ├── page.tsx            # Lista de execuções
+│   │   └── [id]/
+│   │       └── page.tsx        # Detalhes da execução
+│   │
+│   └── settings/
+│       └── page.tsx            # Configurações
+│
+├── components/
+│   ├── ui/                     # shadcn/ui components
+│   │   ├── button.tsx
+│   │   ├── card.tsx
+│   │   ├── dialog.tsx
+│   │   ├── input.tsx
+│   │   ├── select.tsx
+│   │   ├── tabs.tsx
+│   │   ├── toast.tsx
+│   │   └── ...
+│   │
+│   ├── layout/
+│   │   ├── sidebar.tsx
+│   │   ├── header.tsx
+│   │   ├── nav-item.tsx
+│   │   └── theme-toggle.tsx
+│   │
+│   ├── dashboard/
+│   │   ├── stats-cards.tsx
+│   │   ├── recent-executions.tsx
+│   │   └── quick-actions.tsx
+│   │
+│   ├── generate/
+│   │   ├── generate-form.tsx
+│   │   ├── swagger-upload.tsx
+│   │   ├── requirement-input.tsx
+│   │   └── generation-options.tsx
+│   │
+│   ├── plans/
+│   │   ├── plan-card.tsx
+│   │   ├── plan-list.tsx
+│   │   ├── plan-viewer.tsx
+│   │   └── step-item.tsx
+│   │
+│   ├── editor/
+│   │   ├── monaco-editor.tsx
+│   │   ├── json-schema-validator.tsx
+│   │   └── editor-toolbar.tsx
+│   │
+│   ├── execute/
+│   │   ├── execution-panel.tsx
+│   │   ├── step-progress.tsx
+│   │   ├── live-logs.tsx
+│   │   └── result-summary.tsx
+│   │
+│   └── history/
+│       ├── execution-table.tsx
+│       ├── execution-details.tsx
+│       └── step-result-card.tsx
+│
+├── lib/
+│   ├── api/
+│   │   ├── client.ts           # Axios/fetch wrapper
+│   │   ├── endpoints.ts        # API endpoints
+│   │   └── types.ts            # TypeScript types from API
+│   │
+│   ├── hooks/
+│   │   ├── use-generate.ts     # TanStack Query hooks
+│   │   ├── use-execute.ts
+│   │   ├── use-plans.ts
+│   │   ├── use-history.ts
+│   │   └── use-websocket.ts    # WebSocket hook
+│   │
+│   ├── utils/
+│   │   ├── cn.ts               # className utility
+│   │   ├── format.ts           # Formatters
+│   │   └── validators.ts       # Zod schemas
+│   │
+│   └── store/
+│       └── app-store.ts        # Zustand (se necessário)
+│
+├── public/
+│   ├── logo.svg
+│   └── favicon.ico
+│
+└── types/
+    ├── api.d.ts                # API response types
+    ├── utdl.d.ts               # UTDL schema types
+    └── index.d.ts
+```
+
+---
+
+## 📋 Checklist de Implementação
+
+### Fase 1 — MVP (Semana 1-2)
+
+#### Setup Inicial
+- [ ] Criar projeto Next.js 15 com TypeScript
+- [ ] Configurar TailwindCSS 4
+- [ ] Instalar e configurar shadcn/ui
+- [ ] Configurar TanStack Query provider
+- [ ] Criar estrutura de diretórios
+- [ ] Configurar ESLint + Prettier
+- [ ] Criar .env.local com API_URL
+
+#### Layout Base
+- [ ] Implementar Sidebar com navegação
+- [ ] Implementar Header com breadcrumbs
+- [ ] Implementar Theme Toggle (dark/light)
+- [ ] Criar loading states globais
+- [ ] Criar error boundaries
+
+#### Dashboard (/)
+- [ ] Cards de estatísticas (execuções, taxa sucesso, etc.)
+- [ ] Lista de execuções recentes
+- [ ] Quick actions (Generate, Execute)
+- [ ] Integrar com GET /api/v1/history/stats
+
+#### Geração (/generate)
+- [ ] Form de upload Swagger (file + URL)
+- [ ] Textarea para requisitos
+- [ ] Opções de geração (toggles)
+- [ ] Preview do plano gerado
+- [ ] Ações: Salvar, Executar, Editar
+- [ ] Integrar com POST /api/v1/generate
+
+#### Execução (/execute)
+- [ ] Seletor de plano (dropdown ou upload)
+- [ ] Painel de progresso em tempo real
+- [ ] WebSocket para streaming de steps
+- [ ] Visualização de resultados
+- [ ] Integrar com POST /api/v1/execute
+- [ ] Integrar com WebSocket /ws/execute
+
+#### Histórico (/history)
+- [ ] Tabela paginada de execuções
+- [ ] Filtros (status, data, plano)
+- [ ] Detalhes expandíveis
+- [ ] Link para execução completa
+- [ ] Integrar com GET /api/v1/history
+
+### Fase 2 — Editor (Semana 3)
+
+#### Editor de Planos (/plans/[id]/edit)
+- [ ] Integrar Monaco Editor
+- [ ] Syntax highlighting para JSON
+- [ ] Schema validation inline
+- [ ] Autocomplete para UTDL
+- [ ] Toolbar (save, validate, format)
+- [ ] Split view (code + preview)
+
+#### Validação em Tempo Real
+- [ ] Debounced validation
+- [ ] Error markers no editor
+- [ ] Panel de erros clicáveis
+- [ ] Integrar com POST /api/v1/validate
+
+### Fase 3 — Analytics (Semana 4)
+
+#### Reports e Charts
+- [ ] Gráfico de taxa de sucesso (Recharts)
+- [ ] Gráfico de duração média
+- [ ] Heatmap de falhas por step
+- [ ] Export para PDF/CSV
+
+---
+
+## 🎨 Design System
+
+### Cores (TailwindCSS + CSS Variables)
+
+```css
+/* globals.css - Theme colors via CSS variables para dark/light mode */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+  --primary: 221.2 83.2% 53.3%;      /* Blue - ações principais */
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --destructive: 0 84.2% 60.2%;      /* Red - erros, falhas */
+  --destructive-foreground: 210 40% 98%;
+  --success: 142.1 76.2% 36.3%;      /* Green - sucesso */
+  --success-foreground: 210 40% 98%;
+  --warning: 38 92% 50%;             /* Amber - warnings */
+  --warning-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 221.2 83.2% 53.3%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  /* ... dark mode variants */
+}
+```
+
+### Cores Semânticas para Status
+
+| Status | Cor | Classe TailwindCSS | Uso |
+|--------|-----|-------------------|-----|
+| **Passed** | Verde | `text-success bg-success/10` | Steps aprovados |
+| **Failed** | Vermelho | `text-destructive bg-destructive/10` | Steps falhos |
+| **Skipped** | Cinza | `text-muted-foreground bg-muted` | Steps pulados |
+| **Running** | Azul | `text-primary bg-primary/10` | Em execução |
+| **Pending** | Amarelo | `text-warning bg-warning/10` | Aguardando |
+
+### Tipografia
+
+```typescript
+// tailwind.config.ts
+const config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+      },
+    },
+  },
+}
+```
+
+| Elemento | Classe | Uso |
+|----------|--------|-----|
+| Heading 1 | `text-3xl font-bold` | Títulos de página |
+| Heading 2 | `text-2xl font-semibold` | Seções |
+| Heading 3 | `text-xl font-medium` | Subseções |
+| Body | `text-base` | Texto padrão |
+| Small | `text-sm text-muted-foreground` | Descrições |
+| Mono | `font-mono text-sm` | Código, IDs |
+
+### Componentes Base (shadcn/ui)
+
+Componentes necessários a instalar:
+
+```bash
+npx shadcn@latest add button card dialog dropdown-menu input label \
+  select separator sheet skeleton table tabs textarea toast tooltip \
+  badge progress scroll-area command popover calendar avatar
+```
+
+### Ícones (Lucide React)
+
+```bash
+npm install lucide-react
+```
+
+| Ação | Ícone | Import |
+|------|-------|--------|
+| Generate | `Wand2` | `import { Wand2 } from 'lucide-react'` |
+| Execute/Run | `Play` | `import { Play } from 'lucide-react'` |
+| Stop | `Square` | `import { Square } from 'lucide-react'` |
+| Validate | `CheckCircle2` | `import { CheckCircle2 } from 'lucide-react'` |
+| Edit | `Pencil` | `import { Pencil } from 'lucide-react'` |
+| Delete | `Trash2` | `import { Trash2 } from 'lucide-react'` |
+| History | `History` | `import { History } from 'lucide-react'` |
+| Settings | `Settings` | `import { Settings } from 'lucide-react'` |
+| Plan | `FileJson` | `import { FileJson } from 'lucide-react'` |
+| Dashboard | `LayoutDashboard` | `import { LayoutDashboard } from 'lucide-react'` |
+| Success | `CheckCircle` | `import { CheckCircle } from 'lucide-react'` |
+| Error | `XCircle` | `import { XCircle } from 'lucide-react'` |
+| Warning | `AlertTriangle` | `import { AlertTriangle } from 'lucide-react'` |
+| Info | `Info` | `import { Info } from 'lucide-react'` |
+| Loading | `Loader2` | `import { Loader2 } from 'lucide-react'` |
+
+---
+
+## 🔧 Setup Detalhado
+
+### Passo 1: Criar Projeto Next.js
+
+```bash
+# Criar projeto Next.js 15 com TypeScript
+npx create-next-app@latest ui --typescript --tailwind --eslint --app --src-dir --import-alias "@/*"
+
+cd ui
+
+# Estrutura criada:
+# ui/
+# ├── src/
+# │   └── app/
+# │       ├── layout.tsx
+# │       ├── page.tsx
+# │       └── globals.css
+# ├── public/
+# ├── next.config.ts
+# ├── tailwind.config.ts
+# ├── tsconfig.json
+# └── package.json
+```
+
+### Passo 2: Configurar shadcn/ui
+
+```bash
+# Inicializar shadcn/ui
+npx shadcn@latest init
+
+# Responder as perguntas:
+# - Style: Default
+# - Base color: Slate
+# - CSS variables: Yes
+# - React Server Components: Yes
+# - Components directory: src/components
+# - Utilities: src/lib/utils
+
+# Instalar componentes base
+npx shadcn@latest add button card input label select textarea \
+  dialog sheet tabs toast badge progress table skeleton \
+  dropdown-menu command popover scroll-area separator avatar tooltip
+```
+
+### Passo 3: Instalar Dependências Adicionais
+
+```bash
+# TanStack Query para data fetching
+npm install @tanstack/react-query @tanstack/react-query-devtools
+
+# Monaco Editor para editor de código
+npm install @monaco-editor/react
+
+# React Hook Form + Zod para formulários
+npm install react-hook-form @hookform/resolvers zod
+
+# Recharts para gráficos
+npm install recharts
+
+# Ícones
+npm install lucide-react
+
+# Date utilities
+npm install date-fns
+
+# Class variance authority (já vem com shadcn)
+npm install class-variance-authority clsx tailwind-merge
+```
+
+### Passo 4: Configurar Variáveis de Ambiente
+
+```bash
+# ui/.env.local.example
+NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_WS_URL=ws://localhost:8080
+```
+
+### Passo 5: Configurar TanStack Query Provider
+
+```typescript
+// src/lib/providers.tsx
+'use client'
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
+import { useState } from 'react'
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 60 * 1000, // 1 minuto
+            refetchOnWindowFocus: false,
+          },
+        },
+      })
+  )
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+      <ReactQueryDevtools initialIsOpen={false} />
+    </QueryClientProvider>
+  )
+}
+```
+
+```typescript
+// src/app/layout.tsx
+import { Providers } from '@/lib/providers'
+import { Toaster } from '@/components/ui/toaster'
+import './globals.css'
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="pt-BR" suppressHydrationWarning>
+      <body>
+        <Providers>
+          {children}
+          <Toaster />
+        </Providers>
+      </body>
+    </html>
+  )
+}
+```
+
+---
+
+## 🌐 API Client e Hooks
+
+### API Client Base
+
+```typescript
+// src/lib/api/client.ts
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+    public details?: unknown
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+async function handleResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}))
+    throw new ApiError(
+      response.status,
+      error.code || 'UNKNOWN',
+      error.message || 'An error occurred',
+      error.details
+    )
+  }
+  return response.json()
+}
+
+export const api = {
+  get: async <T>(path: string): Promise<T> => {
+    const response = await fetch(`${API_URL}${path}`)
+    return handleResponse<T>(response)
+  },
+
+  post: async <T>(path: string, body?: unknown): Promise<T> => {
+    const response = await fetch(`${API_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    return handleResponse<T>(response)
+  },
+
+  delete: async <T>(path: string): Promise<T> => {
+    const response = await fetch(`${API_URL}${path}`, { method: 'DELETE' })
+    return handleResponse<T>(response)
+  },
+}
+```
+
+### Types (TypeScript)
+
+```typescript
+// src/types/api.ts
+
+// ============ UTDL Types ============
+export interface Plan {
+  spec_version: string
+  meta: PlanMeta
+  config: PlanConfig
+  steps: Step[]
+}
+
+export interface PlanMeta {
+  id: string
+  name: string
+  description?: string
+  tags?: string[]
+  created_at?: string
+}
+
+export interface PlanConfig {
+  base_url: string
+  timeout_ms?: number
+  global_headers?: Record<string, string>
+  variables?: Record<string, unknown>
+}
+
+export interface Step {
+  id: string
+  description?: string
+  action: string
+  params: Record<string, unknown>
+  assertions?: Assertion[]
+  extract?: Extraction[]
+  depends_on?: string[]
+  recovery_policy?: RecoveryPolicy
+}
+
+export interface Assertion {
+  type: string
+  source?: string
+  path?: string
+  operator: string
+  value: unknown
+}
+
+export interface Extraction {
+  source: string
+  path: string
+  target: string
+  regex?: string
+}
+
+export interface RecoveryPolicy {
+  strategy: 'fail_fast' | 'retry' | 'ignore'
+  max_attempts?: number
+  backoff_ms?: number
+}
+
+// ============ API Response Types ============
+export interface ApiResponse<T> {
+  success: boolean
+  data?: T
+  error?: ApiErrorDetail
+}
+
+export interface ApiErrorDetail {
+  code: string
+  message: string
+  details?: unknown
+}
+
+// Generate
+export interface GenerateRequest {
+  requirement?: string
+  swagger_url?: string
+  swagger_content?: unknown
+  base_url?: string
+  options?: GenerateOptions
+}
+
+export interface GenerateOptions {
+  include_negative?: boolean
+  include_auth?: boolean
+  max_steps?: number
+  model?: string
+}
+
+export interface GenerateResponse {
+  success: boolean
+  plan: Plan
+  metadata: {
+    generation_time_ms: number
+    model_used: string
+    tokens_used?: number
+  }
+}
+
+// Validate
+export interface ValidateRequest {
+  plan: Plan
+  mode?: 'default' | 'strict'
+}
+
+export interface ValidateResponse {
+  success: boolean
+  is_valid: boolean
+  error_count: number
+  warning_count: number
+  errors: string[]
+  warnings: string[]
+}
+
+// Execute
+export interface ExecuteRequest {
+  plan?: Plan
+  plan_id?: string
+  context?: Record<string, unknown>
+  dry_run?: boolean
+}
+
+export interface ExecuteResponse {
+  success: boolean
+  execution_id: string
+  summary: ExecutionSummary
+  steps: StepResult[]
+}
+
+export interface ExecutionSummary {
+  total_steps: number
+  passed: number
+  failed: number
+  skipped: number
+  duration_ms: number
+}
+
+export interface StepResult {
+  step_id: string
+  status: 'passed' | 'failed' | 'skipped'
+  duration_ms: number
+  attempt: number
+  error?: string
+  http_details?: HttpDetails
+}
+
+export interface HttpDetails {
+  method: string
+  url: string
+  status_code: number
+  latency_ms: number
+}
+
+// History
+export interface HistoryRecord {
+  execution_id: string
+  plan_id: string
+  plan_name: string
+  timestamp: string
+  summary: ExecutionSummary
+}
+
+export interface HistoryResponse {
+  success: boolean
+  total: number
+  records: HistoryRecord[]
+}
+
+export interface HistoryStatsResponse {
+  success: boolean
+  stats: {
+    total_executions: number
+    success_rate: number
+    avg_duration_ms: number
+    executions_today: number
+  }
+}
+
+// WebSocket Events
+export interface WsStepStarted {
+  event: 'step_started'
+  step_id: string
+  description?: string
+}
+
+export interface WsStepCompleted {
+  event: 'step_completed'
+  step_id: string
+  status: 'passed' | 'failed' | 'skipped'
+  duration_ms: number
+}
+
+export interface WsExecutionComplete {
+  event: 'execution_complete'
+  result: ExecuteResponse
+}
+
+export type WsEvent = WsStepStarted | WsStepCompleted | WsExecutionComplete
+```
+
+### TanStack Query Hooks
+
+```typescript
+// src/lib/hooks/use-generate.ts
+import { useMutation } from '@tanstack/react-query'
+import { api } from '@/lib/api/client'
+import type { GenerateRequest, GenerateResponse } from '@/types/api'
+
+export function useGenerate() {
+  return useMutation({
+    mutationFn: (data: GenerateRequest) =>
+      api.post<GenerateResponse>('/api/v1/generate', data),
+  })
+}
+```
+
+```typescript
+// src/lib/hooks/use-execute.ts
+import { useMutation } from '@tanstack/react-query'
+import { api } from '@/lib/api/client'
+import type { ExecuteRequest, ExecuteResponse } from '@/types/api'
+
+export function useExecute() {
+  return useMutation({
+    mutationFn: (data: ExecuteRequest) =>
+      api.post<ExecuteResponse>('/api/v1/execute', data),
+  })
+}
+```
+
+```typescript
+// src/lib/hooks/use-history.ts
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api/client'
+import type { HistoryResponse, HistoryStatsResponse } from '@/types/api'
+
+export function useHistory(limit = 20) {
+  return useQuery({
+    queryKey: ['history', limit],
+    queryFn: () => api.get<HistoryResponse>(`/api/v1/history?limit=${limit}`),
+  })
+}
+
+export function useHistoryStats() {
+  return useQuery({
+    queryKey: ['history', 'stats'],
+    queryFn: () => api.get<HistoryStatsResponse>('/api/v1/history/stats'),
+  })
+}
+
+export function useExecutionDetails(executionId: string) {
+  return useQuery({
+    queryKey: ['history', executionId],
+    queryFn: () => api.get<HistoryResponse>(`/api/v1/history/${executionId}`),
+    enabled: !!executionId,
+  })
+}
+```
+
+```typescript
+// src/lib/hooks/use-websocket.ts
+import { useEffect, useRef, useState, useCallback } from 'react'
+import type { WsEvent } from '@/types/api'
+
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080'
+
+export function useExecutionWebSocket(executionId: string | null) {
+  const ws = useRef<WebSocket | null>(null)
+  const [events, setEvents] = useState<WsEvent[]>([])
+  const [isConnected, setIsConnected] = useState(false)
+
+  const connect = useCallback(() => {
+    if (!executionId) return
+
+    ws.current = new WebSocket(`${WS_URL}/ws/execute/${executionId}`)
+
+    ws.current.onopen = () => setIsConnected(true)
+    ws.current.onclose = () => setIsConnected(false)
+    ws.current.onerror = () => setIsConnected(false)
+
+    ws.current.onmessage = (event) => {
+      const data = JSON.parse(event.data) as WsEvent
+      setEvents((prev) => [...prev, data])
+    }
+  }, [executionId])
+
+  const disconnect = useCallback(() => {
+    ws.current?.close()
+    ws.current = null
+    setEvents([])
+  }, [])
+
+  useEffect(() => {
+    connect()
+    return () => disconnect()
+  }, [connect, disconnect])
+
+  return { events, isConnected, disconnect }
+}
+```
+
+---
+
+## 📄 Componentes Principais
+
+### Layout - Sidebar
+
+```typescript
+// src/components/layout/sidebar.tsx
+'use client'
+
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { cn } from '@/lib/utils'
+import {
+  LayoutDashboard,
+  Wand2,
+  FileJson,
+  Play,
+  History,
+  Settings,
+} from 'lucide-react'
+
+const navItems = [
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/generate', label: 'Generate', icon: Wand2 },
+  { href: '/plans', label: 'Plans', icon: FileJson },
+  { href: '/execute', label: 'Execute', icon: Play },
+  { href: '/history', label: 'History', icon: History },
+  { href: '/settings', label: 'Settings', icon: Settings },
+]
+
+export function Sidebar() {
+  const pathname = usePathname()
+
+  return (
+    <aside className="w-64 border-r bg-card h-screen sticky top-0">
+      <div className="p-6">
+        <h1 className="text-xl font-bold">AQA</h1>
+        <p className="text-sm text-muted-foreground">
+          Autonomous Quality Agent
+        </p>
+      </div>
+
+      <nav className="px-3 space-y-1">
+        {navItems.map((item) => {
+          const isActive = pathname === item.href
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                isActive
+                  ? 'bg-primary text-primary-foreground'
+                  : 'hover:bg-muted text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <item.icon className="h-4 w-4" />
+              {item.label}
+            </Link>
+          )
+        })}
+      </nav>
+    </aside>
+  )
+}
+```
+
+### Dashboard - Stats Cards
+
+```typescript
+// src/components/dashboard/stats-cards.tsx
+'use client'
+
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useHistoryStats } from '@/lib/hooks/use-history'
+import { CheckCircle, XCircle, Clock, Activity } from 'lucide-react'
+
+export function StatsCards() {
+  const { data, isLoading } = useHistoryStats()
+
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 md:grid-cols-4">
+        {[...Array(4)].map((_, i) => (
+          <Card key={i}>
+            <CardHeader className="pb-2">
+              <Skeleton className="h-4 w-24" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-8 w-16" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    )
+  }
+
+  const stats = data?.stats
+
+  return (
+    <div className="grid gap-4 md:grid-cols-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-medium">Total Executions</CardTitle>
+          <Activity className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{stats?.total_executions ?? 0}</div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
+          <CheckCircle className="h-4 w-4 text-success" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">
+            {((stats?.success_rate ?? 0) * 100).toFixed(1)}%
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-medium">Avg Duration</CardTitle>
+          <Clock className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">
+            {((stats?.avg_duration_ms ?? 0) / 1000).toFixed(2)}s
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-medium">Today</CardTitle>
+          <Activity className="h-4 w-4 text-primary" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{stats?.executions_today ?? 0}</div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+```
+
+### Generate Form
+
+```typescript
+// src/components/generate/generate-form.tsx
+'use client'
+
+import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import { useGenerate } from '@/lib/hooks/use-generate'
+import { useToast } from '@/components/ui/use-toast'
+import { Wand2, Loader2 } from 'lucide-react'
+
+const schema = z.object({
+  requirement: z.string().optional(),
+  swagger_url: z.string().url().optional().or(z.literal('')),
+  base_url: z.string().url().optional().or(z.literal('')),
+  include_negative: z.boolean().default(false),
+  include_auth: z.boolean().default(false),
+  max_steps: z.number().min(1).max(50).default(10),
+})
+
+type FormData = z.infer<typeof schema>
+
+export function GenerateForm() {
+  const { toast } = useToast()
+  const generate = useGenerate()
+  const [generatedPlan, setGeneratedPlan] = useState<unknown>(null)
+
+  const form = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      requirement: '',
+      swagger_url: '',
+      base_url: '',
+      include_negative: false,
+      include_auth: false,
+      max_steps: 10,
+    },
+  })
+
+  const onSubmit = async (data: FormData) => {
+    try {
+      const result = await generate.mutateAsync({
+        requirement: data.requirement || undefined,
+        swagger_url: data.swagger_url || undefined,
+        base_url: data.base_url || undefined,
+        options: {
+          include_negative: data.include_negative,
+          include_auth: data.include_auth,
+          max_steps: data.max_steps,
+        },
+      })
+
+      setGeneratedPlan(result.plan)
+      toast({
+        title: 'Plan Generated!',
+        description: `Created ${result.plan.steps.length} steps in ${result.metadata.generation_time_ms}ms`,
+      })
+    } catch (error) {
+      toast({
+        title: 'Generation Failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wand2 className="h-5 w-5" />
+            Generate Test Plan
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="requirement">Requirement (optional)</Label>
+              <Textarea
+                id="requirement"
+                placeholder="Describe what you want to test..."
+                {...form.register('requirement')}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="swagger_url">OpenAPI URL (optional)</Label>
+              <Input
+                id="swagger_url"
+                type="url"
+                placeholder="https://api.example.com/openapi.json"
+                {...form.register('swagger_url')}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="base_url">Base URL</Label>
+              <Input
+                id="base_url"
+                type="url"
+                placeholder="https://api.example.com"
+                {...form.register('base_url')}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Label htmlFor="include_negative">Include Negative Cases</Label>
+              <Switch
+                id="include_negative"
+                checked={form.watch('include_negative')}
+                onCheckedChange={(v) => form.setValue('include_negative', v)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Label htmlFor="include_auth">Include Auth Tests</Label>
+              <Switch
+                id="include_auth"
+                checked={form.watch('include_auth')}
+                onCheckedChange={(v) => form.setValue('include_auth', v)}
+              />
+            </div>
+
+            <Button type="submit" className="w-full" disabled={generate.isPending}>
+              {generate.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Wand2 className="mr-2 h-4 w-4" />
+                  Generate Plan
+                </>
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      {generatedPlan && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Generated Plan</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="bg-muted p-4 rounded-lg overflow-auto max-h-96 text-sm">
+              {JSON.stringify(generatedPlan, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
+```
+
+---
+
+## 🔗 Integração com API Existente
+
+A UI se conecta diretamente à API REST implementada em `brain/src/api/`. Abaixo está o mapeamento completo:
+
+### Endpoints e Componentes
+
+| Endpoint | Método | Componente UI | Hook |
+|----------|--------|---------------|------|
+| `/health` | GET | StatusIndicator | `useHealth()` |
+| `/api/v1/generate` | POST | GenerateForm | `useGenerate()` |
+| `/api/v1/validate` | POST | PlanValidator | `useValidate()` |
+| `/api/v1/execute` | POST | ExecutionPanel | `useExecute()` |
+| `/api/v1/history` | GET | HistoryTable | `useHistory()` |
+| `/api/v1/history/stats` | GET | StatsCards | `useHistoryStats()` |
+| `/api/v1/history/{id}` | GET | ExecutionDetails | `useExecutionDetails()` |
+| `/api/v1/plans` | GET | PlanList | `usePlans()` |
+| `/api/v1/plans/{id}` | GET | PlanViewer | `usePlan()` |
+| `/ws/execute/{id}` | WS | LiveExecution | `useExecutionWebSocket()` |
+
+---
+
+## 🗂️ Índice - Referência Técnica (Legado)
+
+As seções a seguir contêm a documentação técnica detalhada do sistema, útil para referência durante a implementação.
 
 ### Parte I — Arquitetura e Integração
 1. [Visão Geral da Arquitetura de Integração](#1-visão-geral-da-arquitetura-de-integração)
@@ -73,8 +1186,6 @@
 7. [APIs Internas Expostas](#7-apis-internas-expostas)
 8. [Estados e Feedbacks](#8-estados-e-feedbacks)
 9. [Recomendações para Implementação](#9-recomendações-para-implementação)
-   - [9.5 API REST Implementada](#95-api-rest-implementada) ⭐ NOVO
-   - [9.6 Códigos de Erro da API](#96-códigos-de-erro-da-api)
 
 ### Parte II — Segurança e Infraestrutura
 10. [Segurança da API](#10-segurança-da-api)
