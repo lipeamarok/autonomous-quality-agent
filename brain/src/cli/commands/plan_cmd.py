@@ -90,24 +90,31 @@ def _generate_plan_from_spec(
         method = endpoint["method"]
         summary = endpoint.get("summary", "")
 
+        # Formato UTDL correto
         step: dict[str, Any] = {
             "id": f"step-{step_counter:03d}",
-            "name": f"{method} {path}" + (f" - {summary}" if summary else ""),
-            "action": {
-                "type": "http",
+            "description": f"{method} {path}" + (f" - {summary}" if summary else ""),
+            "action": "http_request",
+            "depends_on": [],
+            "params": {
                 "method": method,
-                "endpoint": path,
+                "path": path,
             },
-            "expected": {
-                "status_code": 200 if method == "GET" else 201 if method == "POST" else 200,
-            },
+            "assertions": [
+                {
+                    "type": "status_code",
+                    "operator": "eq",
+                    "value": 200 if method == "GET" else 201 if method == "POST" else 200,
+                }
+            ],
+            "extract": [],
         }
 
         # Adiciona body para métodos que precisam
         if method in ("POST", "PUT", "PATCH"):
             request_body = endpoint.get("request_body")
             if request_body and request_body.get("schema"):
-                step["action"]["body"] = _generate_sample_body(request_body["schema"])
+                step["params"]["body"] = _generate_sample_body(request_body["schema"])
 
         positive_steps.append(step)
         step_counter += 1

@@ -87,11 +87,17 @@ def _format_diff_output(
         console.print(f"[green]+ {len(diff.steps_added)} steps adicionados:[/]")
         for step in diff.steps_added:
             step_id = step.get("id", "?")
-            step_name = step.get("name", "Unnamed")
-            action = step.get("action", {})
-            method = action.get("method", "")
-            endpoint = action.get("endpoint", "")
-            console.print(f"  [green]+[/] {step_id}: {step_name}")
+            step_desc = step.get("description", step.get("name", "Unnamed"))
+            action = step.get("action", "")
+            # action pode ser string ("http_request") ou dict legado ({"type": "http"})
+            if isinstance(action, dict):
+                method = action.get("method", "")
+                endpoint = action.get("endpoint", "")
+            else:
+                params = step.get("params", {})
+                method = params.get("method", "")
+                endpoint = params.get("path", "")
+            console.print(f"  [green]+[/] {step_id}: {step_desc}")
             if verbose:
                 console.print(f"      [dim]{method} {endpoint}[/]")
         console.print()
@@ -101,8 +107,8 @@ def _format_diff_output(
         console.print(f"[red]- {len(diff.steps_removed)} steps removidos:[/]")
         for step in diff.steps_removed:
             step_id = step.get("id", "?")
-            step_name = step.get("name", "Unnamed")
-            console.print(f"  [red]-[/] {step_id}: {step_name}")
+            step_desc = step.get("description", step.get("name", "Unnamed"))
+            console.print(f"  [red]-[/] {step_id}: {step_desc}")
         console.print()
 
     # Steps modificados
@@ -112,12 +118,13 @@ def _format_diff_output(
             step_id = change.get("id", "?")
             before = change.get("before", {})
             after = change.get("after", {})
-            console.print(f"  [yellow]~[/] {step_id}: {before.get('name', 'Unnamed')}")
+            step_desc = before.get("description", before.get("name", "Unnamed"))
+            console.print(f"  [yellow]~[/] {step_id}: {step_desc}")
 
             if verbose:
                 # Mostra diferenças específicas
-                before_action = before.get("action", {})
-                after_action = after.get("action", {})
+                before_action = before.get("action", "")
+                after_action = after.get("action", "")
 
                 if before_action != after_action:
                     console.print("      [dim]action changed[/]")

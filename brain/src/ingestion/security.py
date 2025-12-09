@@ -450,7 +450,7 @@ def _generate_api_key_step(
     scheme: SecurityScheme,
     credentials: dict[str, str],
 ) -> AuthStep:
-    """Gera step para API Key (não requer login, apenas configura header)."""
+    """Gera step para API Key (não requer request, apenas configura headers)."""
     location = scheme.details.get("location", "header")
     param_name = scheme.details.get("param_name", "X-API-Key")
     api_key = credentials.get("api_key", "${API_KEY}")
@@ -462,18 +462,19 @@ def _generate_api_key_step(
         usage_header[param_name] = api_key
     # Para query, seria query param, mas simplificamos
 
+    # Retorna um step no-op no formato UTDL - apenas para documentação
+    # O importante é o usage_header que será adicionado aos requests
     return AuthStep(
         step={
             "id": "auth-setup",
-            "name": "Configuração de API Key",
-            "action": {
-                "type": "context",
-                "set": {
-                    "api_key": api_key,
-                    "auth_header_name": param_name,
-                },
+            "description": f"Configuração de API Key ({param_name})",
+            "action": "noop",
+            "depends_on": [],
+            "params": {
+                "note": f"API Key configurada via header {param_name}",
             },
-            "expected": {},
+            "assertions": [],
+            "extract": [],
         },
         extractions=[],
         variables={"api_key": api_key},
@@ -486,7 +487,7 @@ def _generate_bearer_login_step(
     login_endpoint: str | None,
     credentials: dict[str, str],
 ) -> AuthStep:
-    """Gera step de login para Bearer JWT."""
+    """Gera step de login para Bearer JWT no formato UTDL."""
     endpoint = login_endpoint or "/auth/login"
     username = credentials.get("username", "${USERNAME}")
     password = credentials.get("password", "${PASSWORD}")
@@ -494,36 +495,41 @@ def _generate_bearer_login_step(
     return AuthStep(
         step={
             "id": "auth-login",
-            "name": "Login - Obter JWT Token",
-            "action": {
-                "type": "http",
+            "description": "Login - Obter JWT Token",
+            "action": "http_request",
+            "depends_on": [],
+            "params": {
                 "method": "POST",
-                "endpoint": endpoint,
+                "path": endpoint,
                 "body": {
                     "username": username,
                     "password": password,
                 },
             },
-            "expected": {
-                "status_code": 200,
-            },
+            "assertions": [
+                {
+                    "type": "status_code",
+                    "operator": "eq",
+                    "value": 200,
+                },
+            ],
             "extract": [
                 {
-                    "name": "access_token",
-                    "from": "body",
+                    "source": "body",
                     "path": "$.access_token",
+                    "target": "access_token",
                     "critical": True,
                 },
                 {
-                    "name": "refresh_token",
-                    "from": "body",
+                    "source": "body",
                     "path": "$.refresh_token",
+                    "target": "refresh_token",
                 },
             ],
         },
         extractions=[
-            {"name": "access_token", "path": "$.access_token"},
-            {"name": "refresh_token", "path": "$.refresh_token"},
+            {"source": "body", "path": "$.access_token", "target": "access_token"},
+            {"source": "body", "path": "$.refresh_token", "target": "refresh_token"},
         ],
         variables={
             "access_token": "${access_token}",
@@ -537,22 +543,23 @@ def _generate_basic_auth_step(
     scheme: SecurityScheme,
     credentials: dict[str, str],
 ) -> AuthStep:
-    """Gera step para HTTP Basic Auth."""
+    """Gera step para HTTP Basic Auth (não requer request, apenas configura headers)."""
     username = credentials.get("username", "${USERNAME}")
     password = credentials.get("password", "${PASSWORD}")
 
+    # Basic Auth não precisa de step de login, apenas configura o header
+    # O importante é o usage_header que será adicionado aos requests
     return AuthStep(
         step={
             "id": "auth-setup",
-            "name": "Configuração de Basic Auth",
-            "action": {
-                "type": "context",
-                "set": {
-                    "basic_auth_user": username,
-                    "basic_auth_pass": password,
-                },
+            "description": "Configuração de Basic Auth",
+            "action": "noop",
+            "depends_on": [],
+            "params": {
+                "note": "HTTP Basic Auth configurado via header Authorization",
             },
-            "expected": {},
+            "assertions": [],
+            "extract": [],
         },
         extractions=[],
         variables={"username": username, "password": password},
@@ -564,7 +571,7 @@ def _generate_oauth2_password_step(
     scheme: SecurityScheme,
     credentials: dict[str, str],
 ) -> AuthStep:
-    """Gera step para OAuth2 Password Grant."""
+    """Gera step para OAuth2 Password Grant no formato UTDL."""
     token_url = scheme.details.get("token_url", "/oauth/token")
     username = credentials.get("username", "${USERNAME}")
     password = credentials.get("password", "${PASSWORD}")
@@ -574,11 +581,12 @@ def _generate_oauth2_password_step(
     return AuthStep(
         step={
             "id": "auth-oauth2-password",
-            "name": "OAuth2 - Password Grant",
-            "action": {
-                "type": "http",
+            "description": "OAuth2 - Password Grant",
+            "action": "http_request",
+            "depends_on": [],
+            "params": {
                 "method": "POST",
-                "endpoint": token_url,
+                "path": token_url,
                 "headers": {
                     "Content-Type": "application/x-www-form-urlencoded",
                 },
@@ -590,30 +598,34 @@ def _generate_oauth2_password_step(
                     "client_secret": client_secret,
                 },
             },
-            "expected": {
-                "status_code": 200,
-            },
+            "assertions": [
+                {
+                    "type": "status_code",
+                    "operator": "eq",
+                    "value": 200,
+                },
+            ],
             "extract": [
                 {
-                    "name": "access_token",
-                    "from": "body",
+                    "source": "body",
                     "path": "$.access_token",
+                    "target": "access_token",
                     "critical": True,
                 },
                 {
-                    "name": "token_type",
-                    "from": "body",
+                    "source": "body",
                     "path": "$.token_type",
+                    "target": "token_type",
                 },
                 {
-                    "name": "expires_in",
-                    "from": "body",
+                    "source": "body",
                     "path": "$.expires_in",
+                    "target": "expires_in",
                 },
             ],
         },
         extractions=[
-            {"name": "access_token", "path": "$.access_token"},
+            {"source": "body", "path": "$.access_token", "target": "access_token"},
         ],
         variables={"access_token": "${access_token}"},
         usage_header={"Authorization": "Bearer ${access_token}"},
@@ -624,7 +636,7 @@ def _generate_oauth2_client_credentials_step(
     scheme: SecurityScheme,
     credentials: dict[str, str],
 ) -> AuthStep:
-    """Gera step para OAuth2 Client Credentials Grant."""
+    """Gera step para OAuth2 Client Credentials Grant no formato UTDL."""
     token_url = scheme.details.get("token_url", "/oauth/token")
     client_id = credentials.get("client_id", "${CLIENT_ID}")
     client_secret = credentials.get("client_secret", "${CLIENT_SECRET}")
@@ -641,30 +653,35 @@ def _generate_oauth2_client_credentials_step(
     return AuthStep(
         step={
             "id": "auth-oauth2-client",
-            "name": "OAuth2 - Client Credentials",
-            "action": {
-                "type": "http",
+            "description": "OAuth2 - Client Credentials",
+            "action": "http_request",
+            "depends_on": [],
+            "params": {
                 "method": "POST",
-                "endpoint": token_url,
+                "path": token_url,
                 "headers": {
                     "Content-Type": "application/x-www-form-urlencoded",
                 },
                 "body": body,
             },
-            "expected": {
-                "status_code": 200,
-            },
+            "assertions": [
+                {
+                    "type": "status_code",
+                    "operator": "eq",
+                    "value": 200,
+                },
+            ],
             "extract": [
                 {
-                    "name": "access_token",
-                    "from": "body",
+                    "source": "body",
                     "path": "$.access_token",
+                    "target": "access_token",
                     "critical": True,
                 },
             ],
         },
         extractions=[
-            {"name": "access_token", "path": "$.access_token"},
+            {"source": "body", "path": "$.access_token", "target": "access_token"},
         ],
         variables={"access_token": "${access_token}"},
         usage_header={"Authorization": "Bearer ${access_token}"},
@@ -704,12 +721,12 @@ def generate_refresh_token_step(
     return AuthStep(
         step={
             "id": "auth-refresh-token",
-            "name": "Refresh Token - Renovar Access Token",
-            "description": "Renova o access_token usando refresh_token quando expirado",
-            "action": {
-                "type": "http",
+            "description": "Refresh Token - Renovar Access Token",
+            "action": "http_request",
+            "depends_on": ["auth-login"],
+            "params": {
                 "method": "POST",
-                "endpoint": endpoint,
+                "path": endpoint,
                 "headers": {
                     "Content-Type": "application/x-www-form-urlencoded",
                 },
@@ -720,32 +737,36 @@ def generate_refresh_token_step(
                     "client_secret": client_secret,
                 },
             },
-            "expected": {
-                "status_code": 200,
-            },
+            "assertions": [
+                {
+                    "type": "status_code",
+                    "operator": "eq",
+                    "value": 200,
+                },
+            ],
             "extract": [
                 {
-                    "name": "access_token",
-                    "from": "body",
+                    "source": "body",
                     "path": "$.access_token",
+                    "target": "access_token",
                     "critical": True,
                 },
                 {
-                    "name": "refresh_token",
-                    "from": "body",
+                    "source": "body",
                     "path": "$.refresh_token",
+                    "target": "refresh_token",
                     # Refresh token pode vir novo ou não
                 },
                 {
-                    "name": "expires_in",
-                    "from": "body",
+                    "source": "body",
                     "path": "$.expires_in",
+                    "target": "expires_in",
                 },
             ],
         },
         extractions=[
-            {"name": "access_token", "path": "$.access_token"},
-            {"name": "refresh_token", "path": "$.refresh_token"},
+            {"source": "body", "path": "$.access_token", "target": "access_token"},
+            {"source": "body", "path": "$.refresh_token", "target": "refresh_token"},
         ],
         variables={
             "access_token": "${access_token}",

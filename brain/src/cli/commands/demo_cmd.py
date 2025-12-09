@@ -61,7 +61,7 @@ DEMO_PLAN: dict[str, Any] = {
                 "path": "/status/200",
             },
             "assertions": [
-                {"type": "status_code", "expected": 200},
+                {"type": "status_code", "operator": "eq", "value": 200},
             ],
             "extract": [],
         },
@@ -75,8 +75,8 @@ DEMO_PLAN: dict[str, Any] = {
                 "path": "/uuid",
             },
             "assertions": [
-                {"type": "status_code", "expected": 200},
-                {"type": "json_body", "path": "$.uuid", "operator": "exists"},
+                {"type": "status_code", "operator": "eq", "value": 200},
+                {"type": "json_body", "path": "$.uuid", "operator": "neq", "value": None},
             ],
             "extract": [
                 {"source": "body", "path": "$.uuid", "target": "generated_uuid"},
@@ -101,8 +101,8 @@ DEMO_PLAN: dict[str, Any] = {
                 },
             },
             "assertions": [
-                {"type": "status_code", "expected": 200},
-                {"type": "json_body", "path": "$.json.user", "expected": "{{demo_user}}"},
+                {"type": "status_code", "operator": "eq", "value": 200},
+                {"type": "json_body", "path": "$.json.user", "operator": "eq", "value": "{{demo_user}}"},
             ],
             "extract": [],
         },
@@ -120,7 +120,7 @@ DEMO_PLAN: dict[str, Any] = {
                 },
             },
             "assertions": [
-                {"type": "status_code", "expected": 200},
+                {"type": "status_code", "operator": "eq", "value": 200},
             ],
             "extract": [],
         },
@@ -149,8 +149,8 @@ DEMO_PLAN: dict[str, Any] = {
                 },
             },
             "assertions": [
-                {"type": "status_code", "expected": 200},
-                {"type": "json_body", "path": "$.args.demo", "expected": "complete"},
+                {"type": "status_code", "operator": "eq", "value": 200},
+                {"type": "json_body", "path": "$.args.demo", "operator": "eq", "value": "complete"},
             ],
             "extract": [],
         },

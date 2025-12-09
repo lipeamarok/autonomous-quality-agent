@@ -111,7 +111,9 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool, json_output: bool) -> No
     ctx.obj["json_output"] = json_output
 
     # Escolhe console baseado em flags
-    if json_output or quiet:
+    # JSON mode usa console normal para imprimir JSON estruturado
+    # Quiet mode silencia todo output
+    if quiet and not json_output:
         ctx.obj["console"] = quiet_console
     else:
         ctx.obj["console"] = console

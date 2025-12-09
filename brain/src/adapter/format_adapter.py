@@ -298,13 +298,27 @@ class SmartFormatAdapter:
         if "depends_on" in step:
             result["depends_on"] = step["depends_on"]
 
-        # Action e Params - pode vir como 'http' direto
+        # Action e Params - pode vir como 'http' direto ou action como dict
         if "http" in step:
             result["action"] = "http_request"
             result["params"] = self._normalize_http_params(step["http"])
         elif "action" in step:
-            result["action"] = step["action"]
-            result["params"] = self._normalize_params(step.get("params", {}), step["action"])
+            action = step["action"]
+            # Caso 1: action é um dicionário (formato antigo)
+            # Ex: {"type": "http", "method": "GET", "endpoint": "/users"}
+            if isinstance(action, dict):
+                action_type = action.get("type", "http")
+                if action_type in ("http", "http_request"):
+                    result["action"] = "http_request"
+                    result["params"] = self._normalize_http_params(action)
+                else:
+                    # Outros tipos de action como context, wait, etc.
+                    result["action"] = action_type
+                    result["params"] = {k: v for k, v in action.items() if k != "type"}
+            # Caso 2: action é uma string (formato UTDL correto)
+            else:
+                result["action"] = action
+                result["params"] = self._normalize_params(step.get("params", {}), action)
         else:
             # Tenta inferir de outros campos
             if "method" in step or "path" in step:
@@ -314,8 +328,14 @@ class SmartFormatAdapter:
                 result["action"] = step.get("action", "http_request")
                 result["params"] = step.get("params", {})
 
-        # Assertions
+        # Assertions - pode vir como 'assertions' (array) ou 'expected' (dict no formato antigo)
         assertions = step.get("assertions", [])
+        expected = step.get("expected", {})
+        
+        # Converte 'expected' dict para array de assertions
+        if expected and not assertions:
+            assertions = self._convert_expected_to_assertions(expected)
+        
         if assertions:
             result["assertions"] = [self._normalize_assertion(a) for a in assertions]
 
@@ -375,6 +395,56 @@ class SmartFormatAdapter:
             result["query"] = params["query_params"]
 
         return result
+
+    def _convert_expected_to_assertions(self, expected: dict[str, Any]) -> list[dict[str, Any]]:
+        """
+        Converte formato antigo 'expected' para array de assertions UTDL.
+        
+        Formato antigo:
+            {"status_code": 200, "status": 200}
+        
+        Formato UTDL:
+            [{"type": "status_code", "operator": "eq", "value": 200}]
+        """
+        assertions: list[dict[str, Any]] = []
+        
+        # Status code - pode vir como status_code ou status
+        status = expected.get("status_code") or expected.get("status")
+        if status is not None:
+            assertions.append({
+                "type": "status_code",
+                "operator": "eq",
+                "value": status,
+            })
+        
+        # Body/JSON assertions
+        if "body" in expected:
+            body_val = expected["body"]
+            if isinstance(body_val, dict):
+                # Body com path específico
+                assertions.append({
+                    "type": "json_body",
+                    "operator": "eq",
+                    "value": body_val,
+                })
+            else:
+                assertions.append({
+                    "type": "body",
+                    "operator": "contains",
+                    "value": body_val,
+                })
+        
+        # Headers
+        if "headers" in expected:
+            for header_name, header_value in expected["headers"].items():
+                assertions.append({
+                    "type": "header",
+                    "operator": "eq",
+                    "path": header_name,
+                    "value": header_value,
+                })
+        
+        return assertions
 
     def _normalize_params(self, params: dict[str, Any], action: str) -> dict[str, Any]:
         """

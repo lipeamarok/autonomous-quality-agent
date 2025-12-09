@@ -303,8 +303,21 @@ def run_plan(
     # -----------------------------------------------------------------
 
     execution_plan = plan
-    if max_steps is not None and max_steps > 0:
-        if max_steps < len(plan.steps):
+    if max_steps is not None:
+        if max_steps == 0:
+            # Retorna resultado vazio sem executar nada
+            return RunnerResult(
+                plan_id=plan.meta.id or "unknown",
+                plan_name=plan.meta.name,
+                total_steps=0,
+                passed=0,
+                failed=0,
+                skipped=0,
+                total_duration_ms=0,
+                steps=[],
+                raw_report={},
+            )
+        elif max_steps < len(plan.steps):
             # Cria cópia do plano com apenas os primeiros N steps
             limited_steps = plan.steps[:max_steps]
             execution_plan = Plan(
@@ -357,12 +370,12 @@ def run_plan(
             report_path,  # Arquivo de saída
         ]
 
-        # Adiciona max_retries se diferente do default
-        if max_retries != 3:
-            cmd.extend(["--max-retries", str(max_retries)])
+        # Nota: max_retries é um parâmetro de interface, mas o runner atual
+        # não suporta --max-retries. Mantido para compatibilidade futura.
+        _ = max_retries  # Unused for now
 
         # subprocess.run executa comando externo
-        subprocess.run(
+        proc_result = subprocess.run(
             cmd,
             capture_output=True,  # Captura stdout/stderr
             text=True,  # Retorna como string (não bytes)
@@ -370,11 +383,22 @@ def run_plan(
             check=False,  # Não lança exceção em exit code != 0
         )
 
+        # Verifica se o runner falhou
+        if proc_result.returncode != 0:
+            error_msg = proc_result.stderr.strip() or proc_result.stdout.strip() or "Erro desconhecido"
+            raise RuntimeError(f"Runner falhou (exit code {proc_result.returncode}): {error_msg}")
+
+        # Verifica se o arquivo de relatório foi criado
+        report_file = Path(report_path)
+        if not report_file.exists() or report_file.stat().st_size == 0:
+            error_msg = proc_result.stderr.strip() or "Relatório não foi gerado"
+            raise RuntimeError(f"Runner não gerou relatório: {error_msg}")
+
         # -----------------------------------------------------------------
         # Passo 5: Ler e parsear o relatório
         # -----------------------------------------------------------------
 
-        report_text = Path(report_path).read_text(encoding="utf-8")
+        report_text = report_file.read_text(encoding="utf-8")
         report: dict[str, Any] = json.loads(report_text)
 
         # Converte o relatório bruto para nosso objeto tipado
@@ -415,9 +439,13 @@ def _parse_report(report: dict[str, Any]) -> RunnerResult:
     O Runner gera um JSON com a estrutura:
     ```json
     {
-      "plan": {"id": "...", "name": "..."},
-      "summary": {"total": 5, "passed": 4, "failed": 1},
-      "results": [{"step_id": "...", "status": "..."}]
+      "execution_id": "...",
+      "plan_id": "...",
+      "plan_name": "Health Check",
+      "status": "passed",
+      "duration_ms": 309,
+      "summary": {"total_steps": 1, "passed": 1, "failed": 0, "skipped": 0},
+      "steps": [{"step_id": "...", "status": "passed", "duration_ms": 100}]
     }
     ```
 
@@ -429,13 +457,12 @@ def _parse_report(report: dict[str, Any]) -> RunnerResult:
     ## Retorna:
         Objeto RunnerResult com os dados estruturados
     """
-    # Extrai seções do relatório
-    plan_info: dict[str, Any] = report.get("plan", {})
+    # Extrai campos do relatório (formato atual do Runner)
     summary: dict[str, Any] = report.get("summary", {})
 
     # Converte cada resultado de step
     steps: list[StepResult] = []
-    for step_result in report.get("results", []):
+    for step_result in report.get("steps", []):
         # Parseia assertions_results se existirem
         assertions_list: list[AssertionResult] = []
         for ar in step_result.get("assertions_results", []):
@@ -464,15 +491,15 @@ def _parse_report(report: dict[str, Any]) -> RunnerResult:
             )
         )
 
-    # Monta o objeto final
+    # Monta o objeto final com campos corretos do Runner
     return RunnerResult(
-        plan_id=plan_info.get("id", "unknown"),
-        plan_name=plan_info.get("name", "Plano Desconhecido"),
-        total_steps=summary.get("total", len(steps)),
+        plan_id=report.get("plan_id", "unknown"),
+        plan_name=report.get("plan_name", "Plano Desconhecido"),
+        total_steps=summary.get("total_steps", len(steps)),
         passed=summary.get("passed", 0),
         failed=summary.get("failed", 0),
         skipped=summary.get("skipped", 0),
-        total_duration_ms=summary.get("total_duration_ms", 0),
+        total_duration_ms=report.get("duration_ms", summary.get("duration_ms", 0)),
         steps=steps,
         raw_report=report,
     )

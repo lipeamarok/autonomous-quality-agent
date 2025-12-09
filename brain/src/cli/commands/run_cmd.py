@@ -103,8 +103,8 @@ def _print_json_result(console: Console, result: RunnerResult) -> None:
 )
 @click.option(
     "--swagger", "-s",
-    type=click.Path(exists=True),
-    help="Gera plano a partir de spec OpenAPI e executa"
+    type=str,
+    help="Gera plano a partir de spec OpenAPI (arquivo ou URL) e executa"
 )
 @click.option(
     "--requirement", "-r",
@@ -197,6 +197,21 @@ def run(
     error_console: Console = ctx.obj["error_console"]
     _ = verbose  # Used for future verbose output
 
+    # Valida argumentos numéricos
+    if timeout is not None and timeout <= 0:
+        if json_output:
+            _print_json_error(error_console, "INVALID_TIMEOUT", "Timeout deve ser maior que 0")
+        else:
+            console.print("[red]❌ Timeout deve ser maior que 0[/red]")
+        raise SystemExit(1)
+
+    if max_steps is not None and max_steps < 0:
+        if json_output:
+            _print_json_error(error_console, "INVALID_MAX_STEPS", "max-steps deve ser >= 0")
+        else:
+            console.print("[red]❌ max-steps deve ser >= 0[/red]")
+        raise SystemExit(1)
+
     # Valida argumentos
     if not plan_file and not swagger and not requirement:
         if json_output:
@@ -285,13 +300,35 @@ def run(
     else:
         # Obtém requisito
         if swagger:
+            # Valida se é URL ou arquivo local existente
+            is_url = swagger.startswith(("http://", "https://"))
+            if not is_url and not Path(swagger).exists():
+                if json_output:
+                    _print_json_error(error_console, "FILE_NOT_FOUND", f"Arquivo não encontrado: {swagger}")
+                else:
+                    console.print(f"[red]❌ Arquivo não encontrado: {swagger}[/red]")
+                raise SystemExit(1)
+
             console.print(f"📖 Parseando spec: [cyan]{swagger}[/cyan]")
-            spec = parse_openapi(swagger)
+            try:
+                spec = parse_openapi(swagger)
+            except Exception as e:
+                if json_output:
+                    _print_json_error(error_console, "PARSE_ERROR", str(e))
+                else:
+                    console.print(f"[red]❌ Erro ao parsear OpenAPI: {e}[/red]")
+                raise SystemExit(1)
             requirement_text = spec_to_requirement_text(spec)
             if "base_url" in spec and spec["base_url"]:
                 final_base_url = spec["base_url"]
         else:
             requirement_text = requirement  # type: ignore
+
+        # Verifica se está em modo mock (usa mock por padrão se não houver API key)
+        from ...llm import get_llm_provider
+        llm_provider = get_llm_provider()
+        provider_name = llm_provider.name
+        is_mock = provider_name == "mock"
 
         # Gera plano
         with Progress(
@@ -299,17 +336,34 @@ def run(
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
-            task = progress.add_task(
-                f"[cyan]🧠 Gerando plano com {final_model}...[/cyan]"
-            )
+            if is_mock:
+                task = progress.add_task(
+                    "[cyan]🧠 Gerando plano com MockLLM (modo teste)...[/cyan]"
+                )
+            else:
+                task = progress.add_task(
+                    f"[cyan]🧠 Gerando plano com {final_model}...[/cyan]"
+                )
 
             try:
-                generator = UTDLGenerator()
-                plan = generator.generate(str(requirement_text), final_base_url)
+                if is_mock:
+                    # Usa MockLLMProvider diretamente (igual ao generate_cmd)
+                    response = llm_provider.generate(str(requirement_text))
+                    plan_dict = json.loads(response.content)
+                    # Converte para objeto Plan
+                    plan_dict["config"] = plan_dict.get("config", {})
+                    plan_dict["config"]["base_url"] = final_base_url
+                    plan = Plan.model_validate(plan_dict)
+                else:
+                    generator = UTDLGenerator()
+                    plan = generator.generate(str(requirement_text), final_base_url)
                 progress.update(task, completed=True)
             except Exception as e:
                 progress.stop()
-                console.print(f"[red]❌ Erro na geração: {e}[/red]")
+                if json_output:
+                    _print_json_error(error_console, "GENERATION_ERROR", str(e))
+                else:
+                    console.print(f"[red]❌ Erro na geração: {e}[/red]")
                 raise SystemExit(1)
 
         # Salva plano se solicitado

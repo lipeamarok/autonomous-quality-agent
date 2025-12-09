@@ -319,10 +319,11 @@ class TestGenerateAuthSteps:
         assert len(steps) == 1
         step = steps[0].step
         assert step["id"] == "auth-login"
-        assert step["action"]["method"] == "POST"
-        assert step["action"]["endpoint"] == "/api/login"
-        assert step["action"]["body"]["username"] == "user"
-        assert "access_token" in [e["name"] for e in step["extract"]]
+        assert step["action"] == "http_request"
+        assert step["params"]["method"] == "POST"
+        assert step["params"]["path"] == "/api/login"
+        assert step["params"]["body"]["username"] == "user"
+        assert "access_token" in [e["target"] for e in step["extract"]]
 
     def test_oauth2_password_step(self) -> None:
         """Gera step para OAuth2 Password Grant."""
@@ -341,8 +342,9 @@ class TestGenerateAuthSteps:
 
         assert len(steps) == 1
         step = steps[0].step
-        assert step["action"]["endpoint"] == "/oauth/token"
-        assert step["action"]["body"]["grant_type"] == "password"
+        assert step["action"] == "http_request"
+        assert step["params"]["path"] == "/oauth/token"
+        assert step["params"]["body"]["grant_type"] == "password"
 
     def test_oauth2_client_credentials_step(self) -> None:
         """Gera step para OAuth2 Client Credentials."""
@@ -361,7 +363,8 @@ class TestGenerateAuthSteps:
 
         assert len(steps) == 1
         step = steps[0].step
-        assert step["action"]["body"]["grant_type"] == "client_credentials"
+        assert step["action"] == "http_request"
+        assert step["params"]["body"]["grant_type"] == "client_credentials"
 
 
 class TestGetAuthHeaderForScheme:
@@ -733,7 +736,8 @@ class TestGenerateCompleteAuthFlow:
         result = generate_complete_auth_flow(spec)
 
         assert len(result.auth_steps) == 1
-        assert result.auth_steps[0]["action"]["endpoint"] == "/auth/login"
+        assert result.auth_steps[0]["action"] == "http_request"
+        assert result.auth_steps[0]["params"]["path"] == "/auth/login"
         assert "Authorization" in result.auth_headers
         assert result.has_auth
 
@@ -754,7 +758,8 @@ class TestGenerateCompleteAuthFlow:
         )
 
         assert len(result.auth_steps) == 1
-        assert result.auth_steps[0]["action"]["endpoint"] == "/custom/login"
+        assert result.auth_steps[0]["action"] == "http_request"
+        assert result.auth_steps[0]["params"]["path"] == "/custom/login"
 
 
 class TestCreateAuthenticatedPlanSteps:

@@ -48,8 +48,8 @@ from ..utils import load_config, get_default_model
 @click.command()
 @click.option(
     "--swagger", "-s",
-    type=click.Path(exists=True),
-    help="Arquivo OpenAPI/Swagger (YAML ou JSON)"
+    type=str,
+    help="Arquivo OpenAPI/Swagger (YAML ou JSON) ou URL HTTP(S)"
 )
 @click.option(
     "--requirement", "-r",
@@ -166,8 +166,18 @@ def generate(
 
     # Obtém texto do requisito
     if swagger:
+        # Valida se é URL ou arquivo local existente
+        is_url = swagger.startswith(("http://", "https://"))
+        if not is_url and not Path(swagger).exists():
+            console.print(f"[red]❌ Arquivo não encontrado: {swagger}[/red]")
+            raise SystemExit(1)
+
         console.print(f"📖 Parseando spec OpenAPI: [cyan]{swagger}[/cyan]")
-        spec = parse_openapi(swagger)
+        try:
+            spec = parse_openapi(swagger)
+        except Exception as e:
+            console.print(f"[red]❌ Erro ao parsear OpenAPI: {e}[/red]")
+            raise SystemExit(1)
         original_spec = spec  # Guarda spec original para security detection
         requirement_text = spec_to_requirement_text(spec)
         # Usa base_url da spec se disponível
