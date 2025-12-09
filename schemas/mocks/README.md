@@ -32,7 +32,7 @@ export async function fetchWithMock<T>(
     const mock = await import(`@/mocks/${mockFile}`)
     return mock.default as T
   }
-  
+
   const response = await fetch(`${API_URL}${path}`, options)
   return response.json()
 }
@@ -55,27 +55,27 @@ export const handlers = [
   http.get('/api/v1/health', () => {
     return HttpResponse.json(health)
   }),
-  
+
   http.post('/api/v1/generate', () => {
     return HttpResponse.json(generate)
   }),
-  
+
   http.post('/api/v1/validate', () => {
     return HttpResponse.json(validate)
   }),
-  
+
   http.post('/api/v1/execute', () => {
     return HttpResponse.json(execute)
   }),
-  
+
   http.get('/api/v1/history', () => {
     return HttpResponse.json(history)
   }),
-  
+
   http.get('/api/v1/history/stats', () => {
     return HttpResponse.json(historyStats)
   }),
-  
+
   http.get('/api/v1/plans', () => {
     return HttpResponse.json(plans)
   }),
@@ -109,7 +109,7 @@ import events from '@/mocks/websocket-events.json'
 export function useMockWebSocket(onEvent: (event: WsEvent) => void) {
   useEffect(() => {
     let index = 0
-    
+
     const interval = setInterval(() => {
       if (index < events.length) {
         onEvent(events[index] as WsEvent)
@@ -118,7 +118,7 @@ export function useMockWebSocket(onEvent: (event: WsEvent) => void) {
         clearInterval(interval)
       }
     }, 500) // Emite um evento a cada 500ms
-    
+
     return () => clearInterval(interval)
   }, [onEvent])
 }

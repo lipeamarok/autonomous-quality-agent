@@ -3,6 +3,19 @@
     "python.terminal.activateEnvironment": true,
     "python.analysis.typeCheckingMode": "strict",
 
+    // Terminal - UTF-8 encoding para exibir caracteres Unicode corretamente
+    "terminal.integrated.profiles.windows": {
+        "PowerShell UTF-8": {
+            "source": "PowerShell",
+            "args": ["-NoExit", "-Command", "chcp 65001 | Out-Null; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8"]
+        }
+    },
+    "terminal.integrated.defaultProfile.windows": "PowerShell UTF-8",
+    "terminal.integrated.env.windows": {
+        "PYTHONIOENCODING": "utf-8",
+        "LANG": "en_US.UTF-8"
+    },
+
     // Markdownlint - regras desabilitadas (preferência pessoal)
     "markdownlint.config": {
         "MD022":false,
